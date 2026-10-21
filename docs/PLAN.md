@@ -1,66 +1,66 @@
-# Kiler: план за разработка
+# Kiler: development plan
 
-> Фаза 2 на курсовия проект, 21.10.2026.
+> Phase 2 of the course project, 21.10.2026.
 >
-> Поведението на приложението е описано в проектния документ `KILER_DESIGN.md`. Той не е в публичното репо, защото съдържа вътрешни имена. Препратките „дизайн т. X“ сочат към неговите точки.
+> The behavior of the application is described in the design document `KILER_DESIGN.md`. It is not in the public repo, because it contains internal names. The references "design section X" point to its sections.
 
 ---
 
-## 1. Как се работи по плана
+## 1. How the plan is used
 
-- Модулите се правят в реда от т. 4.
-- Преди всеки модул се решават отворените му въпроси (т. 6) и модулът се разбива на задачи в [docs/tasks/](tasks/README.md). Едва после се пише код. По задачите се следи и напредъкът.
-- Ако кодът трябва да се отклони от дизайна, първо се пита.
-- Модулът е готов, когато:
-  - изпълнени са критериите „Готово“ от описанието му;
-  - тестовете минават в CI;
-  - в кода, тестовете и демо данните няма реални данни;
-  - бележката за курса е записана с `/note`.
-- Планът покрива цялото приложение. Само в изпитния документ модулите се обединяват (т. 7).
+- The modules are done in the order from section 4.
+- Before each module, its open questions (section 6) are resolved and the module is broken into tasks in [docs/tasks/](tasks/README.md). Only then is code written. Progress is also tracked by the tasks.
+- If the code has to deviate from the design, ask first.
+- A module is done when:
+  - the "Done" criteria from its description are met;
+  - the tests pass in CI;
+  - there is no real data in the code, tests and demo data;
+  - the course note is recorded with `/note`.
+- The plan covers the whole application. Only in the exam write-up are modules merged (section 7).
 
 ---
 
-## 2. Технологии
+## 2. Technologies
 
-| Област | Избор |
+| Area | Choice |
 |---|---|
-| Платформа | .NET 10, C#. Exe-то е self-contained single-file, само `win-x64`. |
-| Сървър | ASP.NET Core minimal API (Kestrel) на `127.0.0.1` |
-| Интерфейс | React 19, TypeScript, Vite. Готовият build се вгражда в exe-то. |
-| Код в интерфейса | CodeMirror 6, sql-formatter (с PL/SQL) |
-| Документи | markdown-it, DOMPurify, Mermaid |
-| Данни | JSON файлове, System.Text.Json |
-| Криптография | вграденото в .NET: AES-GCM, PBKDF2-SHA256, HMAC-SHA256, DPAPI |
-| Тестове на C# | xUnit v3 (пакет `xunit.v3`), вградените проверки |
-| Тестове на API-то | WebApplicationFactory (`Microsoft.AspNetCore.Mvc.Testing`) |
-| Тестове на интерфейса | Vitest |
-| E2E | Playwright за .NET (`Microsoft.Playwright.Xunit.v3`) |
-| Покритие | coverlet и ReportGenerator, без задължителен праг |
-| Стил на кода | `dotnet format`, ESLint, Prettier |
+| Platform | .NET 10, C#. The exe is self-contained single-file, `win-x64` only. |
+| Server | ASP.NET Core minimal API (Kestrel) on `127.0.0.1` |
+| UI | React 19, TypeScript, Vite. The finished build is embedded in the exe. |
+| Code in the UI | CodeMirror 6, sql-formatter (with PL/SQL) |
+| Documents | markdown-it, DOMPurify, Mermaid |
+| Data | JSON files, System.Text.Json |
+| Cryptography | built into .NET: AES-GCM, PBKDF2-SHA256, HMAC-SHA256, DPAPI |
+| C# tests | xUnit v3 (package `xunit.v3`), the built-in assertions |
+| API tests | WebApplicationFactory (`Microsoft.AspNetCore.Mvc.Testing`) |
+| UI tests | Vitest |
+| E2E | Playwright for .NET (`Microsoft.Playwright.Xunit.v3`) |
+| Coverage | coverlet and ReportGenerator, no required threshold |
+| Code style | `dotnet format`, ESLint, Prettier |
 | CI | GitHub Actions, `windows-latest` |
 
-Точните версии се фиксират при създаването на проектите: последните стабилни към момента. Node.js трябва само за build-а на интерфейса. Потребителите получават само exe-то.
+The exact versions are fixed when the projects are created: the latest stable ones at that time. Node.js is needed only for the UI build. Users get only the exe.
 
 ---
 
-## 3. Структура на solution-а
+## 3. Solution structure
 
 ```
 Kiler.slnx
-Directory.Build.props      общи настройки: nullable, предупреждения, версия
+Directory.Build.props      shared settings: nullable, warnings, version
 src/
-  Kiler.Crypto/            криптография, без зависимости
-  Kiler.Storage/           файлове: запис, история, кошче, кеш, следене за промени
-  Kiler.Core/              шаблони, записи, търсене, потребители, права, одит
-  Kiler.App/               Kiler.exe: хост, API, Windows реализациите
-  ui/                      React + Vite; build-ът се вгражда в Kiler.App
+  Kiler.Crypto/            cryptography, no dependencies
+  Kiler.Storage/           files: writing, history, trash, cache, change watching
+  Kiler.Core/              templates, records, search, users, permissions, audit
+  Kiler.App/               Kiler.exe: host, API, the Windows implementations
+  ui/                      React + Vite; the build is embedded in Kiler.App
 tools/
-  Kiler.DemoData/          генератор на измислени демо данни
+  Kiler.DemoData/          generator of made-up demo data
 tests/
   Kiler.Crypto.Tests/
   Kiler.Storage.Tests/
   Kiler.Core.Tests/
-  Kiler.App.Tests/         API тестове и smoke тестове на exe-то
+  Kiler.App.Tests/         API tests and smoke tests of the exe
   Kiler.E2E/               Playwright
 docs/
   PLAN.md
@@ -69,7 +69,7 @@ docs/
   release.yml
 ```
 
-Зависимости:
+Dependencies:
 
 ```
 Kiler.App ──► Kiler.Core ──► Kiler.Crypto
@@ -77,431 +77,432 @@ Kiler.App ──► Kiler.Core ──► Kiler.Crypto
                    └───────► Kiler.Storage
 ```
 
-- Kiler.Crypto и Kiler.Storage не се познават. Kiler.Core ги свързва.
-- Windows частите са интерфейси в Kiler.Core: текущ акаунт, DPAPI, собственик на файл, Explorer. Реализациите им са в Kiler.App. Така тестовете на ядрото ползват фалшиви реализации.
+- Kiler.Crypto and Kiler.Storage do not know about each other. Kiler.Core connects them.
+- The Windows parts are interfaces in Kiler.Core: current account, DPAPI, file owner, Explorer. Their implementations are in Kiler.App. This way the core tests use fake implementations.
 
 ---
 
-## 4. Ред на работа
+## 4. Work order
 
 ```
-M1 Хост и скелет
- └► M2 Слой за данни
-     └► M3 Криптография
-         └► M4 Потребители и права
-             └► M5 Шаблони, записи и търсене
-                 └► M6 Интерфейс
-                     └► M7 Документи и диаграми
+M1 Host and skeleton
+ └► M2 Data layer
+     └► M3 Cryptography
+         └► M4 Users and permissions
+             └► M5 Templates, records and search
+                 └► M6 User interface
+                     └► M7 Documents and diagrams
 
-M8 Тестове и автоматизация: започва с M1 и върви през всички модули
+M8 Tests and automation: starts with M1 and runs through all modules
 ```
 
-Екраните се правят заедно с модулите:
+The screens are built together with the modules:
 
-- в M1 е скелетът на интерфейса;
-- в M4 са екраните за вход и потребители;
-- в M6 са основният изглед и записите;
-- в M7 са документите.
-
----
-
-## 5. Модули
-
-### M1. Хост и скелет
-
-Дизайн т. 4 и т. 14.
-
-**Цел:** `Kiler.exe` се пуска с двоен клик, вдига локален сървър и отваря браузъра. Със същото exe се правят проверките от т. 14 на дизайна.
-
-**Стъпки:**
-
-1. Solution и проекти по т. 3, `Directory.Build.props`, `.editorconfig`.
-2. ASP.NET Core на `127.0.0.1`, на свободен порт.
-3. Защита на локалния сървър:
-   - адресът, с който се отваря браузърът, съдържа случаен токен от 32 байта;
-   - при първата заявка токенът се разменя за HttpOnly бисквитка (`SameSite=Strict`) и адресът се изчиства;
-   - заявка без валидна бисквитка получава 401;
-   - заявка с чужд `Host` хедър се отказва, като защита от DNS rebinding.
-4. Отваряне на браузъра по подразбиране.
-5. Едно копие: named mutex и файл с порта и токена в `%LOCALAPPDATA%\Kiler`. Второ пускане само отваря браузъра към работещото копие.
-6. Спиране: страницата праща сигнал, че е жива (heartbeat). Ако няколко секунди няма сигнал, процесът спира. Изчакването покрива презареждане на страницата.
-7. Параметри за тестове и диагностика: `--no-browser`, `--port`, `--data <папка>`, `--diag`.
-8. Скелет на интерфейса в `src/ui`:
-   - Vite, React и TypeScript;
-   - обща рамка на страницата, светла и тъмна тема, клиент за API-то;
-   - при разработка Vite dev сървърът препраща `/api` към .NET;
-   - при build MSBuild пуска `npm ci` и `npm run build`, а файловете се вграждат като ресурси.
-9. Публикуване: `dotnet publish` дава един `Kiler.exe`.
-10. Диагностичен режим `--diag` за т. 14, ако се реши да го има (т. 6): скорост на изброяване и четене на много малки файлове, собственик на нов файл.
-
-**Тестове:**
-
-- API тестове на защитата: без токен, с грешен токен, с чужд `Host`.
-- Smoke тест: публикуваното exe с `--no-browser --port` отговаря на заявка и спира, когато няма heartbeat.
-- Второ пускане не вдига втори сървър.
-
-**Готово:**
-
-- двоен клик отваря браузъра със страницата;
-- второ пускане ползва работещото копие;
-- затварянето на страницата спира процеса;
-- CI минава;
-- exe-то е готово за проверките от т. 14.
+- M1 has the UI skeleton;
+- M4 has the sign-in and user screens;
+- M6 has the main view and the records;
+- M7 has the documents.
 
 ---
 
-### M2. Слой за данни
+## 5. Modules
 
-Дизайн т. 5.
+### M1. Host and skeleton
 
-**Цел:** надеждно четене и запис на JSON файловете в споделената папка, когато я ползват много хора едновременно. Слоят не знае за криптирането. Криптираните части са за него обикновени низове.
+Design sections 4 and 14.
 
-**Стъпки:**
+**Goal:** `Kiler.exe` is started with a double click, starts a local server and opens the browser. The same exe is used for the checks from design section 14.
 
-1. Структурата на `data\` (т. 5.1): `settings.json`, `levels.json`, `templates`, `users`, `records`, `history`, `trash`, `audit`. По подразбиране папката е до exe-то, а `--data` я сменя.
-2. Модели и сериализация със System.Text.Json и source generation.
-3. Атомарен запис (т. 5.4): временен файл, копие на старата версия в `history\<id>\vN.json`, преименуване.
-4. Версии и конфликти (т. 5.5): запис само ако версията на диска е очакваната. Иначе резултатът е „конфликт“ с версията от диска.
-5. Изтриване в `trash\` и връщане от там. Списък с версиите и връщане на стара версия (т. 5.6).
-6. Зареждане и локален кеш (т. 5.3): стартът е от копието в `%LOCALAPPDATA%\Kiler`, след което се синхронизират само променените файлове.
-7. Следене за промени на около 10 секунди: един листинг на папката с имена и дати, презареждане на променените файлове, събития към горните слоеве.
-8. Устойчивост:
-   - повреден JSON файл се пропуска и се докладва, без срив;
-   - при недостъпна мрежа приложението работи от кеша и показва това.
-9. Собственик на файла (т. 7.8) като интерфейс, с Windows реализация в Kiler.App.
+**Steps:**
 
-**Тестове** (тестовете се пишат първо):
+1. Solution and projects as in section 3, `Directory.Build.props`, `.editorconfig`.
+2. ASP.NET Core on `127.0.0.1`, on a free port.
+3. Protection of the local server:
+   - the address the browser is opened with contains a random 32-byte token;
+   - on the first request, the token is exchanged for an HttpOnly cookie (`SameSite=Strict`) and the address is cleared;
+   - a request without a valid cookie gets 401;
+   - a request with a foreign `Host` header is rejected, as protection against DNS rebinding.
+4. Opening the default browser.
+5. Single instance: a named mutex and a file with the port and the token in `%LOCALAPPDATA%\Kiler`. A second start only opens the browser to the running instance.
+6. Shutdown: the page sends a signal that it is alive (heartbeat). If there is no signal for a few seconds, the process stops. The wait covers a page reload.
+7. Parameters for tests and diagnostics: `--no-browser`, `--port`, `--data <folder>`, `--diag`.
+8. UI skeleton in `src/ui`:
+   - Vite, React and TypeScript;
+   - a common page frame, light and dark theme, an API client;
+   - during development, the Vite dev server forwards `/api` to .NET;
+   - on build, MSBuild runs `npm ci` and `npm run build`, and the files are embedded as resources.
+9. Publishing: `dotnet publish` produces one `Kiler.exe`.
+10. Diagnostic mode `--diag` for section 14, if it is decided to have it (section 6): speed of listing and reading many small files, owner of a new file.
 
-- атомарен запис със симулиран срив по средата: оригиналът остава цял;
-- конфликт на версии;
-- история и кошче;
-- засичане на нов, променен и изтрит файл;
-- синхронизация на кеша;
-- повреден файл;
-- зареждане на 2000 файла, с измерване на времето.
+**Tests:**
 
-**Готово:** C# API за четене, запис, изтриване, история и следене, покрито с тестове. Слоят няма интерфейс.
+- API tests of the protection: without a token, with a wrong token, with a foreign `Host`.
+- Smoke test: the published exe with `--no-browser --port` answers a request and stops when there is no heartbeat.
+- A second start does not start a second server.
 
----
+**Done:**
 
-### M3. Криптография
-
-Дизайн т. 7.1–7.3, т. 7.5 и т. 7.7.
-
-**Цел:** чиста библиотека с всички криптографски операции, без файлове и без интерфейс.
-
-**Стъпки:**
-
-1. Примитиви: AES-GCM (12-байтов nonce, 16-байтов tag), PBKDF2-SHA256 с 600 000 итерации и случаен salt, случайни ключове по 32 байта.
-2. Формат на криптираната стойност: номер на версията (за бъдеща смяна на алгоритъма), nonce, шифър и tag, кодирани в base64.
-3. Ключове на нивата: генериране, контролни стойности `check` и проверката им.
-4. Ключовете на потребителя: заключване с паролата му, отключване и заключване наново при смяна на паролата.
-5. Криптиране и разкриптиране на група полета по ниво (частта `protected` на записа).
-6. Печат на админа (т. 7.3 и т. 7.8): HMAC-SHA256 върху файла на потребителя, с ключ, който имат само админите.
-7. Ключ за възстановяване (т. 7.7): генериране, четим формат, възстановяване на админ достъпа.
-8. „Запомни ме“: интерфейс за защита на ключ с Windows акаунта. Реализацията с DPAPI е в Kiler.App.
-9. Смяна на ключа на ниво (т. 7.9): групата се криптира наново с новия ключ. Целият процес се организира в M4 и M5.
-10. Ключовете се нулират в паметта след употреба, доколкото .NET позволява.
-
-**Тестове** (тестовете се пишат първо):
-
-- криптиране и разкриптиране дава същия текст;
-- промяна на един байт се засича;
-- грешна парола не отключва ключовете;
-- проверка с `check`;
-- смяната на паролата запазва същия ключ на нивото;
-- възстановяване с ключа за възстановяване;
-- известни тестови вектори за PBKDF2 и AES-GCM;
-- стара версия на формата се чете.
-
-**Готово:** Kiler.Crypto с пълни тестове и без зависимости от другите проекти.
+- a double click opens the browser with the page;
+- a second start uses the running instance;
+- closing the page stops the process;
+- CI passes;
+- the exe is ready for the checks from design section 14.
 
 ---
 
-### M4. Потребители и права
+### M2. Data layer
 
-Дизайн т. 7, т. 8.2 (одит) и т. 12.
+Design section 5.
 
-**Цел:** вход, роли, заключване, действията на админа и проверка на правата на сървъра. Плюс екраните за тях.
+**Goal:** reliable reading and writing of the JSON files in the shared folder, when many people use it at the same time. The layer does not know about encryption. To it, the encrypted parts are plain strings.
 
-**Стъпки:**
+**Steps:**
 
-1. Модели за `levels.json` и `users\*.json`. Текущият Windows акаунт е зад интерфейс.
-2. Съветник „Нов Kiler“ (т. 7.7):
-   - задаване на нивата и на първия админ;
-   - генериране на ключовете;
-   - ключ за възстановяване, показан само веднъж;
-   - предупреждение, докато няма втори админ.
-3. Вход (т. 7.5): намиране на файла по Windows акаунта, парола, проверка на ключовете с `check`. Временната парола трябва да се смени.
-4. Режим за гости: ниво 0, само четене, бутон „Вход“.
-5. Сесия в паметта на exe-то:
-   - пази отключените ключове;
-   - автоматично заключване, общо и по ниво (например Prod);
-   - заключването маха ключовете и разкриптираните данни от паметта.
-6. „Запомни ме“:
-   - само за нивата без `"remember": false`;
-   - за Prod винаги се иска парола;
-   - отделно ниво се отключва от катинара.
-7. Действия на админа (т. 7.6): нов потребител, смяна на ниво, нова временна парола, права „редактор“ и „админ“. Всеки потребителски файл получава печат.
-8. Засичане (т. 7.8):
-   - потребители без валиден печат се маркират като подозрителни;
-   - промени от хора без `canEdit` се засичат по собственика на файла.
-9. Проверка на правата на сървъра при всяка заявка: ниво за четене, `canEdit`, `isAdmin`. Никой не пише поле над своето ниво (т. 7.4).
-10. Одит (т. 8.2 и т. 12): показване и копиране на Prod пароли се записва в `audit\<дата>\<потребител>.jsonl`.
-11. Махане на недоверен човек (т. 7.9):
-    - нов ключ на нивото;
-    - всички групи с това ниво се криптират наново;
-    - останалите потребители с това ниво получават нови временни пароли.
-12. Екрани:
-    - съветникът;
-    - вход и смяна на парола;
-    - заключен екран и отключване на ниво;
-    - админ: потребители (включително подозрителните) и нива.
+1. The structure of `data\` (section 5.1): `settings.json`, `levels.json`, `templates`, `users`, `records`, `history`, `trash`, `audit`. By default the folder is next to the exe, and `--data` changes it.
+2. Models and serialization with System.Text.Json and source generation.
+3. Atomic write (section 5.4): a temporary file, a copy of the old version in `history\<id>\vN.json`, rename.
+4. Versions and conflicts (section 5.5): write only if the version on disk is the expected one. Otherwise the result is "conflict" with the version from disk.
+5. Deletion to `trash\` and restore from there. A list of the versions and restoring an old version (section 5.6).
+6. Loading and local cache (section 5.3): startup is from the copy in `%LOCALAPPDATA%\Kiler`, after which only the changed files are synchronized.
+7. Watching for changes about every 10 seconds: one listing of the folder with names and dates, reloading the changed files, events to the upper layers.
+8. Resilience:
+   - a corrupted JSON file is skipped and reported, without a crash;
+   - when the network is unavailable, the application works from the cache and shows this.
+9. File owner (section 7.8) as an interface, with a Windows implementation in Kiler.App.
 
-**Тестове:**
+**Tests** (the tests are written first):
 
-- вход с вярна и с грешна парола;
-- самодобавен потребител не влиза и е маркиран;
-- потребител, който сам си е вдигнал нивото, няма ключа за него;
-- редактор не пише над нивото си;
-- автоматично заключване;
-- Prod не се запомня;
-- админът създава потребител, той влиза с временната парола и е длъжен да я смени;
-- одитни записи;
-- смяна на ключа на ниво;
-- E2E: съветник → вход → админът създава потребител.
+- atomic write with a simulated crash in the middle: the original stays intact;
+- version conflict;
+- history and trash;
+- detecting a new, changed and deleted file;
+- cache synchronization;
+- corrupted file;
+- loading 2000 files, with timing.
 
-**Готово:** всички роли от т. 7.4 работят през API-то и екраните, а правата се проверяват на сървъра.
+**Done:** a C# API for reading, writing, deleting, history and watching, covered by tests. The layer has no UI.
 
 ---
 
-### M5. Шаблони, записи и търсене
+### M3. Cryptography
 
-Дизайн т. 5.2, т. 6 и т. 11.
+Design sections 7.1–7.3, 7.5 and 7.7.
 
-**Цел:** логиката на записите и API-то за интерфейса.
+**Goal:** a clean library with all cryptographic operations, with no files and no UI.
 
-**Стъпки:**
+**Steps:**
 
-1. Модел и валидация на шаблоните: видове полета (т. 6.4) и настройките им (т. 6.5), `levelByEnv`, `ref`, избираем език.
-2. Началните шаблони (т. 6.1): „Сървър / база“, „SQL справка“, „Линк“, „Бележка“.
-3. Запис:
-   - общи полета: система, функция, заглавие, тагове;
-   - полетата се групират по ниво, а групите се криптират с M3.
-4. Ниво на полето: по шаблона, вдигнато от автора или по средата (`levelByEnv`). При частична редакция редакторът пипа само групите до своето ниво, а по-високите остават непокътнати (т. 5.2).
-5. Заключените полета се връщат като „🔒 изисква ниво X“ вместо стойност.
-6. Пароли (`secret`):
-   - никога не влизат в списъка и в търсенето;
-   - „покажи“ и „копирай“ минават през отделна заявка;
-   - за Prod се записва одит (т. 8.2).
-7. Търсене и филтри (т. 11):
-   - всички записи са в списък в паметта;
-   - текстът за търсене не съдържа паролите;
-   - търсят се всички думи, без значение главни или малки, на кирилица и на латиница;
-   - филтрите идват от полетата с `filter`;
-   - дърво Система → Функция → Тип с броячи;
-   - всичко се обновява при промени от M2.
-8. `ref`: заглавие и линк към записа, към който сочи. Обработка на случая, когато този запис е изтрит.
+1. Primitives: AES-GCM (12-byte nonce, 16-byte tag), PBKDF2-SHA256 with 600 000 iterations and a random salt, random 32-byte keys.
+2. Format of the encrypted value: version number (for a future change of the algorithm), nonce, ciphertext and tag, encoded in base64.
+3. Level keys: generation, `check` control values and their verification.
+4. The user's keys: locking with their password, unlocking and locking again when the password changes.
+5. Encrypting and decrypting a group of fields by level (the `protected` part of the record).
+6. Admin seal (sections 7.3 and 7.8): HMAC-SHA256 over the user's file, with a key that only admins have.
+7. Recovery key (section 7.7): generation, readable format, restoring admin access.
+8. "Remember me": an interface for protecting a key with the Windows account. The DPAPI implementation is in Kiler.App.
+9. Changing a level key (section 7.9): the group is encrypted again with the new key. The whole process is organized in M4 and M5.
+10. Keys are zeroed in memory after use, as far as .NET allows.
+
+**Tests** (the tests are written first):
+
+- encrypting and decrypting gives the same text;
+- a change of one byte is detected;
+- a wrong password does not unlock the keys;
+- verification with `check`;
+- changing the password keeps the same level key;
+- recovery with the recovery key;
+- known test vectors for PBKDF2 and AES-GCM;
+- an old version of the format is read.
+
+**Done:** Kiler.Crypto with full tests and no dependencies on the other projects.
+
+---
+
+### M4. Users and permissions
+
+Design sections 7, 8.2 (audit) and 12.
+
+**Goal:** sign-in, roles, locking, admin actions and checking permissions on the server. Plus the screens for them.
+
+**Steps:**
+
+1. Models for `levels.json` and `users\*.json`. The current Windows account is behind an interface.
+2. "New Kiler" wizard (section 7.7):
+   - setting the levels and the first admin;
+   - generating the keys;
+   - a recovery key, shown only once;
+   - a warning while there is no second admin.
+3. Sign-in (section 7.5): finding the file by the Windows account, password, checking the keys with `check`. A temporary password must be changed.
+4. Guest mode: level 0, read-only, a "Sign in" button.
+5. Session in the exe's memory:
+   - keeps the unlocked keys;
+   - automatic locking, overall and per level (for example Prod);
+   - locking removes the keys and the decrypted data from memory.
+6. "Remember me":
+   - only for levels without `"remember": false`;
+   - Prod always asks for a password;
+   - a single level is unlocked from the padlock.
+7. Admin actions (section 7.6): new user, level change, new temporary password, "editor" and "admin" rights. Every user file gets a seal.
+8. Detection (section 7.8):
+   - users without a valid seal are marked as suspicious;
+   - changes by people without `canEdit` are detected by the file owner.
+9. Permission check on the server on every request: read level, `canEdit`, `isAdmin`. Nobody writes a field above their level (section 7.4).
+10. Audit (sections 8.2 and 12): showing and copying Prod passwords is recorded in `audit\<date>\<user>.jsonl`.
+11. Removing an untrusted person (section 7.9):
+    - a new key for the level;
+    - all groups with this level are encrypted again;
+    - the other users with this level get new temporary passwords.
+12. Screens:
+    - the wizard;
+    - sign-in and password change;
+    - locked screen and unlocking a level;
+    - admin: users (including the suspicious ones) and levels.
+
+**Tests:**
+
+- sign-in with a correct and with a wrong password;
+- a self-added user does not get in and is marked;
+- a user who raised their own level does not have the key for it;
+- an editor does not write above their level;
+- automatic locking;
+- Prod is not remembered;
+- the admin creates a user, who signs in with the temporary password and must change it;
+- audit entries;
+- changing a level key;
+- E2E: wizard → sign-in → the admin creates a user.
+
+**Done:** all roles from section 7.4 work through the API and the screens, and permissions are checked on the server.
+
+---
+
+### M5. Templates, records and search
+
+Design sections 5.2, 6 and 11.
+
+**Goal:** the record logic and the API for the UI.
+
+**Steps:**
+
+1. Template model and validation: field types (section 6.4) and their settings (section 6.5), `levelByEnv`, `ref`, selectable language.
+2. The initial templates (section 6.1): "Server / database", "SQL query", "Link", "Note".
+3. Record:
+   - common fields: system, function, title, tags;
+   - the fields are grouped by level, and the groups are encrypted with M3.
+4. Field level: from the template, raised by the author or by the environment (`levelByEnv`). On a partial edit, the editor touches only the groups up to their level, and the higher ones stay untouched (section 5.2).
+5. Locked fields are returned as "🔒 requires level X" instead of a value.
+6. Passwords (`secret`):
+   - never go into the list or the search;
+   - "show" and "copy" go through a separate request;
+   - for Prod, an audit entry is recorded (section 8.2).
+7. Search and filters (section 11):
+   - all records are in a list in memory;
+   - the search text does not contain the passwords;
+   - all words are searched, case-insensitive, in Cyrillic and in Latin;
+   - the filters come from the fields with `filter`;
+   - a System → Function → Type tree with counters;
+   - everything is updated on changes from M2.
+8. `ref`: the title of the record it points to and a link to it. Handling the case when that record is deleted.
 9. API:
-   - търсене и четене на запис;
-   - създаване и редакция с версия (при конфликт: 409 с двете версии);
-   - изтриване, връщане от кошчето, история;
-   - шаблони (за админ);
-   - подсказки за системи и общи настройки.
-10. Промяна на шаблон, по който има записи (премахнато поле, сменено ниво): правила и криптиране наново, където трябва.
+   - search and reading a record;
+   - creating and editing with a version (on conflict: 409 with both versions);
+   - deleting, restoring from the trash, history;
+   - templates (for admin);
+   - suggestions for systems and general settings.
+10. Changing a template that has records (a removed field, a changed level): rules and re-encryption where needed.
 
-**Тестове:**
+**Tests:**
 
-- търсене на кирилица и латиница;
-- паролите никога не се намират;
+- search in Cyrillic and in Latin;
+- passwords are never found;
 - `levelByEnv`;
-- частичната редакция запазва групата над нивото на редактора;
-- редактор не може да смени средата така, че паролата да се вдигне над нивото му;
-- конфликт;
+- a partial edit keeps the group above the editor's level;
+- an editor cannot change the environment so that the password is raised above their level;
+- conflict;
 - `ref`;
-- 2000 записа, с измерване;
-- API тестове на всички endpoints, включително правата.
+- 2000 records, with timing;
+- API tests of all endpoints, including the permissions.
 
-**Готово:** пълното API за записи и шаблони, покрито с тестове.
-
----
-
-### M6. Интерфейс
-
-Дизайн т. 8 и т. 10.
-
-**Цел:** основният изглед и цялата работа със записите.
-
-**Стъпки:**
-
-1. Основен изглед:
-   - дърво с броячи и филтри;
-   - глобално търсене с Ctrl+K и изчакване около 150 ms;
-   - списък с резултатите (полетата с `list`).
-2. Изглед на запис:
-   - бутони „копирай“;
-   - пароли: скрити, с „покажи“ и „копирай“, които взимат стойността от сървъра;
-   - катинари с бутон за отключване.
-3. Форми, генерирани от шаблоните: създаване и редакция, задължителни полета, вдигане на нивото, избор на `ref`, подсказки за системата, тагове.
-4. Код (т. 8.3):
-   - CodeMirror 6 с езиците от дизайна, номера на редовете, търсене, теми;
-   - бутони „Копирай“ и „Форматирай“ (SQL, включително PL/SQL);
-   - бутон „Параметри“: полета за bind променливите и „Копирай попълнена“.
-5. Конфликт (т. 5.5): двете версии една до друга и избор.
-6. История и кошче (т. 5.6): кой, какво и кога е променил; връщане с един клик.
-7. Админ екрани (т. 8.4):
-   - шаблони;
-   - общи настройки: режим за гости, променливи за пътища, заключване;
-   - история и одит.
-8. Лична конфигурация (т. 10): тема (светла, тъмна или системна), стойностите на променливите за пътища, „запомни ме“. Пази се в `%APPDATA%\Kiler\local-settings.json`.
-9. Обновяване при промени от други потребители.
-
-Полетата `markdown` се показват като текст до M7.
-
-**Тестове:**
-
-- Vitest: откриване на bind параметрите, попълване на заявка, генериране на форма от шаблон.
-- E2E: търсене и филтри; създаване и редакция; показване и копиране на парола с одит; конфликт; тема.
-- Скрийншоти за документа.
-
-**Готово:** всичко от т. 8 и т. 10 на дизайна работи с демо данните.
+**Done:** the full API for records and templates, covered by tests.
 
 ---
 
-### M7. Документи и диаграми
+### M6. User interface
 
-Дизайн т. 9 и т. 12.
+Design sections 8 and 10.
 
-**Цел:** показване на MD, Mermaid, PDF и картинки от хранилището, от локални пътища и от http.
+**Goal:** the main view and all the work with records.
 
-**Стъпки:**
+**Steps:**
 
-1. Сървърът чете документа (т. 9.1):
-   - от UNC път;
-   - от локален път с променлива (`{SVN}`);
-   - от http(s) без вход или с Windows вход.
+1. Main view:
+   - a tree with counters and filters;
+   - global search with Ctrl+K and a delay of about 150 ms;
+   - a list with the results (the fields with `list`).
+2. Record view:
+   - "copy" buttons;
+   - passwords: hidden, with "show" and "copy", which get the value from the server;
+   - padlocks with an unlock button.
+3. Forms generated from the templates: creating and editing, required fields, raising the level, choosing a `ref`, suggestions for the system, tags.
+4. Code (section 8.3):
+   - CodeMirror 6 with the languages from the design, line numbers, search, themes;
+   - "Copy" and "Format" buttons (SQL, including PL/SQL);
+   - a "Parameters" button: fields for the bind variables and "Copy filled in".
+5. Conflict (section 5.5): the two versions side by side and a choice.
+6. History and trash (section 5.6): who changed what and when; restore with one click.
+7. Admin screens (section 8.4):
+   - templates;
+   - general settings: guest mode, path variables, locking;
+   - history and audit.
+8. Personal configuration (section 10): theme (light, dark or system), the values of the path variables, "remember me". It is kept in `%APPDATA%\Kiler\local-settings.json`.
+9. Updating on changes from other users.
 
-   Чете се с правата на потребителя. При отказ се показва „няма достъп“.
-2. Променливи за пътища (т. 9.2): списъкът е в общите настройки, стойностите са в личната конфигурация. Ако стойност липсва, приложението пита при първото отваряне.
-3. Сигурност (т. 12): exe-то чете само пътища от записите и ресурсите под папката на документа. Отказва `..` и всеки друг опит за излизане от тях.
-4. Markdown (т. 9.3):
-   - markdown-it, почистване с DOMPurify, оцветен код;
-   - картинки с относителен път;
-   - линковете към други MD файлове се отварят в приложението;
-   - съдържание отстрани и търсене в документа.
+`markdown` fields are shown as text until M7.
 
-   Същият изглед се ползва за полетата `markdown`.
-5. Mermaid (т. 9.4):
-   - строг режим;
-   - мащабиране и местене, „покажи кода“;
-   - експорт като SVG и PNG, тема;
-   - жив преглед при редакция на поле `code` с език `mermaid`.
-6. PDF и картинки (т. 9.5). „Отвори в Explorer“ работи само за пътища от записите.
+**Tests:**
 
-**Тестове:**
+- Vitest: detecting the bind parameters, filling in a query, generating a form from a template.
+- E2E: search and filters; creating and editing; showing and copying a password with audit; conflict; theme.
+- Screenshots for the write-up.
 
-- заместване на променливите;
-- отказ при опит за излизане извън позволените пътища;
-- скрипт в MD се премахва;
-- липсващ достъп;
-- E2E: MD документ с Mermaid диаграма и картинка.
-
-**Готово:** т. 9 от дизайна работи с измислени демо документи от репото.
+**Done:** everything from design sections 8 and 10 works with the demo data.
 
 ---
 
-### M8. Тестове и автоматизация
+### M7. Documents and diagrams
 
-През целия проект.
+Design sections 9 and 12.
 
-**Стъпки:**
+**Goal:** showing MD, Mermaid, PDF and images from the shared folder, from local paths and from http.
 
-1. Тестовите проекти и общи помощници: временна папка с данни, фалшиви Windows услуги (акаунт, DPAPI, собственик на файл). Правят се заедно с M1.
-2. `ci.yml` (при push и PR, на `windows-latest`). Започва с M1 и расте с модулите. Включва:
-   - кеш на NuGet, npm и браузърите на Playwright;
-   - `npm ci`, ESLint, проверка на типовете, Vitest, build на интерфейса;
+**Steps:**
+
+1. The server reads the document (section 9.1):
+   - from a UNC path;
+   - from a local path with a variable (`{SVN}`);
+   - from http(s) without sign-in or with Windows sign-in.
+
+   It is read with the user's permissions. On denial, "no access" is shown.
+2. Path variables (section 9.2): the list is in the general settings, the values are in the personal configuration. If a value is missing, the application asks on the first opening.
+3. Security (section 12): the exe reads only paths from the records and the resources under the document's folder. It rejects `..` and any other attempt to get out of them.
+4. Markdown (section 9.3):
+   - markdown-it, sanitizing with DOMPurify, highlighted code;
+   - images with a relative path;
+   - links to other MD files open in the application;
+   - a table of contents on the side and search in the document.
+
+   The same view is used for `markdown` fields.
+5. Mermaid (section 9.4):
+   - strict mode;
+   - zoom and pan, "show the code";
+   - export as SVG and PNG, theme;
+   - live preview when editing a `code` field with the `mermaid` language.
+6. PDF and images (section 9.5). "Open in Explorer" works only for paths from the records.
+
+**Tests:**
+
+- substitution of the variables;
+- denial on an attempt to get out of the allowed paths;
+- a script in MD is removed;
+- missing access;
+- E2E: an MD document with a Mermaid diagram and an image.
+
+**Done:** design section 9 works with made-up demo documents from the repo.
+
+---
+
+### M8. Tests and automation
+
+Throughout the project.
+
+**Steps:**
+
+1. The test projects and shared helpers: a temporary data folder, fake Windows services (account, DPAPI, file owner). They are made together with M1.
+2. `ci.yml` (on push and PR, on `windows-latest`). It starts with M1 and grows with the modules. It includes:
+   - cache for NuGet, npm and the Playwright browsers;
+   - `npm ci`, ESLint, type check, Vitest, UI build;
    - `dotnet format --verify-no-changes`;
-   - build, unit и API тестове с покритие;
-   - publish и smoke тест на exe-то;
+   - build, unit and API tests with coverage;
+   - publish and smoke test of the exe;
    - E2E;
-   - артефакти: exe-то, отчетът за покритието, trace-овете при грешка, скрийншотите.
-3. `release.yml`: при tag `v*` се прави publish и GitHub Release с `Kiler.exe` и SHA256 сумата му.
-4. `tools/Kiler.DemoData`. Ползва библиотеките на Kiler, затова криптира правилно. Расте с M4–M7. Има два режима:
-   - измислен набор от около 30 записа: няколко системи, всички шаблони, нива 0–3, админ и двама потребители с демо пароли;
-   - режим „обем“ с 2000 записа.
-5. Скрийншоти за изпитния документ от E2E тестовете, с демо данните.
-6. README за публичното репо: какво е Kiler, скрийншоти, как се build-ва и как се пуска демото.
+   - artifacts: the exe, the coverage report, the traces on failure, the screenshots.
+3. `release.yml`: on a `v*` tag, a publish is made, plus a GitHub Release with `Kiler.exe` and its SHA256 checksum.
+4. `tools/Kiler.DemoData`. It uses the Kiler libraries, so it encrypts correctly. It grows with M4–M7. It has two modes:
+   - a made-up set of about 30 records: several systems, all templates, levels 0–3, an admin and two users with demo passwords;
+   - a "volume" mode with 2000 records.
+5. Screenshots for the exam write-up from the E2E tests, with the demo data.
+6. README for the public repo: what Kiler is, screenshots, how to build it and how to run the demo.
 
 ---
 
-## 6. Отворени въпроси
+## 6. Open questions
 
-Решават се в началото на съответния модул. Решенията се записват и във файла със задачите на модула.
+They are resolved at the start of the relevant module. The decisions are also recorded in the module's task file.
 
-| Кога | Въпрос |
+| When | Question |
 |---|---|
-| след M1 | Проверките от т. 14 на дизайна с exe-то от M1. Решено: за тях има режим `--diag` (M1.11). |
-| M1 | Native AOT или обикновен single-file. Решено: single-file с код, готов за AOT. Native AOT се решава след проверките от т. 14. |
-| M1 | Как се праща heartbeat. Решено: SSE. |
-| M3 | Обвързване на криптираната група с id на записа и нивото (associated data в AES-GCM), за да не може група да се пренесе в друг запис. Това е допълнение към дизайна. |
-| M3 | Къде и как се пази ключът за печата на админите. |
-| M5 | Правила при промяна на шаблон, по който има записи. |
-| M6 | Библиотека с UI компоненти, routing, зареждане на данните. |
-| M7 | С какво се оцветява кодът в MD: CodeMirror или отделна библиотека. |
-| M8 | На какъв език е README: български или английски. |
+| after M1 | The checks from design section 14 with the exe from M1. Decided: there is a `--diag` mode for them (M1.11). |
+| M1 | Native AOT or plain single-file. Decided: single-file with AOT-ready code. Native AOT is decided after the checks from section 14. |
+| M1 | How the heartbeat is sent. Decided: SSE. |
+| M3 | Binding the encrypted group to the record id and the level (associated data in AES-GCM), so that a group cannot be moved to another record. This is an addition to the design. |
+| M3 | Where and how the key for the admin seal is kept. |
+| M5 | Rules for changing a template that has records. |
+| M6 | UI component library, routing, data loading. |
+| M7 | What highlights the code in MD: CodeMirror or a separate library. |
+| M8 | Which language the README is in: Bulgarian or English. |
 
 ---
 
-## 7. Изпитният документ
+## 7. Exam write-up
 
-Документът е 3–6 страници, с до ½ страница на модул. Затова там модулите на плана се обединяват:
+The document is 3–6 pages, with up to ½ page per module. That is why the plan's modules are merged there:
 
-| Раздел в документа | Модули от плана |
+| Section in the document | Modules from the plan |
 |---|---|
-| Хост и инфраструктура | M1 |
-| Съхранение на данните | M2 |
-| Сигурност | M3, M4 |
-| Записи и търсене | M5 |
-| Интерфейс и документи | M6, M7 |
-| Тестове и CI | M8 |
+| Host and infrastructure | M1 |
+| Data storage | M2 |
+| Security | M3, M4 |
+| Records and search | M5 |
+| UI and documents | M6, M7 |
+| Tests and CI | M8 |
 
-Окончателното групиране се решава, когато се пише документът.
+The final grouping is decided when the document is written.
 
 ---
 
-## 8. Агенти, скилове и хукове
+## 8. Agents, skills and hooks
 
-Разделението е следното:
+The split is as follows:
 
-- **Скиловете** носят правилата за дадена технология или част. Зареждат се в основния агент, докато пише кода.
-- **Субагентите** са проверяващи. Започват с празен контекст, затова гледат промените „с чужди очи“, по фиксиран списък. Не пишат код.
-- **Хуковете** проверяват автоматично, без да разчитат на паметта на агента.
+- **Skills** carry the rules for a given technology or part. They are loaded into the main agent while it writes the code.
+- **Subagents** are reviewers. They start with an empty context, so they look at the changes "with fresh eyes", by a fixed list. They do not write code.
+- **Hooks** check automatically, without relying on the agent's memory.
 
-| Име | Вид | Кога се ползва | Роля |
+| Name | Kind | When it is used | Role |
 |---|---|---|---|
-| `kiler-dotnet` | скил | C# и .NET код | структура на проектите, код, готов за AOT, xUnit v3 и TDD, Windows частите зад интерфейси |
-| `kiler-crypto` | скил | криптиране, ключове, пароли, токени | алгоритмите и правилата от т. 7 и т. 12 на дизайна |
-| `kiler-ui` | скил | `src/ui` | React, TypeScript, Vite, API, тайни стойности в браузъра, Vitest |
-| `code-reviewer` | субагент, само четене | всяка задача, преди отметката | обхват, тестовете от „Тестове“, грешки, правилата, реални данни |
-| `security-reviewer` | субагент, само четене | задачи със сигурност (M1.4, M3, M4, M7 и др.) | локален сървър, права, тайни стойности, криптиране, пътища, HTML |
-| `docs-researcher` | субагент, търсене в мрежата | при съмнение за API на новите версии | кратък отговор с източници |
-| `note` | скил (команда `/note`) | след стъпка от работата | бележка за курса |
-| `log-prompt` | хук, `UserPromptSubmit` | всеки промпт | лог в `course/prompts.jsonl` |
-| `data-guard` | хук, `PreToolUse` | `git commit` и `git push` | спира промени с вътрешни термини от `.claude/data-guard.local.txt` (извън git) |
+| `kiler-dotnet` | skill | C# and .NET code | project structure, AOT-ready code, xUnit v3 and TDD, Windows parts behind interfaces |
+| `kiler-crypto` | skill | encryption, keys, passwords, tokens | the algorithms and rules from design sections 7 and 12 |
+| `kiler-ui` | skill | `src/ui` | React, TypeScript, Vite, API, secret values in the browser, Vitest |
+| `code-reviewer` | subagent, read-only | every task, before the tick | scope, the tests from "Tests", bugs, the rules, real data |
+| `security-reviewer` | subagent, read-only | security tasks (M1.4, M3, M4, M7, etc.) | local server, permissions, secret values, encryption, paths, HTML |
+| `docs-researcher` | subagent, web search | when in doubt about the API of the new versions | a short answer with sources |
+| `note` | skill (command `/note`) | after a step of the work | a course note |
+| `log-prompt` | hook, `UserPromptSubmit` | every prompt | log in `course/prompts.jsonl` |
+| `data-guard` | hook, `PreToolUse` | `git commit` and `git push` | blocks changes with internal terms from `.claude/data-guard.local.txt` (outside git) |
 
-Правила:
+Rules:
 
-1. **Само взети решения.** В скиловете влиза само решеното. Отложеното е отбелязано с модула, в който се решава.
-2. **Преглед в началото на всеки модул.** Скиловете и агентите се допълват с решенията на модула.
-3. **Нащрек за пропуски.** Ако проверяващ пропусне нещо или вдигне фалшива тревога, или ако скил даде грешно правило, файлът се поправя в същата задача, а причината влиза в бележката с `/note`.
-4. **Находките на проверяващите се проверяват.** Не се прилагат сляпо.
-5. **Без вътрешни данни.** Файловете на агентите и скиловете са в git, затова в тях няма вътрешни имена.
-6. **Хуковете се закачат в `.claude/settings.local.json`**, който е извън git, защото пътят до скрипта е локален. Самите скриптове са в git.
-7. **Граница на `data-guard`:** хукът вижда само командите на Claude през инструментите Bash и PowerShell. Commit от бутоните на приложението или от друг терминал не минава през него.
-8. **Език:**
-   - Инструкциите към AI в `.claude/` (скилове, агенти, хукове) са на английски. Така описанията са по-кратки, а условията за употреба по-точни.
-   - Описанията са кратки, във вида „какво е. Use when …“.
-   - Документите за хора са на български.
-   - Бележките от `/note` са на български.
+1. **Only decisions that were made.** Only what is decided goes into the skills. Deferred items are marked with the module where they are decided.
+2. **Review at the start of each module.** The skills and agents are updated with the module's decisions.
+3. **Watch for gaps.** If a reviewer misses something or raises a false alarm, or if a skill gives a wrong rule, the file is fixed in the same task, and the reason goes into the note with `/note`.
+4. **Reviewer findings are verified.** They are not applied blindly.
+5. **No internal data.** The agent and skill files are in git, so they contain no internal names.
+6. **Hooks are registered in `.claude/settings.local.json`**, which is outside git, because the path to the script is local. The scripts themselves are in git.
+7. **`data-guard` limit:** the hook sees only Claude's commands through the Bash and PowerShell tools. A commit from the app's buttons or from another terminal does not go through it.
+8. **Language:**
+   - AI instructions in `.claude/` (skills, agents, hooks) are in English. This keeps the descriptions shorter and the conditions for use more precise.
+   - The descriptions are short, in the form "what it is. Use when …".
+   - Repository documents are in English.
+   - Communication with the user and the course notes (`course/`, `/note`) are in Bulgarian.
+   - The app's UI texts stay in Bulgarian. That is a product decision, see the `kiler-ui` skill.
 
-MCP: десктоп приложението вече дава MCP инструменти, например вградения браузър за проверка на интерфейса. Собствен `.mcp.json` в проекта засега не е нужен.
+MCP: the desktop app already provides MCP tools, for example the built-in browser for checking the UI. A project-specific `.mcp.json` is not needed for now.

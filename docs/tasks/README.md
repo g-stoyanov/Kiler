@@ -1,83 +1,83 @@
-# Задачи за разработката
+# Development tasks
 
-Тук [планът](../PLAN.md) е разбит на малки задачи с отметки. По тях се работи и по тях се следи напредъкът.
+Here [the plan](../PLAN.md) is broken into small tasks with ticks. The work follows them, and progress is tracked by them.
 
-## Модули
+## Modules
 
-| Модул | Задачи | Статус |
+| Module | Tasks | Status |
 |---|---|---|
-| M1 Хост и скелет | [M1.md](M1.md) | в работа |
-| M2 Слой за данни | | не е започнат |
-| M3 Криптография | | не е започнат |
-| M4 Потребители и права | | не е започнат |
-| M5 Шаблони, записи и търсене | | не е започнат |
-| M6 Интерфейс | | не е започнат |
-| M7 Документи и диаграми | | не е започнат |
+| M1 Host and skeleton | [M1.md](M1.md) | in progress |
+| M2 Data layer | | not started |
+| M3 Cryptography | | not started |
+| M4 Users and permissions | | not started |
+| M5 Templates, records and search | | not started |
+| M6 User interface | | not started |
+| M7 Documents and diagrams | | not started |
 
-M8 (тестове и автоматизация) няма собствен файл. Задачите му влизат в модулите, когато потрябват:
+M8 (tests and automation) has no file of its own. Its tasks go into the modules when they are needed:
 
-- тестовите проекти и CI са в M1;
-- демо данните растат от M4 нататък;
-- README е накрая.
+- the test projects and CI are in M1;
+- the demo data grows from M4 onward;
+- the README is at the end.
 
 ---
 
-## Какво е една задача
+## What a task is
 
-- Стига за една сесия и завършва с работещ build. Това прави един commit.
-- **Тестовете са част от задачата.** Не се отделят в задача „тестове“ накрая.
-- Има номер `M<модул>.<n>` с латинско M, например `M2.3`.
-- Задача, която не се побира в една сесия, се разделя.
+- It fits in one session and ends with a working build. That makes one commit.
+- **Tests are part of the task.** They are not split off into a "tests" task at the end.
+- It has a number `M<module>.<n>` with a Latin M, for example `M2.3`.
+- A task that does not fit in one session is split.
 
-## Формат
+## Format
 
 ```markdown
-- [ ] **M1.4 Токен и бисквитка**
-  - Какво: размяна на токена от адреса за HttpOnly бисквитка; проверка на Host
-  - Тестове (първо): без токен → 401; грешен токен → 401; чужд Host → 400
-  - Готово: тестовете минават; браузърът отваря страницата
+- [ ] **M1.4 Token and cookie**
+  - What: exchange of the token from the address for an HttpOnly cookie; Host check
+  - Tests (first): no token → 401; wrong token → 401; foreign Host → 400
+  - Done: the tests pass; the browser opens the page
 ```
 
-- **Какво:** обхватът на задачата, с препратка към стъпката от плана, ако е нужно.
-- **Тестове:** кои тестове се пишат. „(първо)“ значи, че се пишат преди кода (TDD).
-- **Готово:** как се проверява, че задачата е свършена.
+- **What:** the scope of the task, with a reference to the plan step if needed.
+- **Tests:** which tests are written. "(first)" means they are written before the code (TDD).
+- **Done:** how to check that the task is finished.
 
-Свършената задача става `- [x]`. Ако нещо е станало различно от описаното, под задачата се добавя ред `- Бележка: ...`.
+A finished task becomes `- [x]`. If something turned out different from the description, a line `- Note: ...` is added under the task.
 
-Номерата не се сменят. Нова задача между две съществуващи получава буква, например `M1.4a`.
+The numbers do not change. A new task between two existing ones gets a letter, for example `M1.4a`.
 
 ---
 
-## Работен цикъл (една задача)
+## Work cycle (one task)
 
-1. **Избор.** Прочети този файл и файла на текущия модул. Вземи първата задача без отметка, освен ако потребителят не посочи друга.
-2. **Неясноти.** Ако задачата е неясна или иска решение, което го няма в плана, питай преди кода.
-3. **Тестове.** В Kiler.Crypto и Kiler.Storage тестовете се пишат първо и трябва да не минават. Другаде се пишат в същата задача, след кода.
-4. **Код.** По правилата на скила за частта: `kiler-dotnet`, `kiler-ui` или `kiler-crypto` ([PLAN.md, т. 8](../PLAN.md#8-агенти-скилове-и-хукове)). При съмнение за API на новите версии питай `docs-researcher`.
-5. **Проверка:**
+1. **Pick.** Read this file and the file of the current module. Take the first unticked task, unless the user names another one.
+2. **Unclear points.** If the task is unclear or needs a decision that is not in the plan, ask before the code.
+3. **Tests.** In Kiler.Crypto and Kiler.Storage the tests are written first and must fail. Elsewhere they are written in the same task, after the code.
+4. **Code.** Follow the rules of the skill for the part: `kiler-dotnet`, `kiler-ui` or `kiler-crypto` ([PLAN.md, section 8](../PLAN.md#8-agents-skills-and-hooks)). When in doubt about the API of the new versions, ask `docs-researcher`.
+5. **Check:**
    - build;
-   - всички тестове;
+   - all tests;
    - `dotnet format --verify-no-changes`;
-   - за интерфейса: lint и проверка на типовете;
-   - в кода, тестовете и данните няма реални имена, хостове, акаунти и пароли;
-   - **преглед от `code-reviewer`**. За задачи със сигурност (токени, вход, права, криптиране, пароли, пътища, HTML) прегледът е и от `security-reviewer`.
+   - for the UI: lint and type check;
+   - no real names, hosts, accounts or passwords in the code, tests and data;
+   - **review by `code-reviewer`**. For security tasks (tokens, sign-in, permissions, encryption, passwords, paths, HTML) the review is also done by `security-reviewer`.
 
-   Находките се проверяват, преди да се поправят, а не се прилагат сляпо. Ако проверяващ пропусне нещо, вдигне фалшива тревога или скил даде грешно правило, файлът на агента или скила се поправя в същата задача.
-6. **Отметка** в `M<n>.md`, плюс бележка, ако има отклонение. Ако отклонението променя решение, се обновява и [PLAN.md](../PLAN.md).
-7. **Commit**, само когато потребителят го поиска. Съобщението е на английски и започва с номера: `M1.4: Exchange URL token for session cookie`. Отметката влиза в същия commit като кода. Хукът `data-guard` спира commit или push с вътрешни термини.
-8. **Напомняне** за `/note`.
-9. **Следваща стъпка:** нова задача или нова сесия. Нова сесия е по-добре, когато контекстът е натежал или модулът се сменя.
+   Findings are verified before they are fixed, not applied blindly. If a reviewer misses something, raises a false alarm, or a skill gives a wrong rule, the agent or skill file is fixed in the same task.
+6. **Tick** in `M<n>.md`, plus a note if there is a deviation. If the deviation changes a decision, [PLAN.md](../PLAN.md) is also updated.
+7. **Commit**, only when the user asks for it. The message is in English and starts with the number: `M1.4: Exchange URL token for session cookie`. The tick goes into the same commit as the code. The `data-guard` hook blocks a commit or push with internal terms.
+8. **Reminder** about `/note`.
+9. **Next step:** a new task or a new session. A new session is better when the context has grown heavy or the module changes.
 
-## Начало на модул
+## Start of a module
 
-1. Решават се отворените въпроси на модула от [PLAN.md, т. 6](../PLAN.md#6-отворени-въпроси).
-2. Скиловете и агентите за модула се преглеждат. Решенията, които досега бяха отложени, влизат в тях.
-3. От стъпките на модула в PLAN.md се пише `M<n>.md` с подредени задачи.
-4. Статусът в таблицата горе става „в работа“.
+1. The module's open questions from [PLAN.md, section 6](../PLAN.md#6-open-questions) are resolved.
+2. The skills and agents for the module are reviewed. The decisions that were deferred until now go into them.
+3. From the module's steps in PLAN.md, `M<n>.md` is written with ordered tasks.
+4. The status in the table above becomes "in progress".
 
-## Край на модул
+## End of a module
 
-1. Всички задачи са отметнати, а критериите „Готово“ на модула в PLAN.md са изпълнени.
-2. Статусът става „готов“.
-3. Пуска се `/note` за модула и се попълва разделът му в `course/PROMPTS.md`. В бележката влизат и поправките по агентите и скиловете през модула.
-4. Следващият модул започва с „Начало на модул“.
+1. All tasks are ticked, and the module's "Done" criteria in PLAN.md are met.
+2. The status becomes "done".
+3. `/note` is run for the module, and its section in `course/PROMPTS.md` is filled in. The note also includes the fixes to the agents and skills made during the module.
+4. The next module starts with "Start of a module".
