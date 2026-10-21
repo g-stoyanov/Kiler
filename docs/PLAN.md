@@ -115,7 +115,7 @@ Design sections 4 and 14.
 
 **Before the steps:**
 
-- Git hooks `pre-commit` and `pre-push` that call the `data-guard` script, so commits made outside Claude are checked too (M1.0a).
+- Git hooks `pre-commit`, `commit-msg` and `pre-push` that call the `data-guard` script, so commits made outside Claude are checked too (M1.0a).
 - A probe exe, `tools/Kiler.Probe`, published the same way as `Kiler.exe`, for the checks from design section 14 before the real code is written (M1.0b). It starts a local server and opens the browser, and with `--diag <folder>` it measures many small files and checks the file owner. Only a summary of its results goes into the repo.
 
 **Steps:**
@@ -497,7 +497,7 @@ The split is as follows:
 | `docs-researcher` | subagent, web search | when in doubt about the API of the new versions | a short answer with sources |
 | `note` | skill (command `/note`) | after a step of the work | a course note |
 | `log-prompt` | hook, `UserPromptSubmit` | every message that enters the conversation | log in `course/prompts.jsonl`: the user's prompts, plus subagent reports and system notifications as a debug log |
-| `data-guard` | hook, `PreToolUse`; git hooks `pre-commit` and `pre-push` (M1.0a) | `git commit` and `git push` | blocks changes with internal terms from `.claude/data-guard.local.txt` (outside git) |
+| `data-guard` | hook, `PreToolUse`; git hooks `pre-commit`, `commit-msg` and `pre-push` (M1.0a) | `git commit` and `git push` | blocks changes with internal terms from `.claude/data-guard.local.txt` (outside git) |
 
 Rules:
 

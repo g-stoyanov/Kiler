@@ -1,0 +1,2 @@
+# The git hooks are sh scripts: they keep LF in every checkout, whatever core.autocrlf says
+.githooks/* text eol=lf

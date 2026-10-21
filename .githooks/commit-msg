@@ -1,0 +1,4 @@
+#!/bin/sh
+# Blocks a commit whose message ($1 is the message file) contains internal terms.
+# The check is in .claude/hooks/data-guard.ps1. Enabled for a clone with: git config core.hooksPath .githooks
+exec powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$(dirname "$0")/../.claude/hooks/data-guard.ps1" -Mode commit-msg "$1"

@@ -79,7 +79,7 @@ They are described in [docs/PLAN.md, section 8](docs/PLAN.md#8-agents-skills-and
 - **Documentation subagent:** `docs-researcher`.
 - **Hooks:**
   - `log-prompt` records the prompts;
-  - `data-guard` blocks commit and push with internal terms. The terms are in `.claude/data-guard.local.txt`, which is outside git. When the hook changes, run its tests: `.claude/hooks/data-guard.tests.ps1`. Git hooks calling the same script also cover commits made outside Claude (task M1.0a).
+  - `data-guard` blocks commit and push with internal terms. The terms are in `.claude/data-guard.local.txt`, which is outside git. When the hook changes, run its tests: `.claude/hooks/data-guard.tests.ps1`. The git hooks in `.githooks/` call the same script, so commits made outside Claude are checked too: `pre-commit` and `commit-msg` check `git commit`, and `pre-push` checks every pushed commit, however it was made. They are turned on once per clone with `git config core.hooksPath .githooks`. Claude does not use `--no-verify`, which skips them.
 
   The hooks are registered in `.claude/settings.local.json`.
 
