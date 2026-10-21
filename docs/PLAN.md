@@ -24,13 +24,13 @@
 
 | Area | Choice |
 |---|---|
-| Platform | .NET 10, C#. The exe is self-contained single-file, `win-x64` only. |
+| Platform | .NET 10, C#. The exe is published with Native AOT, `win-x64` only. Each user runs a local copy in the profile (M1). |
 | Server | ASP.NET Core minimal API (Kestrel) on `127.0.0.1` |
 | UI | React 19, TypeScript, Vite. The finished build is embedded in the exe. |
 | Code in the UI | CodeMirror 6, sql-formatter (with PL/SQL) |
 | Documents | markdown-it, DOMPurify, Mermaid |
 | Data | JSON files, System.Text.Json |
-| Cryptography | built into .NET: AES-GCM, PBKDF2-SHA256, HMAC-SHA256, DPAPI |
+| Cryptography | built into .NET: AES-GCM, PBKDF2-SHA256, HMAC-SHA256, ECDSA P-256 (signed updates), DPAPI |
 | C# tests | xUnit v3 (package `xunit.v3`), the built-in assertions |
 | API tests | WebApplicationFactory (`Microsoft.AspNetCore.Mvc.Testing`) |
 | UI tests | Vitest |
@@ -111,12 +111,12 @@ The screens are built together with the modules:
 
 Design sections 4 and 14.
 
-**Goal:** `Kiler.exe` is started with a double click, starts a local server and opens the browser. The same exe is used for the checks from design section 14.
+**Goal:** `Kiler.exe` is started with a double click, starts a local server and opens the browser. Started from the shared folder, it copies itself to the user's profile and runs from there. The same exe is used for the checks from design section 14.
 
 **Before the steps:**
 
 - Git hooks `pre-commit`, `commit-msg` and `pre-push` that call the `data-guard` script, so commits made outside Claude are checked too (M1.0a).
-- A probe exe, `tools/Kiler.Probe`, published the same way as `Kiler.exe`, for the checks from design section 14 before the real code is written (M1.0b). It starts a local server and opens the browser, and with `--diag <folder>` it measures many small files and checks the file owner. Only a summary of its results goes into the repo.
+- A probe exe, `tools/Kiler.Probe`, published the same way as `Kiler.exe`, for the checks from design section 14 before the real code is written (M1.0b). It starts a local server and opens the browser, and with `--diag <folder>` it measures many small files and checks the file owner. Only a summary of its results goes into the repo: the notes under M1.0b in [tasks/M1.md](tasks/M1.md). The decisions made after it are in this plan.
 
 **Steps:**
 
@@ -136,18 +136,21 @@ Design sections 4 and 14.
    - a common page frame, light and dark theme, an API client;
    - during development, the Vite dev server forwards `/api` to .NET;
    - on build, MSBuild runs `npm ci` and `npm run build`, and the files are embedded as resources.
-9. Publishing: `dotnet publish` produces one `Kiler.exe`.
+9. Publishing: `dotnet publish` with Native AOT produces one `Kiler.exe`.
 10. Diagnostic mode `--diag` for section 14: speed of listing and reading many small files, owner of a new file. It takes over the logic of the probe, and the probe is then deleted.
+11. Local copy (decided after M1.0b): started from a network folder, the exe copies itself to `%LOCALAPPDATA%\Programs\Kiler` if there is no copy yet, remembers the shared folder (the data and the updates), and starts the local copy. It never overwrites an existing copy; updates are signed and come in M3.
 
 **Tests:**
 
 - API tests of the protection: without a token, with a wrong token, with a foreign `Host`.
 - Smoke test: the published exe with `--no-browser --port` answers a request and stops when there is no heartbeat.
 - A second start does not start a second server.
+- The decision about the local copy: started locally, no copy yet, a copy exists.
 
 **Done:**
 
 - a double click opens the browser with the page;
+- a start from the shared folder runs the local copy;
 - a second start uses the running instance;
 - closing the page stops the process;
 - CI passes;
@@ -163,25 +166,29 @@ Design section 5.
 
 **Steps:**
 
-1. The structure of `data\` (section 5.1): `settings.json`, `levels.json`, `templates`, `users`, `records`, `history`, `trash`, `audit`. By default the folder is next to the exe, and `--data` changes it.
+1. The structure of `data\` (section 5.1): `settings.json`, `levels.json`, `templates`, `users`, `records`, `history`, `trash`, `audit`. By default it is `data\` in the shared folder that the local copy remembers (M1), and `--data` changes it.
 2. Models and serialization with System.Text.Json and source generation.
-3. Atomic write (section 5.4): a temporary file, a copy of the old version in `history\<id>\vN.json`, rename.
+3. Atomic write (section 5.4): a temporary file, a copy of the old version in `history\<id>\vN.json`, rename. The file is always created anew, and its creation time is set equal to the write time. It is set explicitly, because NTFS can give the new file the creation time of the old one on such a rename (file tunneling).
 4. Versions and conflicts (section 5.5): write only if the version on disk is the expected one. Otherwise the result is "conflict" with the version from disk.
 5. Deletion to `trash\` and restore from there. A list of the versions and restoring an old version (section 5.6).
-6. Loading and local cache (section 5.3): startup is from the copy in `%LOCALAPPDATA%\Kiler`, after which only the changed files are synchronized.
+6. Loading and local cache (section 5.3): startup is from the copy in `%LOCALAPPDATA%\Kiler`, after which only the changed files are synchronized. Files are read from the share in parallel, about 16 at a time: one by one, 2000 files take about 25 s, and 16 at a time about 1 s (M1.0b).
 7. Watching for changes about every 10 seconds: one listing of the folder with names and dates, reloading the changed files, events to the upper layers.
 8. Resilience:
    - a corrupted JSON file is skipped and reported, without a crash;
    - when the network is unavailable, the application works from the cache and shows this.
-9. File owner (section 7.8) as an interface, with a Windows implementation in Kiler.App.
+9. File owner (section 7.8) as an interface, with a Windows implementation in Kiler.App. A file whose write time is later than its creation time was edited in place, outside Kiler (decided after M1.0b); the layer reports it, and M4 marks it.
+10. Restore from the local copy (decided after M1.0b): the share keeps no automatic copies, so missing or damaged files in `data\` can be written back from the cache in `%LOCALAPPDATA%\Kiler`. Here it is the API; the admin screen is in M6.
 
 **Tests** (the tests are written first):
 
 - atomic write with a simulated crash in the middle: the original stays intact;
+- after a write, also over an old file, the creation time equals the write time;
+- a file edited in place is reported;
 - version conflict;
 - history and trash;
 - detecting a new, changed and deleted file;
 - cache synchronization;
+- restore from the cache;
 - corrupted file;
 - loading 2000 files, with timing.
 
@@ -191,7 +198,7 @@ Design section 5.
 
 ### M3. Cryptography
 
-Design sections 7.1–7.3, 7.5 and 7.7.
+Design sections 4.1, 7.1–7.3, 7.5 and 7.7.
 
 **Goal:** a clean library with all cryptographic operations, with no files and no UI.
 
@@ -207,6 +214,12 @@ Design sections 7.1–7.3, 7.5 and 7.7.
 8. "Remember me": an interface for protecting a key with the Windows account. The DPAPI implementation is in Kiler.App.
 9. Changing a level key (section 7.9): the group is encrypted again with the new key. The whole process is organized in M4 and M5.
 10. Keys are zeroed in memory after use, as far as .NET allows.
+11. Signed updates (decided after M1.0b):
+    - an ECDSA P-256 signature over `Kiler.exe`, checked with the public key built into the exe; the check is in Kiler.Crypto;
+    - the key pair is made once by the maintainer; the private key stays outside the repo and the shared folder;
+    - `version.json` in the shared folder carries the version, the SHA-256 and the signature;
+    - at start, the local copy (M1) reads `version.json`. For a newer version it writes the new exe next to itself as `.new` and checks the signature, renames its own running exe to `.old`, moves the new one into place and restarts. On any failure, the old exe goes back. The leftovers are deleted at the next start, with a few attempts, and a failure there never stops the application. This part is in Kiler.App, and the probe in M1.0b checked that the antivirus allows it;
+    - a tool that signs a release.
 
 **Tests** (the tests are written first):
 
@@ -217,7 +230,8 @@ Design sections 7.1–7.3, 7.5 and 7.7.
 - changing the password keeps the same level key;
 - recovery with the recovery key;
 - known test vectors for PBKDF2 and AES-GCM;
-- an old version of the format is read.
+- an old version of the format is read;
+- an update with a valid signature is accepted; a changed exe or another key is rejected.
 
 **Done:** Kiler.Crypto with full tests and no dependencies on the other projects.
 
@@ -250,7 +264,8 @@ Design sections 7, 8.2 (audit) and 12.
 7. Admin actions (section 7.6): new user, level change, new temporary password, "editor" and "admin" rights. Every user file gets a seal.
 8. Detection (section 7.8):
    - users without a valid seal are marked as suspicious;
-   - changes by people without `canEdit` are detected by the file owner.
+   - changes by people without `canEdit` are detected by the file owner;
+   - files edited in place, outside Kiler (M2), are marked, because their owner is still the old author.
 9. Permission check on the server on every request: read level, `canEdit`, `isAdmin`. Nobody writes a field above their level (section 7.4).
 10. Audit (sections 8.2 and 12): showing and copying Prod passwords is recorded in `audit\<date>\<user>.jsonl`.
 11. Removing an untrusted person (section 7.9):
@@ -357,7 +372,8 @@ Design sections 8 and 10.
 7. Admin screens (section 8.4):
    - templates;
    - general settings: guest mode, path variables, locking;
-   - history and audit.
+   - history and audit;
+   - restoring missing or damaged files from the local copy (M2).
 8. Personal configuration (section 10): theme (light, dark or system), the values of the path variables, "remember me". It is kept in `%APPDATA%\Kiler\local-settings.json`.
 9. Updating on changes from other users.
 
@@ -445,8 +461,9 @@ They are resolved at the start of the relevant module. The decisions are also re
 
 | When | Question |
 |---|---|
-| after M1 | The checks from design section 14 with the exe from M1. Decided: there is a `--diag` mode for them (M1.11). |
-| M1 | Native AOT or plain single-file. Decided: single-file with AOT-ready code. Native AOT is decided after the checks from section 14. |
+| after M1 | The checks from design section 14 with the exe from M1. Decided: a probe exe before the code (M1.0b), and later a `--diag` mode (M1.11). Done in M1.0b: the architecture holds; the decisions are in M1, M2, M3, M4 and M6. |
+| M1 | Native AOT or plain single-file. Decided after M1.0b: Native AOT. |
+| M3 | Where the private key for signing updates is kept, and how a release is signed. |
 | M1 | How the heartbeat is sent. Decided: SSE. |
 | M1 | GitHub Actions with Claude (`claude-code-action`, PR review). Decided: no. The local `code-reviewer` is enough. |
 | process | Plan mode at the start of a module. Decided: no. Planning stays in the conversation, with multiple-choice questions. |
@@ -489,7 +506,7 @@ The split is as follows:
 
 | Name | Kind | When it is used | Role |
 |---|---|---|---|
-| `kiler-dotnet` | skill | C# and .NET code | project structure, AOT-ready code, xUnit v3 and TDD, Windows parts behind interfaces |
+| `kiler-dotnet` | skill | C# and .NET code | project structure, Native AOT, xUnit v3 and TDD, Windows parts behind interfaces |
 | `kiler-crypto` | skill | encryption, keys, passwords, tokens | the algorithms and rules from design sections 7 and 12 |
 | `kiler-ui` | skill | `src/ui` | React, TypeScript, Vite, API, secret values in the browser, Vitest |
 | `code-reviewer` | subagent, read-only | every task, before the tick | scope, the tests from "Tests", bugs, the rules, real data |
@@ -530,5 +547,5 @@ After the exam is graded, the public GitHub repo is deleted and the project cont
 | 3 | `data-guard`: remove it, or narrow it to real secrets (passwords, keys, tokens) | internal names are allowed in the company repo |
 | 4 | `KILER_DESIGN.md` goes into the repo | it was kept out only because of the internal names |
 | 5 | CI: from GitHub Actions to Bitbucket Pipelines | a Windows build needs a self-hosted runner; without one, build and tests stay local, through the same scripts |
-| 6 | Release: `Kiler.exe` is copied to the shared folder | as in design section 4 |
+| 6 | Release: `Kiler.exe` and the signed `version.json` are copied to the shared folder | as in design section 4; the local copies update themselves (M3) |
 | 7 | CLAUDE.md: remove the course parts and update the data rules | `course/` stays personal and goes nowhere |

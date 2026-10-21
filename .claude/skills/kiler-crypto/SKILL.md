@@ -27,6 +27,7 @@ Only what is built into .NET. No external crypto libraries and no home-made algo
 | Key from a password | `Rfc2898DeriveBytes.Pbkdf2`, SHA-256, 600,000 iterations, a random salt per user |
 | Random values | `RandomNumberGenerator` |
 | Stamp | `HMACSHA256` |
+| Update signature | `ECDsa`, curve P-256, SHA-256; only the public key is in the exe (decided after M1.0b) |
 | "Remember me" | DPAPI (`ProtectedData`, current user), behind an interface; implemented in Kiler.App |
 
 ## Rules
@@ -63,3 +64,4 @@ Tests are written first (TDD) and cover:
 | What exactly the stamp signs | a canonical form of the user's file, without the `stamp` field itself |
 | Recovery key format | a long, readable code, shown only once |
 | Salt length | |
+| Where the private key for signing updates is kept, and how a release is signed | never in the repo or the shared folder |

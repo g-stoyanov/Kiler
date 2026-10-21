@@ -22,9 +22,9 @@ Kiler.App ──► Kiler.Core ──► Kiler.Crypto
 - Records, users and settings in `data\` are written only by Kiler.Storage. The exception is the temporary subfolder of `--diag` (M1.11).
 - NuGet package versions live only in `Directory.Packages.props`. Shared settings live in `Directory.Build.props`.
 
-## AOT-ready code
+## Native AOT
 
-The exe is a self-contained single file. Native AOT is decided after the checks in the real environment (design section 14). The code must be able to move to AOT without rework:
+The exe is published with Native AOT, decided after the checks in the real environment (M1.0b). Everything must work under AOT:
 
 - JSON only with source generation (`JsonSerializerContext`). No reflection-based serialization.
 - No `Activator.CreateInstance`, no `Type.GetType` from a string, no dynamic assembly loading, no `dynamic`.
@@ -62,5 +62,4 @@ Opening the browser is also behind an interface, so tests can replace it (M1.5).
 
 | Question | When |
 |---|---|
-| Native AOT | after the checks from design section 14 |
 | Build and test commands | M1.12, in CLAUDE.md |
