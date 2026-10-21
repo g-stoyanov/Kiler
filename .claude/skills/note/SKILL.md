@@ -1,28 +1,30 @@
 ---
 name: note
-description: Записва бележка за курсовия проект в course/NOTES.md за свършеното в текущата сесия. Ползвай само когато потребителят пусне /note или изрично поиска да запишеш бележка за курса.
-argument-hint: "[модул или фаза] [допълнителен коментар]"
+description: Writes a course note to course/NOTES.md about the work done in this session. Use only when the user runs /note or explicitly asks for a course note.
+argument-hint: "[module or phase] [extra comment]"
 ---
 
-# /note: бележка за курсовия проект
+# /note: course project note
 
-Записваш суров материал за курсовия документ. Заданието иска за всеки модул: подход, стъпки, тестване, AI инструмент и защо, 2–3 ключови промпта. Плюс предизвикателства и скрийншоти. Бележката трябва да покрива точно тези неща.
+You record raw material for the course write-up. For every module the assignment asks for: approach, steps, testing, the AI tool and why, 2–3 key prompts. Plus challenges and screenshots. The note must cover exactly these.
 
-Аргументи: `$ARGUMENTS`
+**Write the entry in Bulgarian**, in the format below. The write-up is in Bulgarian.
 
-## Стъпки
+Arguments: `$ARGUMENTS`
 
-1. **Модул или фаза.** Вземи го от аргументите. Ако го няма, извади го от свършеното в сесията. Ако пак не е ясно, попитай и спри.
-2. **Промптовете от сесията.** Прочети `course/prompts.jsonl`. Последният ред е заявката, с която е пусната бележката: `/note` или молба с думи, например от бутон. Неговото `session` е текущата сесия.
-   - **Граница:** в `course/NOTES.md` намери последния запис с тази сесия. Полето му **Промптове** казва до кой `ts` е стигнал.
-   - Вземи редовете на сесията с `ts` след тази граница. Ако сесията няма предишен запис, вземи всички ѝ редове.
-   - Не определяй границата по текста на промптовете. Пускане с думи или с бутон не започва с `/note`.
-3. **Какво е свършено.** Извади от разговора в сесията само работата след предишната бележка на сесията (ако има такава): подход и защо, стъпките (какво е поискано от AI и какво е генерирано или променено), как е проверено, проблемите. Каквото е описано в предишна бележка, не се повтаря. Не измисляй: ако нещо не е ставало (например не е тествано), напиши го.
-4. **Запис.** Добави запис в `course/NOTES.md` под `## <модул или фаза>`. Ако разделът го няма, създай го преди `## Предизвикателства`. Старите записи не се пипат.
-5. **Предизвикателства.** Ако в сесията е имало истински проблем (грешка на AI, преработка, ограничение на инструмента), добави ред и в `## Предизвикателства` с дата и връзка към модула.
-6. **Покажи** на потребителя какво е добавено.
+## Steps
 
-## Формат на записа
+1. **Module or phase.** Take it from the arguments. If it is missing, infer it from the work done in the session. If it is still unclear, ask and stop.
+2. **Prompts of the session.** Read `course/prompts.jsonl`. The last line is the request that started this note: `/note` or a plain-language request, for example from a button. Its `session` is the current session.
+   - **Boundary:** in `course/NOTES.md`, find the last entry of this session. Its **Промптове** field says up to which `ts` it got.
+   - Take the session's lines with a `ts` after that boundary. If the session has no earlier entry, take all its lines.
+   - Do not find the boundary from prompt text. A note started with words or a button does not begin with `/note`.
+3. **What was done.** From the session's conversation, take only the work after the session's previous note (if any): the approach and why, the steps (what the AI was asked and what was generated or changed), how it was checked, the problems. Do not repeat what an earlier note already describes. Do not invent: if something did not happen (for example, nothing was tested), say so.
+4. **Write.** Add the entry to `course/NOTES.md` under `## <module or phase>`. If that section does not exist, create it before `## Предизвикателства`. Do not touch older entries.
+5. **Challenges.** If the session had a real problem (an AI mistake, rework, a tool limitation), also add a line under `## Предизвикателства` with the date and a link to the module.
+6. **Show** the user what was added.
+
+## Entry format
 
 ```markdown
 ### <ГГГГ-ММ-ДД> · <кратко заглавие на стъпката>
@@ -40,10 +42,10 @@ argument-hint: "[модул или фаза] [допълнителен коме�
 - **Коментар:** <допълнителният коментар от аргументите, ако има>
 ```
 
-## Правила
+## Rules
 
-- Записът е кратък: суров материал, не готов текст. Финалният документ има лимит ½ страница на модул.
-- Кандидат-промптовете са 2–4, най-съществените. Без „да“, „продължи“ и натиснати бутони.
-- Промптовете се цитират дословно от `prompts.jsonl`, без редакция.
-- Полето **Промптове** е задължително и с пълните `ts` стойности от `prompts.jsonl`. По него следващата бележка намира границата си.
-- Пароли, хостове и вътрешни имена от промптовете не се пренасят в бележката.
+- The entry is short: raw material, not finished text. The final write-up allows half a page per module.
+- 2–4 candidate prompts, the most important ones. No "yes", "continue" or pressed buttons.
+- Prompts are quoted verbatim from `prompts.jsonl`, unedited.
+- The **Промптове** field is required, with the full `ts` values from `prompts.jsonl`. The next note finds its boundary from it.
+- Passwords, hosts and internal names from the prompts never go into the note.
