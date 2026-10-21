@@ -12,7 +12,7 @@ Decisions come from `docs/PLAN.md` (section 2, M1, M6, M7), `docs/tasks/M1.md` a
 - React 19, TypeScript, Vite. ESLint and Prettier. TypeScript in strict mode, as a good practice.
 - The browser is only the view. Filters, search, permissions and encryption live in C#.
 - The build is embedded in `Kiler.exe`. **The app works without internet:** every library is in the build. No CDN and no requests to external addresses.
-- UI texts are in Bulgarian, as in the examples in design sections 7–9.
+- The app is entirely in English: UI texts, messages and errors (PLAN section 8, rule 8). The Bulgarian texts in the design are only examples of meaning; do not copy or translate them word for word.
 
 ## API
 
@@ -49,6 +49,7 @@ Light, dark and system (M1.7). CSS variables are the recommendation. Until M6 th
 
 | Question | When |
 |---|---|
+| Whether all UI texts live in one file | M1.7 or M6 |
 | UI component library | M6 |
 | Routing | M6 |
 | Data loading and state | M6 |

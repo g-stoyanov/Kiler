@@ -46,6 +46,8 @@ A finished task becomes `- [x]`. If something turned out different from the desc
 
 The numbers do not change. A new task between two existing ones gets a letter, for example `M1.4a`.
 
+A dropped task stays in the list so the numbers stay stable. It is ticked and struck through, `- [x] ~~**M1.10 …**~~ Dropped.`, with a note that says why. The work cycle skips it.
+
 ---
 
 ## Work cycle (one task)

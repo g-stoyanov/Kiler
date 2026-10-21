@@ -26,13 +26,16 @@ The deliverable is a Google Doc of 3–6 pages: idea, modules and for each modul
   3. **Development (current):** modules M1–M7, while M8 runs the whole time. The checks in the real environment (design section 14) are a checkpoint right after M1.
   4. Stabilization and release: full E2E with demo data, README, final screenshots, release `v1.0`, trial use in the real environment.
   5. Exam write-up: Google Doc from `course/NOTES.md` and `course/PROMPTS.md`.
-- **Tool:** Claude Code.
+  6. After the exam: move to the company Bitbucket and delete the GitHub repo. The checklist is in [docs/PLAN.md, section 9](docs/PLAN.md#9-after-the-exam).
+
+  The user tracks the exam deadline. The work follows the plan in this order.
+- **Tool:** Claude Code only. The write-up compares the Claude Code features that were used (subagents, hooks, skills, etc.), not AI products.
 
 ## Course notes (`course/`)
 
 | File | What | Who writes it |
 |---|---|---|
-| `course/prompts.jsonl` | every prompt sent | the hook `.claude/hooks/log-prompt.ps1`, automatically. Do not edit by hand. |
+| `course/prompts.jsonl` | every message that enters the conversation: the user's prompts, but also subagent reports and system notifications. It doubles as a debug log of what was called. | the hook `.claude/hooks/log-prompt.ps1`, automatically. Do not edit by hand. |
 | `course/NOTES.md` | raw notes by module and phase | the skill `/note` |
 | `course/PROMPTS.md` | selected key prompts by phase | by hand, at the end of a phase. In phase 3 it is filled in at the end of each module. |
 
@@ -76,7 +79,7 @@ They are described in [docs/PLAN.md, section 8](docs/PLAN.md#8-agents-skills-and
 - **Documentation subagent:** `docs-researcher`.
 - **Hooks:**
   - `log-prompt` records the prompts;
-  - `data-guard` blocks commit and push with internal terms. The terms are in `.claude/data-guard.local.txt`, which is outside git. When the hook changes, run its tests: `.claude/hooks/data-guard.tests.ps1`.
+  - `data-guard` blocks commit and push with internal terms. The terms are in `.claude/data-guard.local.txt`, which is outside git. When the hook changes, run its tests: `.claude/hooks/data-guard.tests.ps1`. Git hooks calling the same script also cover commits made outside Claude (task M1.0a).
 
   The hooks are registered in `.claude/settings.local.json`.
 

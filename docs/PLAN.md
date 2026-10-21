@@ -113,6 +113,11 @@ Design sections 4 and 14.
 
 **Goal:** `Kiler.exe` is started with a double click, starts a local server and opens the browser. The same exe is used for the checks from design section 14.
 
+**Before the steps:**
+
+- Git hooks `pre-commit` and `pre-push` that call the `data-guard` script, so commits made outside Claude are checked too (M1.0a).
+- A probe exe, `tools/Kiler.Probe`, published the same way as `Kiler.exe`, for the checks from design section 14 before the real code is written (M1.0b). It starts a local server and opens the browser, and with `--diag <folder>` it measures many small files and checks the file owner. Only a summary of its results goes into the repo.
+
 **Steps:**
 
 1. Solution and projects as in section 3, `Directory.Build.props`, `.editorconfig`.
@@ -132,7 +137,7 @@ Design sections 4 and 14.
    - during development, the Vite dev server forwards `/api` to .NET;
    - on build, MSBuild runs `npm ci` and `npm run build`, and the files are embedded as resources.
 9. Publishing: `dotnet publish` produces one `Kiler.exe`.
-10. Diagnostic mode `--diag` for section 14, if it is decided to have it (section 6): speed of listing and reading many small files, owner of a new file.
+10. Diagnostic mode `--diag` for section 14: speed of listing and reading many small files, owner of a new file. It takes over the logic of the probe, and the probe is then deleted.
 
 **Tests:**
 
@@ -417,7 +422,7 @@ Throughout the project.
 **Steps:**
 
 1. The test projects and shared helpers: a temporary data folder, fake Windows services (account, DPAPI, file owner). They are made together with M1.
-2. `ci.yml` (on push and PR, on `windows-latest`). It starts with M1 and grows with the modules. It includes:
+2. `ci.yml` (on push and PR, on `windows-latest`). It starts with M1 and grows with the modules. The workflow calls scripts from the repo (for example `build.ps1` and `test.ps1`) instead of keeping the steps only in the GitHub YAML, so CI can move to another system later (section 9) and the same commands run locally. It includes:
    - cache for NuGet, npm and the Playwright browsers;
    - `npm ci`, ESLint, type check, Vitest, UI build;
    - `dotnet format --verify-no-changes`;
@@ -425,7 +430,7 @@ Throughout the project.
    - publish and smoke test of the exe;
    - E2E;
    - artifacts: the exe, the coverage report, the traces on failure, the screenshots.
-3. `release.yml`: on a `v*` tag, a publish is made, plus a GitHub Release with `Kiler.exe` and its SHA256 checksum.
+3. ~~`release.yml`: on a `v*` tag, a publish is made, plus a GitHub Release with `Kiler.exe` and its SHA256 checksum.~~ Dropped: a GitHub Release is useful only while the public repo exists. The CI artifact is enough for the exam, and in the company the exe is copied to the shared folder.
 4. `tools/Kiler.DemoData`. It uses the Kiler libraries, so it encrypts correctly. It grows with M4–M7. It has two modes:
    - a made-up set of about 30 records: several systems, all templates, levels 0–3, an admin and two users with demo passwords;
    - a "volume" mode with 2000 records.
@@ -443,12 +448,15 @@ They are resolved at the start of the relevant module. The decisions are also re
 | after M1 | The checks from design section 14 with the exe from M1. Decided: there is a `--diag` mode for them (M1.11). |
 | M1 | Native AOT or plain single-file. Decided: single-file with AOT-ready code. Native AOT is decided after the checks from section 14. |
 | M1 | How the heartbeat is sent. Decided: SSE. |
+| M1 | GitHub Actions with Claude (`claude-code-action`, PR review). Decided: no. The local `code-reviewer` is enough. |
+| process | Plan mode at the start of a module. Decided: no. Planning stays in the conversation, with multiple-choice questions. |
+| M1.7 or M6 | Whether all UI texts live in one file. |
 | M3 | Binding the encrypted group to the record id and the level (associated data in AES-GCM), so that a group cannot be moved to another record. This is an addition to the design. |
 | M3 | Where and how the key for the admin seal is kept. |
 | M5 | Rules for changing a template that has records. |
 | M6 | UI component library, routing, data loading. |
 | M7 | What highlights the code in MD: CodeMirror or a separate library. |
-| M8 | Which language the README is in: Bulgarian or English. |
+| M8 | Which language the README is in. Decided: English, like the other repository documents. |
 
 ---
 
@@ -466,6 +474,8 @@ The document is 3–6 pages, with up to ½ page per module. That is why the plan
 | Tests and CI | M8 |
 
 The final grouping is decided when the document is written.
+
+**Tool comparison.** Only Claude Code is used. The "Challenges & Tool Comparison" section compares the Claude Code features that were used (subagents, hooks, skills, CLAUDE.md, memory) and says which helped most and why. It does not compare AI products. The material comes from the tool field of each `/note` entry.
 
 ---
 
@@ -486,8 +496,8 @@ The split is as follows:
 | `security-reviewer` | subagent, read-only | security tasks (M1.4, M3, M4, M7, etc.) | local server, permissions, secret values, encryption, paths, HTML |
 | `docs-researcher` | subagent, web search | when in doubt about the API of the new versions | a short answer with sources |
 | `note` | skill (command `/note`) | after a step of the work | a course note |
-| `log-prompt` | hook, `UserPromptSubmit` | every prompt | log in `course/prompts.jsonl` |
-| `data-guard` | hook, `PreToolUse` | `git commit` and `git push` | blocks changes with internal terms from `.claude/data-guard.local.txt` (outside git) |
+| `log-prompt` | hook, `UserPromptSubmit` | every message that enters the conversation | log in `course/prompts.jsonl`: the user's prompts, plus subagent reports and system notifications as a debug log |
+| `data-guard` | hook, `PreToolUse`; git hooks `pre-commit` and `pre-push` (M1.0a) | `git commit` and `git push` | blocks changes with internal terms from `.claude/data-guard.local.txt` (outside git) |
 
 Rules:
 
@@ -497,12 +507,28 @@ Rules:
 4. **Reviewer findings are verified.** They are not applied blindly.
 5. **No internal data.** The agent and skill files are in git, so they contain no internal names.
 6. **Hooks are registered in `.claude/settings.local.json`**, which is outside git, because the path to the script is local. The scripts themselves are in git.
-7. **`data-guard` limit:** the hook sees only Claude's commands through the Bash and PowerShell tools. A commit from the app's buttons or from another terminal does not go through it.
+7. **`data-guard` coverage:** the Claude hook sees only Claude's commands through the Bash and PowerShell tools. Commits from the app's buttons, another terminal or another tool are covered by the git hooks (M1.0a), once they are enabled for the clone with `git config core.hooksPath .githooks`. `git commit --no-verify` skips the git hooks, and Claude must not use it.
 8. **Language:**
    - AI instructions in `.claude/` (skills, agents, hooks) are in English. This keeps the descriptions shorter and the conditions for use more precise.
    - The descriptions are short, in the form "what it is. Use when …".
    - Repository documents are in English.
    - Communication with the user and the course notes (`course/`, `/note`) are in Bulgarian.
-   - The app's UI texts stay in Bulgarian. That is a product decision, see the `kiler-ui` skill.
+   - The app is entirely in English: UI, messages, errors, logs, reports and demo data. This deviates from the Bulgarian examples in the design; the user decided it on 2026-10-21. See the `kiler-ui` skill.
 
 MCP: the desktop app already provides MCP tools, for example the built-in browser for checking the UI. A project-specific `.mcp.json` is not needed for now.
+
+---
+
+## 9. After the exam
+
+After the exam is graded, the public GitHub repo is deleted and the project continues in the company Bitbucket, which is private. The details are decided then.
+
+| # | What | Note |
+|---|---|---|
+| 1 | Push the whole history to the company Bitbucket | a new remote |
+| 2 | Delete the GitHub repo | done by the user and cannot be undone; only after the exam is graded, because the write-up links to it |
+| 3 | `data-guard`: remove it, or narrow it to real secrets (passwords, keys, tokens) | internal names are allowed in the company repo |
+| 4 | `KILER_DESIGN.md` goes into the repo | it was kept out only because of the internal names |
+| 5 | CI: from GitHub Actions to Bitbucket Pipelines | a Windows build needs a self-hosted runner; without one, build and tests stay local, through the same scripts |
+| 6 | Release: `Kiler.exe` is copied to the shared folder | as in design section 4 |
+| 7 | CLAUDE.md: remove the course parts and update the data rules | `course/` stays personal and goes nowhere |

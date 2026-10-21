@@ -46,6 +46,7 @@ Arguments: `$ARGUMENTS`
 
 - The entry is short: raw material, not finished text. The final write-up allows half a page per module.
 - 2–4 candidate prompts, the most important ones. No "yes", "continue" or pressed buttons.
+- `prompts.jsonl` also logs messages that are not the user's: subagent reports and system notifications. They start with a tag such as `<agent-message` or `<task-notification`. They are never candidate prompts and are not counted as prompts; they only help to see what was called.
 - Prompts are quoted verbatim from `prompts.jsonl`, unedited.
 - The **Промптове** field is required, with the full `ts` values from `prompts.jsonl`. The next note finds its boundary from it.
 - Passwords, hosts and internal names from the prompts never go into the note.
