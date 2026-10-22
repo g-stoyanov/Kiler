@@ -1,5 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!--
+    Native AOT has no reflection-based JSON. The tests turn it off too, so a type
+    missing from KilerJsonContext fails here and not only in the published exe.
+  -->
+  <PropertyGroup>
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\Kiler.App\Kiler.App.csproj" />
   </ItemGroup>

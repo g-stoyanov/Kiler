@@ -16,4 +16,8 @@
     <ProjectReference Include="..\Kiler.Core\Kiler.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Kiler.App.Tests" />
+  </ItemGroup>
+
 </Project>

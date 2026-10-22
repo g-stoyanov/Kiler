@@ -30,6 +30,13 @@ The exe is published with Native AOT, decided after the checks in the real envir
 - No `Activator.CreateInstance`, no `Type.GetType` from a string, no dynamic assembly loading, no `dynamic`.
 - Minimal APIs. No MVC, no Razor.
 - The trim and AOT analyzers are on and warnings are errors. Do not suppress them without a comment that explains why. The test projects turn them off (`tests/Directory.Build.props`), because they are not published.
+- Every type that the API reads or writes as JSON goes into `KilerJsonContext` (Kiler.App). `Kiler.App.Tests` runs with reflection-based JSON turned off (`JsonSerializerIsReflectionEnabledByDefault`), as Native AOT does, so a missing type fails a test.
+
+## Host (M1.3)
+
+- `KilerHost.Build` uses `WebApplication.CreateEmptyBuilder` with `UseKestrelCore` and listens on `IPAddress.Loopback` only, set in code. The empty builder reads no arguments, environment variables or config files. Keep it that way: what tests need to change (port, token, timers, data folder) comes through `StartOptions` or DI, not configuration.
+- The Kiler.App types are `internal`, and the tests reach them through `InternalsVisibleTo`. `Program` is public because .NET 10 generates it so for top-level statements.
+- WebApplicationFactory runs `Main`. It passes `--environment=`, `--contentRoot=` and `--applicationName=`, which `StartOptions` skips. `Main` starts the host itself and keeps running, so the code after the start must also work with the test server, which has no address.
 
 ## Style
 
