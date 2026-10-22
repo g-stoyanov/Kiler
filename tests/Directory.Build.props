@@ -22,7 +22,17 @@
   -->
   <ItemGroup>
     <PackageReference Include="xunit.v3" />
+    <PackageReference Include="coverlet.MTP" />
   </ItemGroup>
+
+  <!--
+    test.ps1 turns coverage on (dotnet test with coverlet arguments). Each project names its coverage file
+    after itself: without a prefix the names differ only by a millisecond time stamp, and in one
+    results folder a project's file can be overwritten by another's.
+  -->
+  <PropertyGroup>
+    <TestingPlatformCommandLineArguments>$(TestingPlatformCommandLineArguments) --coverlet-file-prefix $(MSBuildProjectName)</TestingPlatformCommandLineArguments>
+  </PropertyGroup>
 
   <ItemGroup>
     <Using Include="Xunit" />

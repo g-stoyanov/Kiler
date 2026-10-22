@@ -51,6 +51,10 @@ global.json                SDK version, test runner
 Directory.Build.props      shared settings: nullable, warnings, AOT analyzers, version
 Directory.Packages.props   NuGet package versions
 .editorconfig              code style
+dotnet-tools.json          local dotnet tools: ReportGenerator
+build.ps1                  build; CI and developers run the same scripts
+test.ps1                   tests with coverage and the coverage report
+format.ps1                 format check
 src/
   Kiler.Crypto/            cryptography, no dependencies
   Kiler.Storage/           files: writing, history, trash, cache, change watching
