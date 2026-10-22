@@ -23,7 +23,14 @@ internal sealed record StartOptions
           --port <port>     listen on this port (1-65535) instead of a free one
           --data <folder>   use this data folder instead of the default one
           --diag [<folder>] measure the file access in a folder, by default the data folder
+
+        For tests:
+          --first-wait <s>  stop when no page opens in this many seconds (1-3600, default 60)
+          --idle-wait <s>   stop this many seconds after the last page closes (1-3600, default 10)
         """;
+
+    /// <summary>The limit of <c>--first-wait</c> and <c>--idle-wait</c>, in seconds.</summary>
+    public const int MaxWaitSeconds = 3600;
 
     public StartMode Mode { get; init; } = StartMode.Server;
 
@@ -37,6 +44,21 @@ internal sealed record StartOptions
 
     /// <summary>The folder after <c>--diag</c>, as given; null means the data folder.</summary>
     public string? DiagFolder { get; init; }
+
+    /// <summary>The wait for the first page from <c>--first-wait</c>; null means the default (<see cref="HeartbeatTimes"/>).</summary>
+    public TimeSpan? FirstWait { get; init; }
+
+    /// <summary>The wait after the last page closes from <c>--idle-wait</c>; null means the default.</summary>
+    public TimeSpan? IdleWait { get; init; }
+
+    /// <summary>How often <c>/api/events</c> sends <c>ping</c>; null means the default. Not on the command line: only tests in the process change it.</summary>
+    public TimeSpan? PingInterval { get; init; }
+
+    /// <summary>The times of the heartbeat: the ones given, the defaults for the rest.</summary>
+    public HeartbeatTimes HeartbeatTimes => new(
+        FirstWait ?? HeartbeatTimes.Default.FirstWait,
+        IdleWait ?? HeartbeatTimes.Default.IdleWait,
+        PingInterval ?? HeartbeatTimes.Default.PingInterval);
 
     /// <summary>Reads the arguments. An unknown or repeated argument, or a missing or invalid value, is an error.</summary>
     public static bool TryParse(
@@ -96,15 +118,36 @@ internal sealed record StartOptions
                     result = result with { Mode = StartMode.Diag, DiagFolder = diagFolder };
                     break;
 
+                case "--first-wait":
+                    if (!TryTakeSeconds(args, ref i, out var firstWait))
+                    {
+                        error = $"--first-wait needs a number of seconds from 1 to {MaxWaitSeconds}.";
+                        return false;
+                    }
+
+                    result = result with { FirstWait = firstWait };
+                    break;
+
+                case "--idle-wait":
+                    if (!TryTakeSeconds(args, ref i, out var idleWait))
+                    {
+                        error = $"--idle-wait needs a number of seconds from 1 to {MaxWaitSeconds}.";
+                        return false;
+                    }
+
+                    result = result with { IdleWait = idleWait };
+                    break;
+
                 default:
                     error = $"Unknown argument: {name}";
                     return false;
             }
         }
 
-        if (result.Mode == StartMode.Diag && (result.NoBrowser || result.Port is not null))
+        if (result.Mode == StartMode.Diag
+            && (result.NoBrowser || result.Port is not null || result.FirstWait is not null || result.IdleWait is not null))
         {
-            error = "--diag starts no server, so it does not take --no-browser or --port.";
+            error = "--diag starts no server, so it does not take --no-browser, --port, --first-wait or --idle-wait.";
             return false;
         }
 
@@ -140,7 +183,33 @@ internal sealed record StartOptions
             arguments.AddRange(["--data", Path.GetFullPath(dataFolder)]);
         }
 
+        // Whole seconds, as the command line gives them.
+        if (FirstWait is { } firstWait)
+        {
+            arguments.AddRange(["--first-wait", firstWait.TotalSeconds.ToString(CultureInfo.InvariantCulture)]);
+        }
+
+        if (IdleWait is { } idleWait)
+        {
+            arguments.AddRange(["--idle-wait", idleWait.TotalSeconds.ToString(CultureInfo.InvariantCulture)]);
+        }
+
         return arguments;
+    }
+
+    /// <summary>Takes the argument after <paramref name="i"/> as whole seconds from 1 to <see cref="MaxWaitSeconds"/>.</summary>
+    private static bool TryTakeSeconds(IReadOnlyList<string> args, ref int i, out TimeSpan wait)
+    {
+        wait = default;
+        if (!TryTakeValue(args, ref i, out var text)
+            || !int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var seconds)
+            || seconds is < 1 or > MaxWaitSeconds)
+        {
+            return false;
+        }
+
+        wait = TimeSpan.FromSeconds(seconds);
+        return true;
     }
 
     /// <summary>Takes the argument after <paramref name="i"/> as a value, unless it is missing, blank or looks like an option.</summary>

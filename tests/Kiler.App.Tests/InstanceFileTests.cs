@@ -168,6 +168,19 @@ public sealed class InstanceFileTests : IDisposable
     }
 
     [Fact]
+    public void WriteUntilStopping_AfterTheStopHasBegun_LeavesNoFile()
+    {
+        // The heartbeat can stop the host right after the start, before Program writes the file.
+        var path = Path.Combine(_folder.Path, "instance.json");
+        using var stopping = new CancellationTokenSource();
+        stopping.Cancel();
+
+        new InstanceFile(path).WriteUntilStopping(new RunningInstance(51234, new AccessToken()), stopping.Token);
+
+        Assert.False(File.Exists(path));
+    }
+
+    [Fact]
     public async Task WriteUntilStopping_OnTheRealHost_DeletesTheFileWhileTheServerStillListens()
     {
         var path = Path.Combine(_folder.Path, "instance.json");

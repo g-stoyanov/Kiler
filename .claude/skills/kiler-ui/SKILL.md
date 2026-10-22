@@ -20,6 +20,7 @@ Decisions come from `docs/PLAN.md` (section 2, M1, M6, M7), `docs/tasks/M1.md` a
 - Sign-in uses an HttpOnly cookie set by the server. JavaScript never sees or stores the token, not in `localStorage` or anywhere else.
 - The API client handles errors in one place. On 401 it shows a message instead of breaking.
 - `EventSource` on `/api/events` is the page's heartbeat. Change notifications come through it later (M6).
+- On its first `error` the page closes the `EventSource` and shows that Kiler has stopped. It does not let the browser reconnect: after a stop, each try sends the `kiler` cookie to the old port, and cookies are not separated by port, so by then the cookie can hold the token of a newer Kiler, and the old port can belong to another program (M1.6 security review).
 - In dev mode Vite proxies `/api` to .NET. The protection is not turned off.
 
 ## Secret values

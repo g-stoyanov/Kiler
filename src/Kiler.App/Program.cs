@@ -48,6 +48,16 @@ switch (decision)
             Console.WriteLine($"--port {port} is ignored.");
         }
 
+        if (options.FirstWait is not null)
+        {
+            Console.WriteLine("--first-wait is ignored.");
+        }
+
+        if (options.IdleWait is not null)
+        {
+            Console.WriteLine("--idle-wait is ignored.");
+        }
+
         Browser.OpenOrPrint(browser, running.EntryAddress, options.NoBrowser, Console.Out, Console.Error);
         return 0;
     case StartDecision.NoAnswer:
@@ -82,7 +92,7 @@ catch (Exception ex) when (options.Port is not null && ex is IOException or Sock
 }
 
 var address = new Uri(app.Urls.Single());
-Console.WriteLine($"Kiler is listening on {address.GetLeftPart(UriPartial.Authority)}. Ctrl+C stops it.");
+Console.WriteLine($"Kiler is listening on {address.GetLeftPart(UriPartial.Authority)}. It stops when its last page closes, or with Ctrl+C.");
 
 var self = new RunningInstance(address.Port, app.Services.GetRequiredService<AccessToken>());
 try
@@ -97,4 +107,9 @@ catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
 Browser.OpenOrPrint(browser, self.EntryAddress, options.NoBrowser, Console.Out, Console.Error);
 
 await app.WaitForShutdownAsync();
+if (app.Services.GetRequiredService<Heartbeat>().TimedOut)
+{
+    Console.WriteLine("No Kiler page was open, so Kiler has stopped.");
+}
+
 return 0;

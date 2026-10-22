@@ -11,17 +11,22 @@ public class StartOptionsTests
         Assert.False(options.NoBrowser);
         Assert.Null(options.Port);
         Assert.Null(options.DataFolder);
+        Assert.Null(options.FirstWait);
+        Assert.Null(options.IdleWait);
+        Assert.Equal(HeartbeatTimes.Default, options.HeartbeatTimes);
     }
 
     [Fact]
     public void AllServerOptions_AreRead()
     {
-        var options = Parse("--no-browser", "--port", "5050", "--data", @"C:\demo data");
+        var options = Parse("--no-browser", "--port", "5050", "--data", @"C:\demo data", "--first-wait", "3", "--idle-wait", "2");
 
         Assert.Equal(StartMode.Server, options.Mode);
         Assert.True(options.NoBrowser);
         Assert.Equal(5050, options.Port);
         Assert.Equal(@"C:\demo data", options.DataFolder);
+        Assert.Equal(TimeSpan.FromSeconds(3), options.FirstWait);
+        Assert.Equal(TimeSpan.FromSeconds(2), options.IdleWait);
     }
 
     [Fact]
@@ -60,6 +65,49 @@ public class StartOptionsTests
     }
 
     [Theory]
+    [InlineData("--first-wait", "1", 1)]
+    [InlineData("--first-wait", "3600", 3600)]
+    [InlineData("--idle-wait", "1", 1)]
+    [InlineData("--idle-wait", "3600", 3600)]
+    public void Wait_AtTheLimits_IsAccepted(string option, string value, int seconds)
+    {
+        var options = Parse(option, value);
+
+        Assert.Equal(TimeSpan.FromSeconds(seconds), option == "--first-wait" ? options.FirstWait : options.IdleWait);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("3601")]
+    [InlineData("99999999999")]
+    [InlineData("abc")]
+    [InlineData("-1")]
+    [InlineData("+5")]
+    [InlineData(" 5")]
+    [InlineData("1.5")]
+    [InlineData("1e2")]
+    [InlineData("５")]
+    public void Wait_NotWholeSecondsFrom1To3600_IsAnError(string value)
+    {
+        Assert.Contains("--first-wait", ParseError("--first-wait", value), StringComparison.Ordinal);
+        Assert.Contains("--idle-wait", ParseError("--idle-wait", value), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HeartbeatTimes_TakesTheGivenWaitsAndTheDefaultsForTheRest()
+    {
+        Assert.Equal(
+            HeartbeatTimes.Default with { FirstWait = TimeSpan.FromSeconds(3) },
+            Parse("--first-wait", "3").HeartbeatTimes);
+        Assert.Equal(
+            HeartbeatTimes.Default with { IdleWait = TimeSpan.FromSeconds(2) },
+            Parse("--idle-wait", "2").HeartbeatTimes);
+        Assert.Equal(
+            HeartbeatTimes.Default with { PingInterval = TimeSpan.FromMilliseconds(100) },
+            new StartOptions { PingInterval = TimeSpan.FromMilliseconds(100) }.HeartbeatTimes);
+    }
+
+    [Theory]
     [InlineData("--port")]
     [InlineData("--port", "--no-browser")]
     [InlineData("--data")]
@@ -67,6 +115,10 @@ public class StartOptionsTests
     [InlineData("--data", "")]
     [InlineData("--data", "   ")]
     [InlineData("--data", "-x")]
+    [InlineData("--first-wait")]
+    [InlineData("--first-wait", "--no-browser")]
+    [InlineData("--idle-wait")]
+    [InlineData("--idle-wait", "")]
     public void ValueOption_WithoutAValue_IsAnError(params string[] args)
     {
         var error = ParseError(args);
@@ -106,6 +158,8 @@ public class StartOptionsTests
     [InlineData("--diag", "--no-browser")]
     [InlineData("--diag", "--port", "5050")]
     [InlineData("--port", "5050", "--diag", "folder")]
+    [InlineData("--diag", "--first-wait", "3")]
+    [InlineData("--idle-wait", "2", "--diag")]
     public void Diag_WithAServerOption_IsAnError(params string[] args)
     {
         var error = ParseError(args);
@@ -142,6 +196,8 @@ public class StartOptionsTests
     [InlineData("--port", "5050", "--port", "6060")]
     [InlineData("--data", "a", "--data", "b")]
     [InlineData("--diag", "--diag")]
+    [InlineData("--first-wait", "3", "--first-wait", "4")]
+    [InlineData("--idle-wait", "2", "--idle-wait", "2")]
     public void RepeatedOption_IsAnError(params string[] args)
     {
         var error = ParseError(args);
@@ -170,9 +226,19 @@ public class StartOptionsTests
     [Fact]
     public void ToServerArguments_AllServerOptions_ArePassedOn()
     {
-        var options = Parse("--data", @"C:\demo data\", "--port", "5050", "--no-browser");
+        var options = Parse("--idle-wait", "2", "--data", @"C:\demo data\", "--first-wait", "3", "--port", "5050", "--no-browser");
 
-        Assert.Equal(["--no-browser", "--port", "5050", "--data", @"C:\demo data\"], options.ToServerArguments());
+        Assert.Equal(
+            ["--no-browser", "--port", "5050", "--data", @"C:\demo data\", "--first-wait", "3", "--idle-wait", "2"],
+            options.ToServerArguments());
+    }
+
+    [Fact]
+    public void ToServerArguments_TheWaits_GiveTheSameWaitsToTheCopy()
+    {
+        var options = Parse("--first-wait", "3600", "--idle-wait", "1");
+
+        Assert.Equal(options, Parse([.. options.ToServerArguments()]));
     }
 
     [Fact]

@@ -13,6 +13,7 @@ public class AccessGuardTests
     [Theory]
     [InlineData("/")]
     [InlineData("/api/health")]
+    [InlineData("/api/events")]
     [InlineData("/api/unknown")]
     [InlineData("/index.html")]
     [InlineData("/assets/app.js")]

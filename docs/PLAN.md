@@ -141,8 +141,12 @@ Design sections 4 and 14.
    - the mutex is per user and session, and so is the file;
    - a start with `--data` is an instance of its own, so tests with their own data folder do not meet the user's Kiler;
    - the file is trusted only while another process holds the mutex; a file left over from a stopped process is deleted without contacting its port.
-6. Shutdown: the page sends a signal that it is alive (heartbeat). If there is no signal for a few seconds, the process stops. The wait covers a page reload.
-7. Parameters for tests and diagnostics: `--no-browser`, `--port`, `--data <folder>`, `--diag`.
+6. Shutdown: the page sends a signal that it is alive (heartbeat). If there is no signal for a few seconds, the process stops. The wait covers a page reload. Decided in M1.6:
+   - each open page holds the server-sent event stream `/api/events`, which sends `ping` at once and then every 15 s; the server counts the open streams;
+   - Kiler stops 10 s after the last stream closes, or 60 s after the start when no page opens; a new stream cancels the wait;
+   - `/api/health`, which a second start asks before it opens the browser, puts the stop off by 60 s; once the stop has begun, it answers 503, and so does `/api/events`;
+   - the streams end when the host starts to stop, so they do not hold the stop up.
+7. Parameters for tests and diagnostics: `--no-browser`, `--port`, `--data <folder>`, `--diag`, and from M1.6 `--first-wait` and `--idle-wait`, which shorten the waits of step 6 for the smoke tests.
 8. UI skeleton in `src/ui`:
    - Vite, React and TypeScript;
    - a common page frame, light and dark theme, an API client;

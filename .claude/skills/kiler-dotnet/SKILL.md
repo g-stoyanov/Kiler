@@ -62,6 +62,16 @@ The exe is published with Native AOT, decided after the checks in the real envir
 - The second start sends the cookie to `http://127.0.0.1:<port>/api/health` without a proxy and without following redirects, then opens `AccessGuard.EntryAddress`. Always 127.0.0.1, never `localhost`.
 - `DefaultBrowser` hands the shell only an `http` address on 127.0.0.1. The shell starts whatever it gets, a program too.
 
+## Heartbeat (M1.6)
+
+- `Heartbeat` counts the open `/api/events` streams and stops the host with `StopApplication` after its waits (`HeartbeatTimes`): 60 s for the first page, 10 s after the last one closes. `--first-wait` and `--idle-wait` set the waits; the ping interval (15 s) is set only by tests in the process, through `StartOptions`.
+- A connection is counted only after `AccessGuard`, and it is released through `HttpResponse.RegisterForDispose`, so also when the stream never starts. A count that leaks keeps Kiler running for ever.
+- A response that stays open, such as the event stream, ends on `ApplicationStopping`: Kestrel waits for open requests up to `HostOptions.ShutdownTimeout`. The stream catches the cancellation and ends normally, because an exception after the headers leaves the response without its end.
+- `KilerHost.ShutdownTimeout` (5 s) stays shorter than `SingleInstance.Wait` (10 s), so a second start gets the lock of a Kiler that is stopping. The guard sees only whole requests, so a client without the token can hold a half-sent one until this limit.
+- `/api/health` puts the stop off, because a second start asks it before it opens the browser. Once the host is stopping, it and `/api/events` answer 503.
+- Events are `SseItem<string>` with a name. One stream has one data type, so the events that carry data (M6) will put it there as a string; its format is decided in M6. A string is written as it is, without the HTTP JSON options.
+- Tests: `Heartbeat` and the stream on `FakeTimeProvider`; the stop on the real Kestrel with short real waits (`ShutdownTests`). There the ping interval stays long, so a closed page is noticed by its closed connection, not by a failed ping.
+
 ## Local copy (M1.5a)
 
 - Started from a network folder (a UNC path or a mapped network drive), `LocalCopy` copies the exe to `%LOCALAPPDATA%\Programs\Kiler` when there is no copy, writes the folder to `%LOCALAPPDATA%\Kiler\share.json`, makes `Kiler.lnk` in the Start menu when it is missing, starts the copy and exits. The exe in the profile, under any name, never copies itself.

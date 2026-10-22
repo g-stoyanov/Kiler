@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace Kiler.App.Tests;
 
@@ -11,11 +12,18 @@ internal sealed class KilerServer : IAsyncDisposable
 {
     private readonly WebApplication _app;
 
+    /// <summary>The wait for the stop, as <c>Program</c> runs it, so a stop by the heartbeat stops the server.</summary>
+    private readonly Task _shutdown;
+
     private KilerServer(WebApplication app)
     {
         _app = app;
         Address = new Uri(Assert.Single(app.Urls));
         Token = app.Services.GetRequiredService<AccessToken>();
+        var stopping = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        app.Lifetime.ApplicationStopping.Register(() => stopping.TrySetResult());
+        Stopping = stopping.Task;
+        _shutdown = app.WaitForShutdownAsync(CancellationToken.None);
     }
 
     /// <summary>The address of the server, <c>http://127.0.0.1:port</c>.</summary>
@@ -25,7 +33,15 @@ internal sealed class KilerServer : IAsyncDisposable
 
     public AccessToken Token { get; }
 
-    public static Task<KilerServer> StartAsync() => StartAsync(KilerHost.Build(new StartOptions()));
+    /// <summary>Completes when the host starts to stop: by the heartbeat, or by <see cref="StopAsync"/>.</summary>
+    public Task Stopping { get; }
+
+    /// <summary>Completes when the server has stopped and let the port go.</summary>
+    public Task Stopped => _shutdown;
+
+    public static Task<KilerServer> StartAsync() => StartAsync(new StartOptions());
+
+    public static Task<KilerServer> StartAsync(StartOptions options) => StartAsync(KilerHost.Build(options));
 
     /// <summary>Starts an app from <see cref="KilerHost.Build"/> that the test has changed, for example with an extra endpoint.</summary>
     public static async Task<KilerServer> StartAsync(WebApplication app)
@@ -55,9 +71,16 @@ internal sealed class KilerServer : IAsyncDisposable
         return client;
     }
 
+    /// <summary>Stops the server as Ctrl+C does.</summary>
+    public async Task StopAsync()
+    {
+        _app.Lifetime.StopApplication();
+        await _shutdown;
+    }
+
     public async ValueTask DisposeAsync()
     {
-        await _app.StopAsync(CancellationToken.None);
+        await StopAsync();
         await _app.DisposeAsync();
     }
 }

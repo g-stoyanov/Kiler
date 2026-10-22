@@ -34,12 +34,14 @@ internal sealed class InstanceFile(string path)
 
     /// <summary>
     /// Writes the file, and deletes it when the host starts to stop. The host raises <paramref name="stopping"/> before
-    /// Kestrel lets the port go, so no start finds the file while the port is free and the lock is still held.
+    /// Kestrel lets the port go, so no start finds the file while the port is free and the lock is still held. The
+    /// delete is registered after the write: on a token that is already cancelled it runs at once, so a stop that came
+    /// first, such as the heartbeat right after the start, leaves no file.
     /// </summary>
     public void WriteUntilStopping(RunningInstance instance, CancellationToken stopping)
     {
-        stopping.Register(() => DeleteIfOwn(instance));
         Write(instance);
+        stopping.Register(() => DeleteIfOwn(instance));
     }
 
     /// <summary>Writes the file through a temporary file and a rename, so that a second start never reads half of it.</summary>
