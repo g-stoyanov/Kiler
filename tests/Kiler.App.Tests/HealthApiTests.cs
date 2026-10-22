@@ -1,14 +1,14 @@
 using System.Net;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Kiler.App.Tests;
 
-public class HealthApiTests(WebApplicationFactory<Program> factory) : IClassFixture<WebApplicationFactory<Program>>
+public class HealthApiTests
 {
     [Fact]
     public async Task GetHealth_Returns200WithTheVersionAsJson()
     {
-        using var client = factory.CreateClient();
+        await using var server = await KilerServer.StartAsync();
+        using var client = server.CreateSignedInClient();
 
         using var response = await client.GetAsync("/api/health", TestContext.Current.CancellationToken);
 

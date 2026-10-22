@@ -30,7 +30,8 @@ The task number, for example `M1.4`.
      - the cookie is HttpOnly and `SameSite=Strict`;
      - the `Host` header is checked;
      - the token does not go into logs and does not stay in the address;
-     - requests that change data cannot come from another site.
+     - requests that change data cannot come from another site, including another port of 127.0.0.1, which the browser counts as the same site;
+     - nothing reaches the app before `AccessGuard`: no endpoint, file or middleware is added before it, and no endpoint uses `ShortCircuit()` or `MapShortCircuit`, which run straight from routing.
    - **Permissions:**
      - the server checks every request (level, `canEdit`, `isAdmin`);
      - a level sent by the client is never trusted;

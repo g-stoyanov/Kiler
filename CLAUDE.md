@@ -93,6 +93,6 @@ The details are in [docs/PLAN.md](docs/PLAN.md), sections 2 and 3.
   - `tools/Kiler.DemoData`.
   - `tests/`.
 - **The Windows parts** (account, DPAPI, file owner, Explorer) are interfaces in Kiler.Core, and their implementations are in Kiler.App.
-- **Tests:** xUnit v3, WebApplicationFactory, Vitest, Playwright for .NET. For Kiler.Crypto and Kiler.Storage the tests are written first (TDD).
+- **Tests:** xUnit v3, API tests on the real Kestrel, Vitest, Playwright for .NET. For Kiler.Crypto and Kiler.Storage the tests are written first (TDD).
 - **CI:** GitHub Actions on `windows-latest`.
 - **Build and test commands:** recorded here in M1 (task M1.12), once the projects exist.

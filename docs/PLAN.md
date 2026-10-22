@@ -32,7 +32,7 @@
 | Data | JSON files, System.Text.Json |
 | Cryptography | built into .NET: AES-GCM, PBKDF2-SHA256, HMAC-SHA256, ECDSA P-256 (signed updates), DPAPI |
 | C# tests | xUnit v3 (package `xunit.v3`), the built-in assertions, on Microsoft Testing Platform (the `dotnet test` runner is set in `global.json`) |
-| API tests | WebApplicationFactory (`Microsoft.AspNetCore.Mvc.Testing`) |
+| API tests | the real Kestrel on `127.0.0.1` with `HttpClient`, not WebApplicationFactory (decided in M1.4) |
 | UI tests | Vitest |
 | E2E | Playwright for .NET (`Microsoft.Playwright.Xunit.v3`) |
 | Coverage | coverlet (`coverlet.MTP`) and ReportGenerator, no required threshold |
@@ -133,7 +133,8 @@ Design sections 4 and 14.
    - the address the browser is opened with contains a random 32-byte token;
    - on the first request, the token is exchanged for an HttpOnly cookie (`SameSite=Strict`) and the address is cleared;
    - a request without a valid cookie gets 401;
-   - a request with a foreign `Host` header is rejected, as protection against DNS rebinding.
+   - a request whose `Host` is not `127.0.0.1:<port>` or `localhost:<port>` gets 400, as protection against DNS rebinding;
+   - a request that the browser marks as coming from another site (`Sec-Fetch-Site` other than `same-origin` or `none`) gets 403. Other ports of 127.0.0.1 are the same site for the browser, so `SameSite=Strict` does not stop their requests (decided in M1.4).
 4. Opening the default browser.
 5. Single instance: a named mutex and a file with the port and the token in `%LOCALAPPDATA%\Kiler`. A second start only opens the browser to the running instance.
 6. Shutdown: the page sends a signal that it is alive (heartbeat). If there is no signal for a few seconds, the process stops. The wait covers a page reload.

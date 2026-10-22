@@ -51,11 +51,6 @@ internal sealed record StartOptions
         for (var i = 0; i < args.Count; i++)
         {
             var name = args[i];
-            if (IsHostSetting(name))
-            {
-                continue;
-            }
-
             if (!seen.Add(name))
             {
                 error = $"{name} is given more than once.";
@@ -117,15 +112,6 @@ internal sealed record StartOptions
         error = null;
         return true;
     }
-
-    /// <summary>
-    /// WebApplicationFactory starts Main with the host settings environment, contentRoot and applicationName,
-    /// as <c>--key=value</c>. The empty builder (KilerHost) does not read them, so they are skipped.
-    /// </summary>
-    private static bool IsHostSetting(string arg) =>
-        arg.StartsWith($"--{HostDefaults.EnvironmentKey}=", StringComparison.Ordinal)
-        || arg.StartsWith($"--{HostDefaults.ContentRootKey}=", StringComparison.Ordinal)
-        || arg.StartsWith($"--{HostDefaults.ApplicationKey}=", StringComparison.Ordinal);
 
     /// <summary>Takes the argument after <paramref name="i"/> as a value, unless it is missing, blank or looks like an option.</summary>
     private static bool TryTakeValue(IReadOnlyList<string> args, ref int i, [NotNullWhen(true)] out string? value)

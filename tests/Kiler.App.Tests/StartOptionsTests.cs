@@ -149,20 +149,14 @@ public class StartOptionsTests
         Assert.Contains("more than once", error, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void HostSettingsFromWebApplicationFactory_AreSkipped()
-    {
-        var options = Parse(
-            "--environment=Development", @"--contentRoot=C:\src\Kiler.App", "--applicationName=Kiler", "--port", "5050");
-
-        Assert.Equal(new StartOptions { Port = 5050 }, options);
-    }
-
     [Theory]
     [InlineData("--urls=http://0.0.0.0:80")]
+    [InlineData("--environment=Development")]
+    [InlineData(@"--contentRoot=C:\src\Kiler.App")]
+    [InlineData("--applicationName=Kiler")]
     [InlineData("--environment", "Development")]
     [InlineData("--Environment=Development")]
-    public void OtherHostSettings_AreErrors(params string[] args)
+    public void HostSettings_AreErrors(params string[] args)
     {
         Assert.Contains("Unknown argument", ParseError(args), StringComparison.Ordinal);
     }

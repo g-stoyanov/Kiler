@@ -36,7 +36,17 @@ The exe is published with Native AOT, decided after the checks in the real envir
 
 - `KilerHost.Build` uses `WebApplication.CreateEmptyBuilder` with `UseKestrelCore` and listens on `IPAddress.Loopback` only, set in code. The empty builder reads no arguments, environment variables or config files. Keep it that way: what tests need to change (port, token, timers, data folder) comes through `StartOptions` or DI, not configuration.
 - The Kiler.App types are `internal`, and the tests reach them through `InternalsVisibleTo`. `Program` is public because .NET 10 generates it so for top-level statements.
-- WebApplicationFactory runs `Main`. It passes `--environment=`, `--contentRoot=` and `--applicationName=`, which `StartOptions` skips. `Main` starts the host itself and keeps running, so the code after the start must also work with the test server, which has no address.
+
+## Access to the server (M1.4)
+
+- `AccessGuard` runs in front of every request, in this order:
+  - `Host` must be `127.0.0.1:<port>` or `localhost:<port>`, with the port of the connection (400);
+  - `Sec-Fetch-Site`, when present, must be `same-origin` or `none` (403). Other ports of 127.0.0.1 are the same site for the browser, so `SameSite=Strict` does not stop their requests;
+  - `GET /?t=<token>` sets the cookie and redirects to `/`;
+  - every other request needs the cookie (401).
+- No endpoint and no file is exempt, `/api/health` included. A new endpoint needs nothing extra, because the guard runs before it. Do not loosen the guard for tests.
+- `KilerHost.Build` adds the guard first and calls `UseRouting()` after it. Keep that order, and add static files (M1.8) and any other middleware after the guard. Otherwise WebApplication puts routing first, and an endpoint with `ShortCircuit()` or `MapShortCircuit` runs before the guard.
+- `AccessToken` is made in `KilerHost.Build` and reaches other code through DI. It never goes into the command line, the environment, logs, exception messages or the console. The one exception is the address printed with `--no-browser`. It is compared only with `AccessToken.Matches`, which is constant-time.
 
 ## Style
 
@@ -60,7 +70,8 @@ Opening the browser is also behind an interface, so tests can replace it (M1.5).
 
 - **xUnit v3** (package `xunit.v3`) with the built-in `Assert`. No FluentAssertions: since v8 its license is paid for commercial use.
 - **Microsoft Testing Platform.** xunit.v3 4.x runs on MTP v2, and `global.json` sets it as the `dotnet test` runner. Do not add the VSTest packages (`Microsoft.NET.Test.Sdk`, `xunit.runner.visualstudio`, `coverlet.collector`); coverage uses `coverlet.MTP`.
-- One test project per project in `src/`. `tests/Directory.Build.props` gives them `xunit.v3`, `OutputType` Exe and a global `using Xunit`. API tests use WebApplicationFactory in `Kiler.App.Tests`.
+- One test project per project in `src/`. `tests/Directory.Build.props` gives them `xunit.v3`, `OutputType` Exe and a global `using Xunit`.
+- API tests run on the real Kestrel through `KilerServer` in `Kiler.App.Tests`. It starts `KilerHost` on a free port of 127.0.0.1 and gives clients with or without the cookie. WebApplicationFactory is not used (decided in M1.4): its test server has no port, so the Host check rejects it, and it runs `Main`, which starts real things from M1.5 on (mutex, `instance.json`, browser).
 - **TDD in Kiler.Crypto and Kiler.Storage:** write the test first, run it and see it fail, then write the code.
 - A test name states the scenario and the expected result.
 - File tests work in a temporary folder that is deleted after the test.

@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Kiler.App.Tests;
 
@@ -12,7 +13,7 @@ public class ProcessEnvironmentCollection
     public const string Name = "Process environment";
 }
 
-/// <summary>The real Kestrel server, not the test server of WebApplicationFactory.</summary>
+/// <summary>The real Kestrel server and what the operating system sees of it.</summary>
 [Collection(ProcessEnvironmentCollection.Name)]
 public class KilerHostTests
 {
@@ -74,7 +75,9 @@ public class KilerHostTests
 
         Assert.Equal(port, AssertListensOnlyOnLoopback(app));
         using var client = new HttpClient();
-        using var response = await client.GetAsync($"http://127.0.0.1:{port}/api/health", TestContext.Current.CancellationToken);
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"http://127.0.0.1:{port}/api/health");
+        request.Headers.Add("Cookie", $"{AccessGuard.CookieName}={app.Services.GetRequiredService<AccessToken>().Value}");
+        using var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         await app.StopAsync(TestContext.Current.CancellationToken);
@@ -97,6 +100,18 @@ public class KilerHostTests
         {
             busy.Stop();
         }
+    }
+
+    [Fact]
+    public async Task Build_GivesEachHostItsOwnTokenThroughDependencyInjection()
+    {
+        await using var first = KilerHost.Build(new StartOptions());
+        await using var second = KilerHost.Build(new StartOptions());
+
+        var token = first.Services.GetRequiredService<AccessToken>();
+
+        Assert.Same(token, first.Services.GetRequiredService<AccessToken>());
+        Assert.NotEqual(token.Value, second.Services.GetRequiredService<AccessToken>().Value);
     }
 
     /// <summary>Checks the one address of the server and what the operating system has open on its port; returns the port.</summary>

@@ -2,7 +2,7 @@ using System.Net;
 
 namespace Kiler.App;
 
-/// <summary>The local web server: Kestrel on 127.0.0.1 only, with the Kiler API.</summary>
+/// <summary>The local web server: Kestrel on 127.0.0.1 only, with the Kiler API behind the access check.</summary>
 internal static class KilerHost
 {
     public static WebApplication Build(StartOptions options)
@@ -15,7 +15,14 @@ internal static class KilerHost
         builder.Services.AddRoutingCore();
         builder.Services.ConfigureHttpJsonOptions(json => json.SerializerOptions.TypeInfoResolverChain.Insert(0, KilerJsonContext.Default));
 
+        var token = new AccessToken();
+        builder.Services.AddSingleton(token);
+
         var app = builder.Build();
+        // Routing comes after the guard. WebApplication would otherwise put it first, and an endpoint with
+        // ShortCircuit() would run straight from routing, before the guard.
+        AccessGuard.Use(app, token);
+        app.UseRouting();
         HealthApi.Map(app);
         return app;
     }

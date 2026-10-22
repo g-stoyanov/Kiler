@@ -32,8 +32,14 @@ catch (Exception ex) when (options.Port is not null && ex is IOException or Sock
     return 1;
 }
 
-// Under WebApplicationFactory, Main starts the host as here and keeps running, but the
-// test server has no address. So nothing after the start may assume one.
-Console.WriteLine($"Kiler is listening on {string.Join(", ", app.Urls)}. Ctrl+C stops it.");
+var address = new Uri(app.Urls.Single());
+Console.WriteLine($"Kiler is listening on {address.GetLeftPart(UriPartial.Authority)}. Ctrl+C stops it.");
+
+// The address with the token lets anyone in, so it is printed only when no browser gets it (M1.5).
+if (options.NoBrowser)
+{
+    Console.WriteLine($"Open: {AccessGuard.EntryAddress(address, app.Services.GetRequiredService<AccessToken>())}");
+}
+
 await app.WaitForShutdownAsync();
 return 0;
