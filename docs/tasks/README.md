@@ -52,7 +52,7 @@ A dropped task stays in the list so the numbers stay stable. It is ticked and st
 
 ## Work cycle (one task)
 
-1. **Pick.** Read this file and the file of the current module. Take the first unticked task, unless the user names another one.
+1. **Pick.** Read this file and the file of the current module. Take the first unticked task, unless the user names another one. Collect the notes under earlier tasks that name it, for example "M1.5a: …" in a list "for the next tasks", and follow them with the task.
 2. **Unclear points.** If the task is unclear or needs a decision that is not in the plan, ask before the code.
 3. **Tests.** In Kiler.Crypto and Kiler.Storage the tests are written first and must fail. Elsewhere they are written in the same task, after the code.
 4. **Code.** Follow the rules of the skill for the part: `kiler-dotnet`, `kiler-ui` or `kiler-crypto` ([PLAN.md, section 8](../PLAN.md#8-agents-skills-and-hooks)). When in doubt about the API of the new versions, ask `docs-researcher`.
