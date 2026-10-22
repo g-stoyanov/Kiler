@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Kiler.Crypto\Kiler.Crypto.csproj" />
+  </ItemGroup>
+
+</Project>

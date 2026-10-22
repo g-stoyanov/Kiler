@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Templates, records, search, users, permissions, audit. It connects Crypto and Storage.
+    The Windows parts are interfaces here; Kiler.App implements them.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Kiler.Crypto\Kiler.Crypto.csproj" />
+    <ProjectReference Include="..\Kiler.Storage\Kiler.Storage.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -31,11 +31,11 @@
 | Documents | markdown-it, DOMPurify, Mermaid |
 | Data | JSON files, System.Text.Json |
 | Cryptography | built into .NET: AES-GCM, PBKDF2-SHA256, HMAC-SHA256, ECDSA P-256 (signed updates), DPAPI |
-| C# tests | xUnit v3 (package `xunit.v3`), the built-in assertions |
+| C# tests | xUnit v3 (package `xunit.v3`), the built-in assertions, on Microsoft Testing Platform (the `dotnet test` runner is set in `global.json`) |
 | API tests | WebApplicationFactory (`Microsoft.AspNetCore.Mvc.Testing`) |
 | UI tests | Vitest |
 | E2E | Playwright for .NET (`Microsoft.Playwright.Xunit.v3`) |
-| Coverage | coverlet and ReportGenerator, no required threshold |
+| Coverage | coverlet (`coverlet.MTP`) and ReportGenerator, no required threshold |
 | Code style | `dotnet format`, ESLint, Prettier |
 | CI | GitHub Actions, `windows-latest` |
 
@@ -47,7 +47,10 @@ The exact versions are fixed when the projects are created: the latest stable on
 
 ```
 Kiler.slnx
-Directory.Build.props      shared settings: nullable, warnings, version
+global.json                SDK version, test runner
+Directory.Build.props      shared settings: nullable, warnings, AOT analyzers, version
+Directory.Packages.props   NuGet package versions
+.editorconfig              code style
 src/
   Kiler.Crypto/            cryptography, no dependencies
   Kiler.Storage/           files: writing, history, trash, cache, change watching
@@ -57,6 +60,7 @@ src/
 tools/
   Kiler.DemoData/          generator of made-up demo data
 tests/
+  Directory.Build.props    test settings: xUnit v3, no AOT analyzers
   Kiler.Crypto.Tests/
   Kiler.Storage.Tests/
   Kiler.Core.Tests/
@@ -66,7 +70,6 @@ docs/
   PLAN.md
 .github/workflows/
   ci.yml
-  release.yml
 ```
 
 Dependencies:

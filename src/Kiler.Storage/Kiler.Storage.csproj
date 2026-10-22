@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The JSON files in data\: atomic writes, history, trash, cache, change polling.
+    It knows nothing about encryption and does not depend on the other Kiler projects.
+  -->
+
+</Project>

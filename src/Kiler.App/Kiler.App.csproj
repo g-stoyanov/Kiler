@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    Kiler.exe: the host, the API and the Windows implementations.
+    PublishAot is on from the start, so the analyzers check the code as for Native AOT.
+    The publish settings come in M1.8.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>Kiler</AssemblyName>
+    <RootNamespace>Kiler.App</RootNamespace>
+    <PublishAot>true</PublishAot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Kiler.Core\Kiler.Core.csproj" />
+  </ItemGroup>
+
+</Project>

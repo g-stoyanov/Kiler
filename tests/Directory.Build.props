@@ -1,0 +1,31 @@
+<Project>
+
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)..'))" />
+
+  <!-- xUnit v3 test projects are executables. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!-- The tests are not published with Native AOT, so they may use reflection. -->
+  <PropertyGroup>
+    <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>false</EnableSingleFileAnalyzer>
+    <EnableAotAnalyzer>false</EnableAotAnalyzer>
+  </PropertyGroup>
+
+  <!--
+    xunit.v3 4.x runs on Microsoft Testing Platform v2, and global.json switches dotnet test
+    to that runner. The VSTest packages (Microsoft.NET.Test.Sdk, xunit.runner.visualstudio,
+    coverlet.collector) do not work in this mode; coverage uses coverlet.MTP.
+  -->
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

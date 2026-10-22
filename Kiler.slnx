@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Kiler.App/Kiler.App.csproj" />
+    <Project Path="src/Kiler.Core/Kiler.Core.csproj" />
+    <Project Path="src/Kiler.Crypto/Kiler.Crypto.csproj" />
+    <Project Path="src/Kiler.Storage/Kiler.Storage.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Kiler.App.Tests/Kiler.App.Tests.csproj" />
+    <Project Path="tests/Kiler.Core.Tests/Kiler.Core.Tests.csproj" />
+    <Project Path="tests/Kiler.Crypto.Tests/Kiler.Crypto.Tests.csproj" />
+    <Project Path="tests/Kiler.Storage.Tests/Kiler.Storage.Tests.csproj" />
+  </Folder>
+</Solution>

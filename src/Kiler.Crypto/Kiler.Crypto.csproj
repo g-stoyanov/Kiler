@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Cryptography. No files, no network, no dependency on the other Kiler projects. -->
+
+</Project>

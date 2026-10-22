@@ -10,9 +10,9 @@ namespace Kiler.Probe;
 /// </summary>
 internal sealed class Report
 {
-    private readonly StringBuilder text = new();
-    private readonly List<(string Value, string Placeholder)> hidden = [];
-    private readonly string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+    private readonly StringBuilder _text = new();
+    private readonly List<(string Value, string Placeholder)> _hidden = [];
+    private readonly string _stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
 
     public Report(string mode)
     {
@@ -32,14 +32,14 @@ internal sealed class Report
         value = Path.TrimEndingDirectorySeparator(value);
         if (value.Length > 0)
         {
-            hidden.Add((value, placeholder));
+            _hidden.Add((value, placeholder));
         }
     }
 
     public void Line(string line)
     {
         Console.WriteLine(line);
-        text.AppendLine(line);
+        _text.AppendLine(line);
     }
 
     public void Check(string what, bool ok, string? detail = null)
@@ -53,15 +53,15 @@ internal sealed class Report
 
     public void Save()
     {
-        var content = text.ToString();
+        var content = _text.ToString();
         // The longest first, so that a folder inside the profile is not cut by the profile path.
-        foreach (var (value, placeholder) in hidden.OrderByDescending(item => item.Value.Length))
+        foreach (var (value, placeholder) in _hidden.OrderByDescending(item => item.Value.Length))
         {
             content = content.Replace(value, placeholder, StringComparison.OrdinalIgnoreCase);
         }
 
         // A random suffix and CreateNew: never write through a file that someone else put there first.
-        var path = Path.Combine(AppContext.BaseDirectory, $"Kiler.Probe-report-{stamp}-{Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(2))}.txt");
+        var path = Path.Combine(AppContext.BaseDirectory, $"Kiler.Probe-report-{_stamp}-{Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(2))}.txt");
         try
         {
             using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);

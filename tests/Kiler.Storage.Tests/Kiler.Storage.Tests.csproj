@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Kiler.Storage\Kiler.Storage.csproj" />
+  </ItemGroup>
+
+</Project>

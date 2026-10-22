@@ -29,11 +29,13 @@ The exe is published with Native AOT, decided after the checks in the real envir
 - JSON only with source generation (`JsonSerializerContext`). No reflection-based serialization.
 - No `Activator.CreateInstance`, no `Type.GetType` from a string, no dynamic assembly loading, no `dynamic`.
 - Minimal APIs. No MVC, no Razor.
-- The trim and AOT analyzers are on and warnings are errors. Do not suppress them without a comment that explains why.
+- The trim and AOT analyzers are on and warnings are errors. Do not suppress them without a comment that explains why. The test projects turn them off (`tests/Directory.Build.props`), because they are not published.
 
 ## Style
 
-These are general good practices, not project decisions. If a task asks for something else, the task wins.
+The build enforces `.editorconfig` (M1.1): file-scoped namespaces, usings outside the namespace and no unnecessary ones, braces, explicit accessibility, readonly fields. Names: interfaces `IName`, private fields `_camelCase`, private constants and private static readonly fields `PascalCase`.
+
+The rest are general good practices, not project decisions. If a task asks for something else, the task wins.
 
 - Nullable is on. Use `!` only with a reason.
 - Async all the way, with `CancellationToken`. No `.Result` or `.Wait()`.
@@ -50,7 +52,8 @@ Opening the browser is also behind an interface, so tests can replace it (M1.5).
 ## Tests
 
 - **xUnit v3** (package `xunit.v3`) with the built-in `Assert`. No FluentAssertions: since v8 its license is paid for commercial use.
-- One test project per project in `src/`. API tests use WebApplicationFactory in `Kiler.App.Tests`.
+- **Microsoft Testing Platform.** xunit.v3 4.x runs on MTP v2, and `global.json` sets it as the `dotnet test` runner. Do not add the VSTest packages (`Microsoft.NET.Test.Sdk`, `xunit.runner.visualstudio`, `coverlet.collector`); coverage uses `coverlet.MTP`.
+- One test project per project in `src/`. `tests/Directory.Build.props` gives them `xunit.v3`, `OutputType` Exe and a global `using Xunit`. API tests use WebApplicationFactory in `Kiler.App.Tests`.
 - **TDD in Kiler.Crypto and Kiler.Storage:** write the test first, run it and see it fail, then write the code.
 - A test name states the scenario and the expected result.
 - File tests work in a temporary folder that is deleted after the test.
