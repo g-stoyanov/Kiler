@@ -10,7 +10,19 @@
     <AssemblyName>Kiler</AssemblyName>
     <RootNamespace>Kiler.App</RootNamespace>
     <PublishAot>true</PublishAot>
+    <!-- The COM and P/Invoke source generators emit unsafe code: the Start menu shortcut (ShellShortcuts). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
+
+  <!--
+    Kiler.exe is for win-x64 only (PLAN section 2), and Kiler.App holds the Windows implementations. The platform analyzer
+    (CA1416) then accepts the Windows APIs, such as ACLs.
+  -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.Versioning.SupportedOSPlatformAttribute">
+      <_Parameter1>windows</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Kiler.Core\Kiler.Core.csproj" />

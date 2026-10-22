@@ -17,6 +17,13 @@
     <ProjectReference Include="..\..\src\Kiler.App\Kiler.App.csproj" />
   </ItemGroup>
 
+  <!-- Kiler.App is for Windows only, so the platform analyzer (CA1416) needs the same here to let the tests call it. -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.Versioning.SupportedOSPlatformAttribute">
+      <_Parameter1>windows</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
   <!-- FakeTimeProvider: the waits of the single instance without real time. -->
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />

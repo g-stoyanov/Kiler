@@ -161,6 +161,40 @@ public class StartOptionsTests
         Assert.Contains("Unknown argument", ParseError(args), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void ToServerArguments_NoOptions_IsEmpty()
+    {
+        Assert.Empty(Parse().ToServerArguments());
+    }
+
+    [Fact]
+    public void ToServerArguments_AllServerOptions_ArePassedOn()
+    {
+        var options = Parse("--data", @"C:\demo data\", "--port", "5050", "--no-browser");
+
+        Assert.Equal(["--no-browser", "--port", "5050", "--data", @"C:\demo data\"], options.ToServerArguments());
+    }
+
+    [Fact]
+    public void ToServerArguments_ARelativeDataFolder_BecomesAFullPathThatIsTheSameInstance()
+    {
+        // The copy runs in its own folder, so a relative path would name another folder, and another instance.
+        var options = Parse("--data", "demo");
+
+        var passedOn = Parse([.. options.ToServerArguments()]);
+
+        Assert.Equal(Path.Combine(Environment.CurrentDirectory, "demo"), passedOn.DataFolder);
+        Assert.Equal(InstancePlace.For(options.DataFolder, @"C:\Local\Kiler", 1), InstancePlace.For(passedOn.DataFolder, @"C:\Local\Kiler", 1));
+    }
+
+    [Theory]
+    [InlineData("--diag")]
+    [InlineData("--help")]
+    public void ToServerArguments_NotAServerStart_IsRefused(string mode)
+    {
+        Assert.Throws<InvalidOperationException>(() => Parse(mode).ToServerArguments());
+    }
+
     private static StartOptions Parse(params string[] args)
     {
         Assert.True(StartOptions.TryParse(args, out var options, out var error), error);

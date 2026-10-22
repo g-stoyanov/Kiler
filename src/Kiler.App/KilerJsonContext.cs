@@ -7,4 +7,5 @@ namespace Kiler.App;
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
 [JsonSerializable(typeof(HealthResponse))]
 [JsonSerializable(typeof(InstanceFileContent))]
+[JsonSerializable(typeof(ShareFileContent))]
 internal sealed partial class KilerJsonContext : JsonSerializerContext;

@@ -113,6 +113,36 @@ internal sealed record StartOptions
         return true;
     }
 
+    /// <summary>
+    /// The arguments for another Kiler.exe that starts the same server: the local copy (<see cref="LocalCopy"/>). The data
+    /// folder becomes a full path, because the copy runs in another working folder, and the instance names come from it.
+    /// </summary>
+    public IReadOnlyList<string> ToServerArguments()
+    {
+        if (Mode != StartMode.Server)
+        {
+            throw new InvalidOperationException($"Only a server start is passed on, not {Mode}.");
+        }
+
+        var arguments = new List<string>();
+        if (NoBrowser)
+        {
+            arguments.Add("--no-browser");
+        }
+
+        if (Port is { } port)
+        {
+            arguments.AddRange(["--port", port.ToString(CultureInfo.InvariantCulture)]);
+        }
+
+        if (DataFolder is { } dataFolder)
+        {
+            arguments.AddRange(["--data", Path.GetFullPath(dataFolder)]);
+        }
+
+        return arguments;
+    }
+
     /// <summary>Takes the argument after <paramref name="i"/> as a value, unless it is missing, blank or looks like an option.</summary>
     private static bool TryTakeValue(IReadOnlyList<string> args, ref int i, [NotNullWhen(true)] out string? value)
     {

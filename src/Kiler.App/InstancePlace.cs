@@ -17,7 +17,7 @@ internal sealed record InstancePlace(string MutexName, string FilePath)
     public static InstancePlace ForCurrentUser(string? dataFolder)
     {
         using var process = Process.GetCurrentProcess();
-        return For(dataFolder, LocalFolder(), process.SessionId);
+        return For(dataFolder, UserFolders.Kiler(), process.SessionId);
     }
 
     public static InstancePlace For(string? dataFolder, string localFolder, int sessionId)
@@ -32,21 +32,5 @@ internal sealed record InstancePlace(string MutexName, string FilePath)
         var folder = Path.TrimEndingDirectorySeparator(Path.GetFullPath(dataFolder)).ToUpperInvariant();
         var key = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(folder)).AsSpan(0, 8));
         return new($"{Name}.{key}", Path.Combine(localFolder, $"instance-{sessionId}-{key}.json"));
-    }
-
-    /// <summary>
-    /// <c>%LOCALAPPDATA%\Kiler</c>, in the profile of the user. By default only the user, SYSTEM and the administrators can
-    /// read it; the profile may add AppContainer capabilities, which are sandboxes of the same user.
-    /// </summary>
-    private static string LocalFolder()
-    {
-        // The known folder from Windows, not the LOCALAPPDATA variable.
-        var folder = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify);
-        if (folder.Length == 0)
-        {
-            throw new InvalidOperationException("Windows gives no local application data folder for this user.");
-        }
-
-        return Path.Combine(folder, "Kiler");
     }
 }

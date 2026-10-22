@@ -45,20 +45,8 @@ internal sealed class InstanceFile(string path)
     /// <summary>Writes the file through a temporary file and a rename, so that a second start never reads half of it.</summary>
     public void Write(RunningInstance instance)
     {
-        // The path is always a file in a folder: %LOCALAPPDATA%\Kiler or a test folder.
-        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
         var content = new InstanceFileContent(instance.Port, instance.Token.Value);
-        var temporary = $"{path}.{Guid.NewGuid():N}.tmp";
-        try
-        {
-            File.WriteAllBytes(temporary, JsonSerializer.SerializeToUtf8Bytes(content, KilerJsonContext.Default.InstanceFileContent));
-            File.Move(temporary, path, overwrite: true);
-        }
-        catch
-        {
-            TryDeleteFile(temporary);
-            throw;
-        }
+        PrivateFolder.WriteFile(path, JsonSerializer.SerializeToUtf8Bytes(content, KilerJsonContext.Default.InstanceFileContent));
     }
 
     /// <summary>The instance from the file; null when there is no file, it cannot be read now, or it is not valid.</summary>

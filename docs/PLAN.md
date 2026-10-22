@@ -86,7 +86,7 @@ Kiler.App ──► Kiler.Core ──► Kiler.Crypto
 
 - Kiler.Crypto and Kiler.Storage do not know about each other. Kiler.Core connects them.
 - The Windows parts are interfaces in Kiler.Core: current account, DPAPI, file owner, Explorer. Their implementations are in Kiler.App. This way the core tests use fake implementations.
-- Opening the browser is an interface in Kiler.App (decided in M1.5), because only the start of the exe opens a browser.
+- Opening the browser is an interface in Kiler.App (decided in M1.5), because only the start of the exe opens a browser. The same holds for copying the exe, the Start menu shortcut and starting the copy (M1.5a).
 
 ---
 
@@ -150,7 +150,12 @@ Design sections 4 and 14.
    - on build, MSBuild runs `npm ci` and `npm run build`, and the files are embedded as resources.
 9. Publishing: `dotnet publish` with Native AOT produces one `Kiler.exe`.
 10. Diagnostic mode `--diag` for section 14: speed of listing and reading many small files, owner of a new file. It takes over the logic of the probe, and the probe is then deleted.
-11. Local copy (decided after M1.0b): started from a network folder, the exe copies itself to `%LOCALAPPDATA%\Programs\Kiler` if there is no copy yet, remembers the shared folder (the data and the updates), and starts the local copy. It never overwrites an existing copy; updates are signed and come in M3.
+11. Local copy (decided after M1.0b): started from a network folder, the exe copies itself to `%LOCALAPPDATA%\Programs\Kiler` if there is no copy yet, remembers the shared folder (the data and the updates), and starts the local copy. It never overwrites an existing copy; updates are signed and come in M3. Decided in M1.5a:
+    - the single instance is checked first;
+    - the shared folder goes into `%LOCALAPPDATA%\Kiler\share.json` on every start from a shared folder, as it was started (a mapped drive stays a drive);
+    - the Start menu shortcut is made through `IShellLinkW` with the COM source generator, which works under Native AOT;
+    - `%LOCALAPPDATA%\Kiler` is made with a protected ACL: the user and SYSTEM;
+    - every start from the shared folder runs the exe there first, so the start tells the user to use the Start menu from then on.
 
 **Tests:**
 
@@ -234,7 +239,7 @@ Design sections 4.1, 7.1–7.3, 7.5, 7.7 and 7.10.
     - an ECDSA P-256 signature over `Kiler.exe`, checked with the public key built into the exe; the check is in Kiler.Crypto;
     - the key pair is made once by the maintainer; the private key stays outside the repo and the shared folder;
     - `version.json` in the shared folder carries the version, the SHA-256 and the signature;
-    - at start, the local copy (M1) reads `version.json`. For a newer version it writes the new exe next to itself as `.new` and checks the signature, renames its own running exe to `.old`, moves the new one into place and restarts. On any failure, the old exe goes back. The leftovers are deleted at the next start, with a few attempts, and a failure there never stops the application. This part is in Kiler.App, and the probe in M1.0b checked that the antivirus allows it;
+    - at start, the local copy (M1) reads `version.json`. For a newer version it writes the new exe next to itself as `.new` and checks the signature, renames its own running exe to `.old`, moves the new one into place and restarts. On any failure, the old exe goes back. The leftovers are deleted at the next start, with a few attempts, and a failure there never stops the application. They include a `Kiler.exe.*.tmp` that an interrupted first copy left (M1.5a). This part is in Kiler.App, and the probe in M1.0b checked that the antivirus allows it;
     - a tool that signs a release.
 12. Personal key (section 7.10):
     - generation; locking with the password and with a personal recovery code; unlocking with either; locking again with a new password;
@@ -510,7 +515,7 @@ Throughout the project.
    - a made-up set of about 30 records: stash paths of several systems, all templates, tags, levels 0–3, an admin and two users with demo passwords, and a few private records of one of the users;
    - a "volume" mode with 2000 records.
 5. Screenshots for the exam write-up from the E2E tests, with the demo data.
-6. README for the public repo: what Kiler is, screenshots, how to build it and how to run the demo.
+6. README for the public repo: what Kiler is, screenshots, how to build it and how to run the demo. How users start it: once from the shared folder, then from the Start menu (M1.5a).
 
 ---
 
@@ -530,6 +535,9 @@ They are resolved at the start of the relevant module. The decisions are also re
 | M3 | Binding the encrypted group to the record id and the level (associated data in AES-GCM), so that a group cannot be moved to another record. This is an addition to the design. Decided for private records: the owner and the record id (design section 7.10). |
 | M3 | Where and how the key for the admin seal is kept. |
 | M5 | Rules for changing a template that has records. Private records are read only by their owner's exe, so the rules must work without the admin rewriting them. |
+| M2 | Whether `share.json` is checked again when it is read: a folder that is no longer a network path is refused (M1.5a security review). A start of the real exe from a folder someone else controls moves the user's data there. |
+| M3 | Whether the first copy checks the copied exe against the signed `version.json` before it starts it. The bytes are copied by path some seconds after the start, and a DLL planted next to the exe in the shared folder runs in it (M1.5a security review). |
+| M6 | Whether the UI shows the shared folder that Kiler uses (M1.5a security review). |
 | M6 | UI component library, routing, data loading. |
 | M7 | What highlights the code in MD: CodeMirror or a separate library. |
 | M8 | Which language the README is in. Decided: English, like the other repository documents. |

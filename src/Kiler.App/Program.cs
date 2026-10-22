@@ -22,7 +22,7 @@ switch (options.Mode)
 
 var place = InstancePlace.ForCurrentUser(options.DataFolder);
 var instanceFile = new InstanceFile(place.FilePath);
-// Held until the end of Main, after the server has stopped.
+// Held until the end of Main, after the server has stopped. A start that hands over to the local copy lets it go first.
 using var instanceLock = new InstanceMutex(place.MutexName);
 var browser = new DefaultBrowser();
 
@@ -56,6 +56,17 @@ switch (decision)
     case StartDecision.StaleFileStays:
         Console.Error.WriteLine($"Kiler cannot delete the file of an earlier run: {instanceFile.Path}. Delete it and start Kiler again.");
         return 1;
+}
+
+// Started from a shared folder, Kiler runs from its copy in the profile. The single instance comes first, so a Kiler that
+// runs already only gets the browser. The copy takes the lock itself.
+var localCopy = new LocalCopy(
+    CopyPlace.ForCurrentUser(), new ShareFile(Path.Combine(UserFolders.Kiler(), "share.json")), new CopyFiles(), new ShellShortcuts(), new ProcessStarter());
+var copyDecision = localCopy.Decide(Environment.ProcessPath);
+if (copyDecision is not LocalCopyDecision.RunHere)
+{
+    instanceLock.Dispose();
+    return localCopy.Start(copyDecision, options, Console.Out, Console.Error);
 }
 
 await using var app = KilerHost.Build(options);
