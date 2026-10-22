@@ -163,19 +163,22 @@ Design sections 4 and 14.
 
 ### M2. Data layer
 
-Design section 5.
+Design sections 5 and 7.10.
 
 **Goal:** reliable reading and writing of the JSON files in the shared folder, when many people use it at the same time. The layer does not know about encryption. To it, the encrypted parts are plain strings.
 
 **Steps:**
 
-1. The structure of `data\` (section 5.1): `settings.json`, `levels.json`, `templates`, `users`, `records`, `history`, `trash`, `audit`. By default it is `data\` in the shared folder that the local copy remembers (M1), and `--data` changes it.
+1. The structure of `data\` (section 5.1): `settings.json`, `levels.json`, `templates`, `stashes`, `users`, `records`, `history`, `trash`, `audit`, `private`. By default it is `data\` in the shared folder that the local copy remembers (M1), and `--data` changes it.
+   - `private\<account>\` holds one user's private records (section 7.10): `key.json`, `records`, `history`, `trash`. The layer works with any root folder, so the private folder uses the same code.
 2. Models and serialization with System.Text.Json and source generation.
 3. Atomic write (section 5.4): a temporary file, a copy of the old version in `history\<id>\vN.json`, rename. The file is always created anew, and its creation time is set equal to the write time. It is set explicitly, because NTFS can give the new file the creation time of the old one on such a rename (file tunneling).
 4. Versions and conflicts (section 5.5): write only if the version on disk is the expected one. Otherwise the result is "conflict" with the version from disk.
 5. Deletion to `trash\` and restore from there. A list of the versions and restoring an old version (section 5.6).
 6. Loading and local cache (section 5.3): startup is from the copy in `%LOCALAPPDATA%\Kiler`, after which only the changed files are synchronized. Files are read from the share in parallel, about 16 at a time: one by one, 2000 files take about 25 s, and 16 at a time about 1 s (M1.0b).
 7. Watching for changes about every 10 seconds: one listing of the folder with names and dates, reloading the changed files, events to the upper layers.
+   - Only the current user's private folder is loaded and watched.
+   - An admin's exe also copies the other users' private folders into its cache, without reading them, so they can be restored (step 10).
 8. Resilience:
    - a corrupted JSON file is skipped and reported, without a crash;
    - when the network is unavailable, the application works from the cache and shows this.
@@ -193,6 +196,7 @@ Design section 5.
 - cache synchronization;
 - restore from the cache;
 - corrupted file;
+- a private folder: the same operations with another root; other users' private folders are not loaded, and an admin's cache keeps a copy of them;
 - loading 2000 files, with timing.
 
 **Done:** a C# API for reading, writing, deleting, history and watching, covered by tests. The layer has no UI.
@@ -201,7 +205,7 @@ Design section 5.
 
 ### M3. Cryptography
 
-Design sections 4.1, 7.1–7.3, 7.5 and 7.7.
+Design sections 4.1, 7.1–7.3, 7.5, 7.7 and 7.10.
 
 **Goal:** a clean library with all cryptographic operations, with no files and no UI.
 
@@ -223,6 +227,10 @@ Design sections 4.1, 7.1–7.3, 7.5 and 7.7.
     - `version.json` in the shared folder carries the version, the SHA-256 and the signature;
     - at start, the local copy (M1) reads `version.json`. For a newer version it writes the new exe next to itself as `.new` and checks the signature, renames its own running exe to `.old`, moves the new one into place and restarts. On any failure, the old exe goes back. The leftovers are deleted at the next start, with a few attempts, and a failure there never stops the application. This part is in Kiler.App, and the probe in M1.0b checked that the antivirus allows it;
     - a tool that signs a release.
+12. Personal key (section 7.10):
+    - generation; locking with the password and with a personal recovery code; unlocking with either; locking again with a new password;
+    - the personal recovery code has the same format as the recovery key (step 7);
+    - a private record is encrypted whole with the personal key, with the owner and the record id as associated data.
 
 **Tests** (the tests are written first):
 
@@ -234,7 +242,8 @@ Design sections 4.1, 7.1–7.3, 7.5 and 7.7.
 - recovery with the recovery key;
 - known test vectors for PBKDF2 and AES-GCM;
 - an old version of the format is read;
-- an update with a valid signature is accepted; a changed exe or another key is rejected.
+- an update with a valid signature is accepted; a changed exe or another key is rejected;
+- the personal key is unlocked with the password and with the recovery code; a private record does not decrypt under another id or another owner.
 
 **Done:** Kiler.Crypto with full tests and no dependencies on the other projects.
 
@@ -254,7 +263,7 @@ Design sections 7, 8.2 (audit) and 12.
    - generating the keys;
    - a recovery key, shown only once;
    - a warning while there is no second admin.
-3. Sign-in (section 7.5): finding the file by the Windows account, password, checking the keys with `check`. A temporary password must be changed.
+3. Sign-in (section 7.5): finding the file by the Windows account, password, checking the keys with `check`. A temporary password must be changed. The same password also unlocks the personal key, if there is one.
 4. Guest mode: level 0, read-only, a "Sign in" button.
 5. Session in the exe's memory:
    - keeps the unlocked keys;
@@ -262,23 +271,31 @@ Design sections 7, 8.2 (audit) and 12.
    - locking removes the keys and the decrypted data from memory.
 6. "Remember me":
    - only for levels without `"remember": false`;
-   - Prod always asks for a password;
+   - Prod and the personal key always ask for a password;
    - a single level is unlocked from the padlock.
 7. Admin actions (section 7.6): new user, level change, new temporary password, "editor" and "admin" rights. Every user file gets a seal.
 8. Detection (section 7.8):
    - users without a valid seal are marked as suspicious;
    - changes by people without `canEdit` are detected by the file owner;
-   - files edited in place, outside Kiler (M2), are marked, because their owner is still the old author.
+   - files edited in place, outside Kiler (M2), are marked, because their owner is still the old author;
+   - a file in a private folder whose owner is not the folder's owner is marked;
+   - a record whose `updatedBy` is not the owner of its file is marked.
 9. Permission check on the server on every request: read level, `canEdit`, `isAdmin`. Nobody writes a field above their level (section 7.4).
 10. Audit (sections 8.2 and 12): showing and copying Prod passwords is recorded in `audit\<date>\<user>.jsonl`.
 11. Removing an untrusted person (section 7.9):
     - a new key for the level;
     - all groups with this level are encrypted again;
     - the other users with this level get new temporary passwords.
-12. Screens:
+12. Personal key (section 7.10):
+    - it is created by the user's own exe with their first private record, never by the admin's exe, together with a personal recovery code that is shown only once and a warning that without the password and the code the private records are lost;
+    - when a temporary password is changed, the previous password or the recovery code carries the personal key over to the new password; if this is skipped, the private records stay locked and can be unlocked later;
+    - it is never remembered and locks after inactivity together with the highest level;
+    - if it does not unlock, there is an error and never a new key in its place.
+13. Screens:
     - the wizard;
-    - sign-in and password change;
-    - locked screen and unlocking a level;
+    - sign-in and password change, with the field for the previous password or the recovery code;
+    - locked screen and unlocking a level or the personal key;
+    - the personal recovery code, shown once;
     - admin: users (including the suspicious ones) and levels.
 
 **Tests:**
@@ -292,6 +309,7 @@ Design sections 7, 8.2 (audit) and 12.
 - the admin creates a user, who signs in with the temporary password and must change it;
 - audit entries;
 - changing a level key;
+- the personal key: the admin's exe cannot unlock it; it survives a level change (with the previous password) and a forgotten password (with the recovery code); it is not remembered;
 - E2E: wizard → sign-in → the admin creates a user.
 
 **Done:** all roles from section 7.4 work through the API and the screens, and permissions are checked on the server.
@@ -300,7 +318,7 @@ Design sections 7, 8.2 (audit) and 12.
 
 ### M5. Templates, records and search
 
-Design sections 5.2, 6 and 11.
+Design sections 5.2, 6, 7.10 and 11.
 
 **Goal:** the record logic and the API for the UI.
 
@@ -309,7 +327,9 @@ Design sections 5.2, 6 and 11.
 1. Template model and validation: field types (section 6.4) and their settings (section 6.5), `levelByEnv`, `ref`, selectable language.
 2. The initial templates (section 6.1): "Server / database", "SQL query", "Link", "Note".
 3. Record:
-   - common fields: system, function, title, tags;
+   - the mandatory header (section 6.1): a path of 1 to 4 stashes, name, description, tags, created and last updated on and by, private; the template's fields come after it;
+   - the stashes, the name and the tags are level 0; the description is level 0 unless the author raises it;
+   - the dates and the authors are set only by the exe, in UTC, and cannot be edited;
    - the fields are grouped by level, and the groups are encrypted with M3.
 4. Field level: from the template, raised by the author or by the environment (`levelByEnv`). On a partial edit, the editor touches only the groups up to their level, and the higher ones stay untouched (section 5.2).
 5. Locked fields are returned as "🔒 requires level X" instead of a value.
@@ -322,7 +342,7 @@ Design sections 5.2, 6 and 11.
    - the search text does not contain the passwords;
    - all words are searched, case-insensitive, in Cyrillic and in Latin;
    - the filters come from the fields with `filter`;
-   - a System → Function → Type tree with counters;
+   - the stash tree with counters (step 12), filters by type and by tags (a record must have all the selected tags);
    - everything is updated on changes from M2.
 8. `ref`: the title of the record it points to and a link to it. Handling the case when that record is deleted.
 9. API:
@@ -330,8 +350,23 @@ Design sections 5.2, 6 and 11.
    - creating and editing with a version (on conflict: 409 with both versions);
    - deleting, restoring from the trash, history;
    - templates (for admin);
-   - suggestions for systems and general settings.
+   - stashes: the list and creating one; renaming, merging and deleting for the admin;
+   - suggestions for tags and general settings.
 10. Changing a template that has records (a removed field, a changed level): rules and re-encryption where needed.
+11. Private records (section 7.10):
+    - any signed-in user creates them, without `canEdit`; the guest has none;
+    - the whole record is encrypted with the personal key (M3); only `id`, `template`, `version`, `owner` and the dates are in clear text;
+    - they are in the search, the filters and the tree only for their owner, with a "Private only" filter;
+    - a private record can `ref` a shared one, but a shared record cannot `ref` a private one;
+    - "Make shared" turns a private record into a shared one, with the template's levels up to the user's level; it needs `canEdit`, and the private record goes to the private trash;
+    - no audit.
+12. Stashes (section 6.6):
+    - one shared list, one file per stash in `stashes\`, with no levels and no parent; the name is unique, case-insensitive;
+    - a record points to its stashes by id: 1 to 4, without gaps and without repeats;
+    - any user with `canEdit` creates a stash; only the admin renames, merges (the merged stash keeps a redirect) and deletes (only when no shared record uses it; the stash stays marked as deleted);
+    - private records use the shared stashes; a private record whose path goes through a deleted stash is shown at the position before it;
+    - the tree is built from the paths of the records the current user sees: a node with no visible record is not shown, and the counters count only the visible records;
+    - the stash names are part of the search text.
 
 **Tests:**
 
@@ -342,6 +377,10 @@ Design sections 5.2, 6 and 11.
 - an editor cannot change the environment so that the password is raised above their level;
 - conflict;
 - `ref`;
+- a private record is never seen by another user, the admin or the guest, also through the API; "Make shared"; a shared record cannot `ref` a private one;
+- stashes: a path with a gap or a repeat is rejected; a rename is seen everywhere; a merge keeps the paths; a stash used by a shared record cannot be deleted; a node with only invisible records is not shown, and its records are not counted;
+- the tag filter;
+- the dates and the authors of the header cannot be set through the API;
 - 2000 records, with timing;
 - API tests of all endpoints, including the permissions.
 
@@ -351,21 +390,28 @@ Design sections 5.2, 6 and 11.
 
 ### M6. User interface
 
-Design sections 8 and 10.
+Design sections 6.6, 7.10, 8 and 10.
 
 **Goal:** the main view and all the work with records.
 
 **Steps:**
 
 1. Main view:
-   - a tree with counters and filters;
+   - the stash tree with counters, collapsed to level 1 at the start; the open nodes are remembered locally; on a search or a filter, only the branches with results, expanded;
+   - a "+" button on every node, which opens the new record form with the path filled in up to that node (section 6.6), and one above the tree for a record without a path; the guest does not see it;
+   - filters by the fields with `filter`, by type and by tags;
    - global search with Ctrl+K and a delay of about 150 ms;
-   - a list with the results (the fields with `list`).
+   - a list with the results (the fields with `list`);
+   - private records with a mark and a "Private only" filter; while they are locked, one "🔒 Private records (N)" item with an unlock button.
 2. Record view:
+   - the header, with the stash path, where each part is a link to its node;
    - "copy" buttons;
    - passwords: hidden, with "show" and "copy", which get the value from the server;
    - padlocks with an unlock button.
-3. Forms generated from the templates: creating and editing, required fields, raising the level, choosing a `ref`, suggestions for the system, tags.
+3. Forms generated from the header and the template: creating and editing, required fields, raising the level, choosing a `ref`, tags with suggestions. A "Private" checkbox when creating, checked and locked for a user without `canEdit`, and "Make shared" on a private record.
+   - Stashes (section 6.6): four drop-downs that filter while typing. The stashes already used at that position under the chosen path come first. The last option is "Create …" when nothing matches exactly. A position opens only after the one before it is chosen, and clearing it clears the ones after it.
+   - From a "+" button: the positions filled in are locked until "Change" is clicked; the next position gets the focus, and if it stays empty, the record stays at that node.
+   - When a stash name in the path matches a value of `env`, the form suggests that value; `env` stays a separate field.
 4. Code (section 8.3):
    - CodeMirror 6 with the languages from the design, line numbers, search, themes;
    - "Copy" and "Format" buttons (SQL, including PL/SQL);
@@ -374,6 +420,7 @@ Design sections 8 and 10.
 6. History and trash (section 5.6): who changed what and when; restore with one click.
 7. Admin screens (section 8.4):
    - templates;
+   - stashes: the number of shared records for each, renaming, merging, deleting;
    - general settings: guest mode, path variables, locking;
    - history and audit;
    - restoring missing or damaged files from the local copy (M2).
@@ -385,7 +432,7 @@ Design sections 8 and 10.
 **Tests:**
 
 - Vitest: detecting the bind parameters, filling in a query, generating a form from a template.
-- E2E: search and filters; creating and editing; showing and copying a password with audit; conflict; theme.
+- E2E: search and filters; creating and editing; showing and copying a password with audit; conflict; theme; a private record that another user does not see, locked and unlocked; the stash tree; creating a record with "+" on a node, at that node and one level deeper with a new stash; creating a stash from the form.
 - Screenshots for the write-up.
 
 **Done:** everything from design sections 8 and 10 works with the demo data.
@@ -451,7 +498,7 @@ Throughout the project.
    - artifacts: the exe, the coverage report, the traces on failure, the screenshots.
 3. ~~`release.yml`: on a `v*` tag, a publish is made, plus a GitHub Release with `Kiler.exe` and its SHA256 checksum.~~ Dropped: a GitHub Release is useful only while the public repo exists. The CI artifact is enough for the exam, and in the company the exe is copied to the shared folder.
 4. `tools/Kiler.DemoData`. It uses the Kiler libraries, so it encrypts correctly. It grows with M4–M7. It has two modes:
-   - a made-up set of about 30 records: several systems, all templates, levels 0–3, an admin and two users with demo passwords;
+   - a made-up set of about 30 records: stash paths of several systems, all templates, tags, levels 0–3, an admin and two users with demo passwords, and a few private records of one of the users;
    - a "volume" mode with 2000 records.
 5. Screenshots for the exam write-up from the E2E tests, with the demo data.
 6. README for the public repo: what Kiler is, screenshots, how to build it and how to run the demo.
@@ -471,9 +518,9 @@ They are resolved at the start of the relevant module. The decisions are also re
 | M1 | GitHub Actions with Claude (`claude-code-action`, PR review). Decided: no. The local `code-reviewer` is enough. |
 | process | Plan mode at the start of a module. Decided: no. Planning stays in the conversation, with multiple-choice questions. |
 | M1.7 or M6 | Whether all UI texts live in one file. |
-| M3 | Binding the encrypted group to the record id and the level (associated data in AES-GCM), so that a group cannot be moved to another record. This is an addition to the design. |
+| M3 | Binding the encrypted group to the record id and the level (associated data in AES-GCM), so that a group cannot be moved to another record. This is an addition to the design. Decided for private records: the owner and the record id (design section 7.10). |
 | M3 | Where and how the key for the admin seal is kept. |
-| M5 | Rules for changing a template that has records. |
+| M5 | Rules for changing a template that has records. Private records are read only by their owner's exe, so the rules must work without the admin rewriting them. |
 | M6 | UI component library, routing, data loading. |
 | M7 | What highlights the code in MD: CodeMirror or a separate library. |
 | M8 | Which language the README is in. Decided: English, like the other repository documents. |

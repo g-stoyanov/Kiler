@@ -16,6 +16,11 @@ Decisions come from sections 7 and 12 of the design (`KILER_DESIGN.md`, local, n
 - **The password is not stored anywhere.** A wrong password simply does not unlock the keys.
 - A level's `check` value is a known text encrypted with the level key. It proves that an unlocked key is genuine.
 - The admin stamp is an HMAC-SHA256 over the user's file, with a key that only admins have.
+- **Private records** (design section 7.10) use a **personal key** of 32 random bytes:
+  - it is created by the user's own exe with their first private record, never by the admin's exe, and the admin never gets it;
+  - it is kept in `private\<account>\key.json`, not in the user's file, locked twice: with the password and with a personal recovery code;
+  - a private record is encrypted whole with it, with the owner and the record id as associated data;
+  - it is never remembered (no DPAPI), like the levels with `"remember": false`.
 
 ## Algorithms
 
@@ -40,6 +45,7 @@ Only what is built into .NET. No external crypto libraries and no home-made algo
 - Passwords, keys and decrypted values never go into logs, exception messages or `ToString()`.
 - Forbidden: `System.Random` for security, MD5, SHA-1, ECB, CBC without a MAC, home-made schemes.
 - Nobody encrypts a field above their own level, because they do not have the key. The server checks this too.
+- If the personal key does not unlock, fail. Never create a new personal key in its place: the old private records would become unreadable without anyone noticing.
 
 ## Tests
 
@@ -52,16 +58,18 @@ Tests are written first (TDD) and cover:
 - changing the password keeps the same level key;
 - recovery with the recovery key;
 - known test vectors for PBKDF2-SHA256 and AES-GCM;
-- an older format version can still be read.
+- an older format version can still be read;
+- the personal key unlocks with the password and with the recovery code;
+- a private record does not decrypt under another id or another owner.
 
 ## Deferred (decided at the start of M3)
 
 | Question | Note |
 |---|---|
 | Exact byte layout of the format | version, nonce, ciphertext and tag; base64 |
-| Binding a group to the record id and level (associated data in AES-GCM) | an addition to the design; needs a decision |
+| Binding a group to the record id and level (associated data in AES-GCM) | an addition to the design; needs a decision. Decided for private records: the owner and the record id |
 | Where and how the admin stamp key is kept | |
 | What exactly the stamp signs | a canonical form of the user's file, without the `stamp` field itself |
-| Recovery key format | a long, readable code, shown only once |
+| Recovery key format | a long, readable code, shown only once; the personal recovery code uses the same format |
 | Salt length | |
 | Where the private key for signing updates is kept, and how a release is signed | never in the repo or the shared folder |

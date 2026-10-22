@@ -1,6 +1,6 @@
 # Kiler
 
-A portable organizer for the team: database and server addresses, accounts, SQL queries, links to documentation, grouped by system, function and type. One self-contained .NET exe starts a local web server on `127.0.0.1` and opens the browser. The data is JSON files in a shared folder, and the sensitive fields are encrypted by access level.
+A portable organizer for the team: database and server addresses, accounts, SQL queries, links to documentation, grouped in a tree of up to four levels (stashes). One self-contained .NET exe starts a local web server on `127.0.0.1` and opens the browser. The data is JSON files in a shared folder, and the sensitive fields are encrypted by access level.
 
 The full design is in `KILER_DESIGN.md`. It is the source of truth for the decisions: do not rediscover them, and if the code has to deviate from it, ask first.
 
