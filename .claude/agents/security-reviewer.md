@@ -36,8 +36,15 @@ The task number, for example `M1.4`.
      - the server checks every request (level, `canEdit`, `isAdmin`);
      - a level sent by the client is never trusted;
      - nobody writes a field above their own level.
+   - **Kiler as a client and a launcher** (added after M1.5):
+     - before Kiler sends a secret to a loopback port or opens the browser there, what proves that the listener is its own;
+     - which schemes and hosts can reach `ShellExecute` or `Process.Start`; secrets on a child process's command line, which process-creation auditing and EDR keep; a launcher that captures a child's console output;
+     - outbound HTTP from the exe: proxy, redirects, cookies, timeouts, response size.
+   - **Local files with secrets outside `data\`** (added after M1.5): location, ACL, leftovers after a crash, atomic writes, and sharing modes: a reader must not block the writer or the delete.
+   - **Named kernel objects** (added after M1.5): user and session scope, squatting by another user, the abandoned state, and whether their scope matches the files and ports they guard.
    - **Secret values:**
      - passwords never appear in lists, search, logs, errors or URLs;
+     - a C# record that holds a secret overrides `ToString()`, because the generated one prints every property;
      - showing or copying a Prod password is written to the audit log.
    - **Cryptography:** per the rules in `kiler-crypto`: nonce, tag, PBKDF2, zeroing keys, forbidden algorithms.
    - **Paths:**

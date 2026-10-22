@@ -44,6 +44,47 @@ public class AccessTokenTests
     }
 
     [Fact]
+    public void TryParse_TheValueOfAToken_GivesATokenThatMatchesIt()
+    {
+        var original = new AccessToken();
+
+        Assert.True(AccessToken.TryParse(original.Value, out var parsed));
+
+        Assert.Equal(original.Value, parsed.Value);
+        Assert.True(parsed.Matches(original.Value));
+    }
+
+    [Fact]
+    public void TryParse_AnythingButTheExactForm_IsFalse()
+    {
+        const string Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        var value = new AccessToken().Value;
+        // 43 characters carry 258 bits for 256, so the last character has two unused bits. Setting one gives the same
+        // bytes from another text.
+        var unusedBitSet = value[..^1] + Alphabet[Alphabet.IndexOf(value[^1], StringComparison.Ordinal) + 1];
+        string?[] invalid =
+        [
+            null,
+            "",
+            value[..^1],
+            value + "A",
+            value + "=",
+            " " + value,
+            value + " ",
+            value[..20] + " " + value[21..],
+            value[..20] + "\r\n" + value[22..],
+            value[..^1] + "+",
+            value[..^1] + "/",
+            value[..^1] + "\"",
+            value[..^1] + "é",
+            "\" --flag " + value[9..],
+            unusedBitSet,
+        ];
+
+        Assert.All(invalid, candidate => Assert.False(AccessToken.TryParse(candidate, out _), candidate));
+    }
+
+    [Fact]
     public void ToString_DoesNotShowTheValue()
     {
         var token = new AccessToken();

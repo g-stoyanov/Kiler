@@ -30,7 +30,7 @@ The task number, for example `M1.4`. If it is missing, take the first unticked t
    - **Scope:** is everything in "What" done, and is nothing outside the task?
    - **Tests:** is there a test for every item in "Tests", and does it really test that item rather than something trivial? For TDD tasks: do the tests cover the failure cases?
    - **Done:** can every "Done" criterion be checked?
-   - **Bugs:** edge cases, error handling, concurrency, resource disposal, async.
+   - **Bugs:** edge cases, error handling, concurrency, resource disposal, async. Among the edge cases: the first run on a clean machine, where folders such as `%LOCALAPPDATA%\Kiler` do not exist yet, and files left over from a crash.
    - **Skill rules:** AOT-ready code, Windows parts behind interfaces, secret values in the browser, and so on.
    - **Real data:** internal system names, hosts, accounts, passwords or company paths in code, tests, data and comments. The known internal terms are listed in `.claude/data-guard.local.txt`, which is local and not in git. If you find one, give the file and line without quoting the term.
    - **Scripts and hooks:** do they work in PowerShell 5.1, and do they block on failure instead of letting things through?

@@ -46,7 +46,20 @@ The exe is published with Native AOT, decided after the checks in the real envir
   - every other request needs the cookie (401).
 - No endpoint and no file is exempt, `/api/health` included. A new endpoint needs nothing extra, because the guard runs before it. Do not loosen the guard for tests.
 - `KilerHost.Build` adds the guard first and calls `UseRouting()` after it. Keep that order, and add static files (M1.8) and any other middleware after the guard. Otherwise WebApplication puts routing first, and an endpoint with `ShortCircuit()` or `MapShortCircuit` runs before the guard.
-- `AccessToken` is made in `KilerHost.Build` and reaches other code through DI. It never goes into the command line, the environment, logs, exception messages or the console. The one exception is the address printed with `--no-browser`. It is compared only with `AccessToken.Matches`, which is constant-time.
+- `AccessToken` is made in `KilerHost.Build` and reaches other code through DI. It never goes into the command line, the environment, logs, exception messages, `ToString()` or the console. It is compared only with `AccessToken.Matches`, which is constant-time. The exceptions, all from M1.5:
+  - the address with the token is handed to the default browser through the shell, so it lands on the browser's command line. The shell offers no other way;
+  - the address is printed as `Open: <address>` with `--no-browser`, and when the browser does not open;
+  - the instance file holds it for the next start (see "Single instance").
+- A token read from outside the process, such as the instance file, goes through `AccessToken.TryParse`, which accepts only the exact 43-character form.
+
+## Single instance (M1.5)
+
+- One Kiler per user, session and data folder. `InstanceMutex` is a named mutex with `NamedWaitHandleOptions` `CurrentUserOnly` and `CurrentSessionOnly`. The file is `%LOCALAPPDATA%\Kiler\instance-<session>.json`, and with `--data` `instance-<session>-<key>.json`, the key from the full path of the folder (`InstancePlace`). The mutex and the file have the same scope. Keep it that way.
+- The mutex is held for the life of the process, on a thread of its own. A mutex belongs to the thread that took it and is released when that thread ends, and after an `await` the code runs on thread pool threads, which end when idle.
+- `SingleInstance` decides. The file is read only while another process holds the mutex. When this process gets the mutex, a file left over is deleted before the server starts, and its port is never contacted; if it cannot be deleted, Kiler does not start.
+- The file is written after the server listens, through a temporary file and a rename, and deleted on `ApplicationStopping`, before Kestrel lets the port go. Readers open it with `FileShare.ReadWrite | FileShare.Delete`, so they never block that delete.
+- The second start sends the cookie to `http://127.0.0.1:<port>/api/health` without a proxy and without following redirects, then opens `AccessGuard.EntryAddress`. Always 127.0.0.1, never `localhost`.
+- `DefaultBrowser` hands the shell only an `http` address on 127.0.0.1. The shell starts whatever it gets, a program too.
 
 ## Style
 
@@ -58,13 +71,13 @@ The rest are general good practices, not project decisions. If a task asks for s
 - Async all the way, with `CancellationToken`. No `.Result` or `.Wait()`.
 - Time comes from `TimeProvider`, not `DateTime.Now`, so tests can use `FakeTimeProvider`.
 - Dispose `IDisposable` resources with `using`.
-- Passwords, keys, tokens and decrypted values never go into logs, exception messages or `ToString()`.
+- Passwords, keys, tokens and decrypted values never go into logs, exception messages or `ToString()`. A record prints all its properties, computed ones too, so a record that holds one overrides `ToString()`.
 
 ## Windows parts
 
 Per PLAN section 3, the current Windows account, DPAPI, the file owner and opening Explorer are interfaces in Kiler.Core, implemented in Kiler.App. Their names are chosen when they are first needed. Tests use fake implementations.
 
-Opening the browser is also behind an interface, so tests can replace it (M1.5). Where that interface lives is decided in M1.5.
+Opening the browser is `IBrowser` in Kiler.App (decided in M1.5), because only the start of the exe opens a browser. Tests use a fake, and no test starts the real browser.
 
 ## Tests
 

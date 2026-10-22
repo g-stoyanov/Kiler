@@ -86,6 +86,7 @@ Kiler.App ──► Kiler.Core ──► Kiler.Crypto
 
 - Kiler.Crypto and Kiler.Storage do not know about each other. Kiler.Core connects them.
 - The Windows parts are interfaces in Kiler.Core: current account, DPAPI, file owner, Explorer. Their implementations are in Kiler.App. This way the core tests use fake implementations.
+- Opening the browser is an interface in Kiler.App (decided in M1.5), because only the start of the exe opens a browser.
 
 ---
 
@@ -136,7 +137,10 @@ Design sections 4 and 14.
    - a request whose `Host` is not `127.0.0.1:<port>` or `localhost:<port>` gets 400, as protection against DNS rebinding;
    - a request that the browser marks as coming from another site (`Sec-Fetch-Site` other than `same-origin` or `none`) gets 403. Other ports of 127.0.0.1 are the same site for the browser, so `SameSite=Strict` does not stop their requests (decided in M1.4).
 4. Opening the default browser.
-5. Single instance: a named mutex and a file with the port and the token in `%LOCALAPPDATA%\Kiler`. A second start only opens the browser to the running instance.
+5. Single instance: a named mutex and a file with the port and the token in `%LOCALAPPDATA%\Kiler`. A second start only opens the browser to the running instance. Decided in M1.5:
+   - the mutex is per user and session, and so is the file;
+   - a start with `--data` is an instance of its own, so tests with their own data folder do not meet the user's Kiler;
+   - the file is trusted only while another process holds the mutex; a file left over from a stopped process is deleted without contacting its port.
 6. Shutdown: the page sends a signal that it is alive (heartbeat). If there is no signal for a few seconds, the process stops. The wait covers a page reload.
 7. Parameters for tests and diagnostics: `--no-browser`, `--port`, `--data <folder>`, `--diag`.
 8. UI skeleton in `src/ui`:

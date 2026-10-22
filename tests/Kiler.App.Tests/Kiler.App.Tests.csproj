@@ -17,4 +17,9 @@
     <ProjectReference Include="..\..\src\Kiler.App\Kiler.App.csproj" />
   </ItemGroup>
 
+  <!-- FakeTimeProvider: the waits of the single instance without real time. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
+
 </Project>
