@@ -94,6 +94,8 @@ The exe is published with Native AOT, decided after the checks in the real envir
 
 The build enforces `.editorconfig` (M1.1): file-scoped namespaces, usings outside the namespace and no unnecessary ones, braces, explicit accessibility, readonly fields. Names: interfaces `IName`, private fields `_camelCase`, private constants and private static readonly fields `PascalCase`.
 
+Files keep the line endings they have in the working tree: LF for almost all, CRLF for the few that the .NET tools wrote (`.gitignore`, `Kiler.slnx`, `dotnet-tools.json`). A script that rewrites a file keeps them; Python on Windows writes CRLF in text mode (M1.6). Check them by the bytes: `grep` in Git Bash can show a wrong count.
+
 The rest are general good practices, not project decisions. If a task asks for something else, the task wins.
 
 - Nullable is on. Use `!` only with a reason.
@@ -120,6 +122,15 @@ Opening the browser is `IBrowser` in Kiler.App (decided in M1.5), because only t
 - Tests do not use the external network and do not depend on run order. The local server on loopback is allowed; API and smoke tests use it.
 - Test data is made up. No real system names, hosts, accounts or passwords.
 - xUnit v3 treats a run with zero tests as a failure.
+- A new test is checked to fail against broken code: break or take out what it guards, see it fail, put the code back. A broken version that does not build proves nothing, because the tests then run against the old binaries (M1.3).
+- Tests on the real clock, such as the stop by the heartbeat: take the time stamp before the action that starts the wait, check a lower and an upper bound, and leave margins for a slow CI machine (`windows-latest`) (M1.6).
+
+## Manual checks
+
+- Native AOT publish needs the Visual Studio C++ tools and `vswhere.exe`, so the Visual Studio Installer folder goes on PATH first (M1.0b, M1.3). Publish to a temporary folder outside the repo.
+- Kiler.exe started by hand or from a script runs with `--data <temporary folder>`, so it does not meet the user's own Kiler, and from a local folder, so it does not copy itself into the profile (M1.5a). Afterwards, check that no `instance-*.json` was left in `%LOCALAPPDATA%\Kiler`.
+- The `Open:` line holds the token. A script that reads it masks the token in everything it prints.
+- Requests from the shell to the local server must not go through the corporate proxy. In the Claude process `NO_PROXY` covers 127.0.0.1 and localhost. With curl's `--noproxy`, quote the `*`, or bash expands it to file names (M1.4).
 
 ## Deferred
 

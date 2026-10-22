@@ -40,6 +40,12 @@ The task number, for example `M1.4`.
      - before Kiler sends a secret to a loopback port or opens the browser there, what proves that the listener is its own;
      - which schemes and hosts can reach `ShellExecute` or `Process.Start`; secrets on a child process's command line, which process-creation auditing and EDR keep; a launcher that captures a child's console output;
      - outbound HTTP from the exe: proxy, redirects, cookies, timeouts, response size.
+   - **Browser code** (added before M1.7):
+     - after the exchange, the token is never in JavaScript, browser storage or an address;
+     - requests go only to the same origin: no CDN, no font or script from an external address;
+     - the page closes its `EventSource` on the first error and does not let the browser reconnect, because a reconnect after a stop sends the cookie to a port that may belong to another program;
+     - the Vite dev server listens on 127.0.0.1 only, and its proxy keeps the guard working (`changeOrigin`, no header that turns a check off).
+   - **Lifetime of the local server** (added after M1.6): who can keep Kiler running or stop it; a request that stays open or is sent only in part must not hold the stop up beyond `KilerHost.ShutdownTimeout`.
    - **Local files with secrets outside `data\`** (added after M1.5): location, ACL, leftovers after a crash, atomic writes, and sharing modes: a reader must not block the writer or the delete.
    - **Named kernel objects** (added after M1.5): user and session scope, squatting by another user, the abandoned state, and whether their scope matches the files and ports they guard.
    - **Secret values:**

@@ -55,20 +55,22 @@ A dropped task stays in the list so the numbers stay stable. It is ticked and st
 1. **Pick.** Read this file and the file of the current module. Take the first unticked task, unless the user names another one. Collect the notes under earlier tasks that name it, for example "M1.5a: …" in a list "for the next tasks", and follow them with the task.
 2. **Unclear points.** If the task is unclear or needs a decision that is not in the plan, ask before the code.
 3. **Tests.** In Kiler.Crypto and Kiler.Storage the tests are written first and must fail. Elsewhere they are written in the same task, after the code.
-4. **Code.** Follow the rules of the skill for the part: `kiler-dotnet`, `kiler-ui` or `kiler-crypto` ([PLAN.md, section 8](../PLAN.md#8-agents-skills-and-hooks)). When in doubt about the API of the new versions, ask `docs-researcher`.
+4. **Code.** Follow the rules of the skill for the part: `kiler-dotnet`, `kiler-ui` or `kiler-crypto` ([PLAN.md, section 8](../PLAN.md#8-agents-skills-and-hooks)). When in doubt about the API of the new versions, ask `docs-researcher`. A new package or tool always gets its current stable version and its setup from `docs-researcher`, not from memory: the model's knowledge can be out of date (M1.1: xUnit v3 runs on Microsoft Testing Platform).
 5. **Check:**
    - build;
    - all tests;
    - `dotnet format --verify-no-changes`;
    - for the UI: lint and type check;
    - no real names, hosts, accounts or passwords in the code, tests and data;
-   - **review by `code-reviewer`**. For security tasks (tokens, sign-in, permissions, encryption, passwords, paths, HTML) the review is also done by `security-reviewer`.
+   - **review by `code-reviewer`**. For security tasks (tokens, sign-in, permissions, encryption, passwords, paths, HTML, the local server and what reaches it, the browser code that handles the cookie or the event stream) the review is also done by `security-reviewer`.
 
    Findings are verified before they are fixed, not applied blindly. If a reviewer misses something, raises a false alarm, or a skill gives a wrong rule, the agent or skill file is fixed in the same task.
 6. **Tick** in `M<n>.md`, plus a note if there is a deviation. If the deviation changes a decision, [PLAN.md](../PLAN.md) is also updated.
-7. **Commit**, only when the user asks for it. The message is in English and starts with the number: `M1.4: Exchange URL token for session cookie`. The tick goes into the same commit as the code. The `data-guard` hook blocks a commit or push with internal terms.
+
+   **Record for later sessions**, without being asked. Whatever a later session would need and could not find in the docs goes where that session will read it. That can be a decision, a check, a pitfall or a quirk of a tool. A note under the task it concerns ("for the next tasks") is the place when it concerns one task. The skill, the agent, CLAUDE.md or this cycle is the place when it concerns more tasks. The test: a session that gets only the short prompt of step 9 must know it.
+7. **Commit**, only when the user asks for it. The message is in English and starts with the number: `M1.4: Exchange URL token for session cookie`. The tick goes into the same commit as the code. The `data-guard` hook blocks a commit or push with internal terms. After a push, which also happens only when the user asks, the CI run is watched to its end (`gh run watch` in the background) and its result is reported. A failure is fixed before the next task.
 8. **Reminder** about `/note`.
-9. **Next step:** a new task or a new session. A new session is better when the context has grown heavy or the module changes.
+9. **Next step:** a new task or a new session. A new session is better when the context has grown heavy or the module changes. The prompt of a new session names only the task and this cycle, for example "continue with task M1.7 from docs/tasks/M1.md, following the cycle in docs/tasks/README.md". Everything else must already be in the docs: what a session would need beyond the prompt goes into a note under the task, a skill or this cycle, not into the prompt.
 
 ## Start of a module
 

@@ -95,4 +95,8 @@ The details are in [docs/PLAN.md](docs/PLAN.md), sections 2 and 3.
 - **The Windows parts** (account, DPAPI, file owner, Explorer) are interfaces in Kiler.Core, and their implementations are in Kiler.App.
 - **Tests:** xUnit v3, API tests on the real Kestrel, Vitest, Playwright for .NET. For Kiler.Crypto and Kiler.Storage the tests are written first (TDD).
 - **CI:** GitHub Actions on `windows-latest`.
-- **Build and test commands:** recorded here in M1 (task M1.12), once the projects exist.
+- **Build and test commands.** The execution policy on the developer machine is AllSigned, so the scripts run through `-ExecutionPolicy Bypass`. Task M1.12 adds the UI dev mode and the publish.
+  - Build, Release by default: `powershell -ExecutionPolicy Bypass -File .\build.ps1`.
+  - All tests with coverage: `powershell -ExecutionPolicy Bypass -File .\test.ps1`.
+  - Format check: `powershell -ExecutionPolicy Bypass -File .\format.ps1`.
+  - One test project, or some tests: `dotnet test --project tests\Kiler.App.Tests -- --filter-method "*Name*"`, or `--filter-class`.
