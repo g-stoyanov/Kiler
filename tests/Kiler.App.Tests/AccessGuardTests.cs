@@ -9,17 +9,22 @@ public class AccessGuardTests
 {
     private static CancellationToken Cancel => TestContext.Current.CancellationToken;
 
-    // Every path needs the cookie, also the ones the UI files will have (M1.8).
+    // Every path needs the cookie, the UI files that exist included.
     [Theory]
     [InlineData("/")]
     [InlineData("/api/health")]
     [InlineData("/api/events")]
     [InlineData("/api/unknown")]
     [InlineData("/index.html")]
-    [InlineData("/assets/app.js")]
+    [InlineData("/records/12")]
+    [InlineData(MadeUpUi.Script)]
+    [InlineData(MadeUpUi.Worker)]
+    [InlineData(MadeUpUi.Icon)]
+    [InlineData("/assets/missing.js")]
     public async Task Request_WithoutCookie_Returns401(string path)
     {
-        await using var server = await KilerServer.StartAsync();
+        using var ui = new MadeUpUi();
+        await using var server = await KilerServer.StartAsync(ui.Files);
         using var client = server.CreateClient();
 
         using var response = await client.GetAsync(path, Cancel);

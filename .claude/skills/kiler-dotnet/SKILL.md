@@ -47,7 +47,7 @@ The exe is published with Native AOT, decided after the checks in the real envir
   - every other request needs the cookie (401).
 - The cookie is named per instance (M1.7), as the mutex and the file: `kiler`, and `kiler-<key>` with `--data` (`InstancePlace.CookieName`, `InstancePlace.CookieNameFor`). Cookies are not separated by port, so two Kilers that run at the same time, such as the dev mode and the user's Kiler, would otherwise overwrite each other's cookie. Not per port: the port changes with every start, and the browser keeps the old cookies, also across a restart that restores the session. `HealthCheck` takes the name of its instance.
 - No endpoint and no file is exempt, `/api/health` included. A new endpoint needs nothing extra, because the guard runs before it. Do not loosen the guard for tests.
-- `KilerHost.Build` adds the guard first and calls `UseRouting()` after it. Keep that order, and add static files (M1.8) and any other middleware after the guard. Otherwise WebApplication puts routing first, and an endpoint with `ShortCircuit()` or `MapShortCircuit` runs before the guard.
+- `KilerHost.Build` adds the guard first and calls `UseRouting()` after it. Keep that order, and add the UI files (`UiFiles.Use`, M1.8) and any other middleware after the guard. Otherwise WebApplication puts routing first, and an endpoint with `ShortCircuit()` or `MapShortCircuit` runs before the guard.
 - `AccessToken` is made in `KilerHost.Build` and reaches other code through DI. It never goes into the command line, the environment, logs, exception messages, `ToString()` or the console. It is compared only with `AccessToken.Matches`, which is constant-time. The exceptions, all from M1.5:
   - the address with the token is handed to the default browser through the shell, so it lands on the browser's command line. The shell offers no other way;
   - the address is printed as `Open: <address>` with `--no-browser`, and when the browser does not open;
@@ -83,6 +83,19 @@ The exe is published with Native AOT, decided after the checks in the real envir
 - `--help` and `--diag` run where they are and copy nothing.
 - Every start from the shared folder runs the exe there first, and anyone can replace it. So the start says when the shared folder changes, and that the next starts go through the Start menu.
 - `ICopyFiles`, `IShortcuts` and `IProcessStarter` live in Kiler.App, as `IBrowser` does: only the start of the exe uses them.
+
+## UI files and publish (M1.8)
+
+- A Release build and a publish run `npm ci` and `npm run build` in `src/ui` (Kiler.App.csproj) and embed `dist/` under `ui/`. They need Node.js 24.15 or newer on PATH. Each npm step runs only when its inputs are newer than its outputs: `npm ci` when `package-lock.json` is newer than `node_modules\.package-lock.json`, the UI build when a file in `src/ui` is newer than the stamp in `obj\` or `dist\index.html`. A Debug build embeds nothing and answers 404 for the UI: in dev mode Vite serves it (`npm run dev`), and `npm ci` would replace the `node_modules` that the dev server runs from. Do not run a Release build while `npm run dev` runs and `package-lock.json` has changed.
+- The manifest targets come from the package `Microsoft.Extensions.FileProviders.Embedded`, referenced with `IncludeAssets="build"`; the types come with the framework. `GenerateEmbeddedFilesManifest` is on only when the UI is embedded: with no embedded files the package warns and makes no manifest, and `UiFiles.Embedded()` then gives a `NullFileProvider`.
+- `UiFiles.Use` comes after the guard and after routing, so an endpoint wins over a file. Outside `/api`, an address whose last segment has no dot is a page of the UI and gets `index.html`; a name with a dot is a file, and a missing one is 404. `/api` never gets a file. So the routing of the UI (M6) uses addresses without a dot in the last segment.
+- The headers of every UI file: `Content-Security-Policy` (`UiFiles.ContentSecurityPolicy`: `default-src 'self'`, `data:` images only, no plugins, no `<base>`, forms to Kiler only, no framing), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin`. Not `no-referrer`: with it the browser sends `Origin: null` on Kiler's own POST requests. The policy is on the scripts too, because a worker takes the policy of its own script. A change of the policy (M6, M7) is a decision of its task and gets a security review.
+- Caching: `/assets/*` (the names with a hash) `private, max-age=31536000, immutable`, `index.html` `no-store`, other files `no-cache`.
+- `KilerHost.Build(options, uiFiles)` takes the UI files; the tests give made-up ones (`MadeUpUi`, a `PhysicalFileProvider` on a temporary folder). `EmbeddedUiTests` check the real build and are skipped in Debug, so `test.ps1` and CI, which build Release, run them.
+- `RuntimeIdentifier` is `win-x64` in Kiler.App.csproj. Only the publish is self-contained, so Kiler.App.Tests can reference the exe.
+- `publish.ps1` publishes `artifacts\publish\Kiler.exe` alone, and the native PDB to `artifacts\symbols` through `KilerSymbolsDir`. It stops when anything else is in the publish folder. The Web SDK's static web assets are off, the XML documentation and the managed PDBs of the referenced projects are not published.
+- A DLL with the name of a system DLL, put next to the exe in the shared folder, must not load (M1.5a): `DefaultDllImportSearchPaths(System32)` for Kiler's own P/Invokes and `/DEPENDENTLOADFLAG:0x800` (`LinkerArg`) for the DLLs that the exe imports. `AssemblyTests` checks the attribute; `dumpbin /loadconfig Kiler.exe` shows `0800 Dependent Load Flag`. The runtime and the system DLLs still load `BCrypt.dll`, `ntdll.dll` and `NTASN1.dll` from the exe folder at run time (measured in M1.8): a residual risk for M3, with `SetProcessMitigationPolicy` and `NoRemoteImages` as the candidate fix.
+- `npm ci` runs with `--ignore-scripts`: no package runs code in the build. `publish.ps1` sets `KilerFreshUi`, so the published exe comes from a clean `npm ci` and a new UI build.
 
 ## Local folder
 
@@ -128,7 +141,8 @@ Opening the browser is `IBrowser` in Kiler.App (decided in M1.5), because only t
 
 ## Manual checks
 
-- Native AOT publish needs the Visual Studio C++ tools and `vswhere.exe`, so the Visual Studio Installer folder goes on PATH first (M1.0b, M1.3). Publish to a temporary folder outside the repo.
+- Publish with `powershell -ExecutionPolicy Bypass -File .\publish.ps1` (M1.8). Native AOT needs the Visual Studio C++ tools and `vswhere.exe`; the script puts the Visual Studio Installer folder on PATH when `vswhere.exe` is not there (M1.0b, M1.3). `artifacts\` is out of git.
+- The UI of the published exe is checked in Chrome or Edge, not in the Claude Code in-app browser, which blocks the network requests of a SharedWorker and so shows "Stopped" (kiler-ui, Manual checks).
 - Kiler.exe started by hand or from a script runs with `--data <temporary folder>`, so it does not meet the user's own Kiler, and from a local folder, so it does not copy itself into the profile (M1.5a). Afterwards, check that no `instance-*.json` was left in `%LOCALAPPDATA%\Kiler`.
 - The `Open:` line holds the token. A script that reads it masks the token in everything it prints.
 - Requests from the shell to the local server must not go through the corporate proxy. In the Claude process `NO_PROXY` covers 127.0.0.1 and localhost. With curl's `--noproxy`, quote the `*`, or bash expands it to file names (M1.4).

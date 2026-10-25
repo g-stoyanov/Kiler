@@ -3,7 +3,6 @@
   <!--
     Kiler.exe: the host, the API and the Windows implementations.
     PublishAot is on from the start, so the analyzers check the code as for Native AOT.
-    The publish settings come in M1.8.
   -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -12,6 +11,20 @@
     <PublishAot>true</PublishAot>
     <!-- The COM and P/Invoke source generators emit unsafe code: the Start menu shortcut (ShellShortcuts). -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <!--
+    The publish (M1.8): Kiler.exe alone, Native AOT for win-x64, on any machine. Only the publish is self-contained; the build
+    stays framework-dependent, so Kiler.App.Tests can still reference it (no NETSDK1150 or NETSDK1151).
+  -->
+  <PropertyGroup>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <!-- Kiler serves its UI from the embedded files (below), not from the static web assets of the Web SDK. -->
+    <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
+    <!-- The XML documentation is only for the IDE0005 check in the build (Directory.Build.props). -->
+    <PublishDocumentationFiles>false</PublishDocumentationFiles>
+    <!-- The native PDB stays out of the publish folder. KilerSymbolsDir, which publish.ps1 sets, gets a copy. -->
+    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
   </PropertyGroup>
 
   <!--
@@ -24,6 +37,19 @@
     </AssemblyAttribute>
   </ItemGroup>
 
+  <!--
+    A DLL with the name of a system DLL, put next to Kiler.exe in the shared folder, must not load into it (M1.5a security
+    review): P/Invoke looks only in System32, and so does Windows for the DLLs that the exe imports
+    (LOAD_LIBRARY_SEARCH_SYSTEM32 = 0x800).
+  -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.InteropServices.DefaultDllImportSearchPathsAttribute">
+      <_Parameter1>System.Runtime.InteropServices.DllImportSearchPath.System32</_Parameter1>
+      <_Parameter1_IsLiteral>true</_Parameter1_IsLiteral>
+    </AssemblyAttribute>
+    <LinkerArg Include="/DEPENDENTLOADFLAG:0x800" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Kiler.Core\Kiler.Core.csproj" />
   </ItemGroup>
@@ -31,5 +57,84 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Kiler.App.Tests" />
   </ItemGroup>
+
+  <!--
+    The UI (M1.8). A Release build and a publish run npm ci and npm run build in src/ui and embed dist/ under ui/, which
+    UiFiles serves through ManifestEmbeddedFileProvider. A Debug build embeds nothing: in dev mode Vite serves the UI
+    (npm run dev), and npm ci would replace the node_modules that the dev server runs from. Nor does a design-time build of
+    an IDE. Each npm step runs only when its inputs are newer than its outputs.
+  -->
+  <PropertyGroup>
+    <KilerUiFolder>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)..', 'ui'))</KilerUiFolder>
+    <KilerEmbedUi Condition="('$(Configuration)' == 'Release' or '$(_IsPublishing)' == 'true') and '$(DesignTimeBuild)' != 'true'">true</KilerEmbedUi>
+    <GenerateEmbeddedFilesManifest Condition="'$(KilerEmbedUi)' == 'true'">true</GenerateEmbeddedFilesManifest>
+  </PropertyGroup>
+
+  <!-- Only the MSBuild targets that make the manifest. The types come with the ASP.NET Core framework. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" IncludeAssets="build" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!--
+    No install scripts: a package that a future update of package-lock.json brings in must not run code in the build. None of
+    the packages needs one on Windows today.
+  -->
+  <Target Name="KilerInstallUiPackages"
+          Inputs="$(KilerUiFolder)package-lock.json" Outputs="$(KilerUiFolder)node_modules\.package-lock.json">
+    <Exec Command="npm ci --ignore-scripts --no-audit --no-fund" WorkingDirectory="$(KilerUiFolder)" StdOutEncoding="utf-8" StdErrEncoding="utf-8" />
+  </Target>
+
+  <!--
+    publish.ps1 sets KilerFreshUi, so the exe that users get is built from a clean npm ci and a new UI build, not from the
+    node_modules and dist of this machine, which may have been changed by hand.
+  -->
+  <Target Name="KilerForgetUiBuild" BeforeTargets="KilerInstallUiPackages" Condition="'$(KilerFreshUi)' == 'true'">
+    <Delete Files="$(KilerUiFolder)node_modules\.package-lock.json;$(KilerUiFolder)dist\index.html" />
+  </Target>
+
+  <Target Name="KilerFindUiSources">
+    <!--
+      Written after a whole UI build: dist\index.html alone could be left by a build stopped half-way. Set here, because
+      IntermediateOutputPath is not known yet in the body of the project.
+    -->
+    <PropertyGroup>
+      <KilerUiStamp>$(IntermediateOutputPath)kiler-ui.stamp</KilerUiStamp>
+    </PropertyGroup>
+    <ItemGroup>
+      <KilerUiSource Include="$(KilerUiFolder)**" Exclude="$(KilerUiFolder)node_modules\**;$(KilerUiFolder)dist\**;$(KilerUiFolder).vitest\**" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="KilerBuildUi" DependsOnTargets="KilerInstallUiPackages;KilerFindUiSources"
+          Inputs="@(KilerUiSource)" Outputs="$(KilerUiStamp);$(KilerUiFolder)dist\index.html">
+    <Exec Command="npm run build" WorkingDirectory="$(KilerUiFolder)" StdOutEncoding="utf-8" StdErrEncoding="utf-8" />
+    <Touch Files="$(KilerUiStamp)" AlwaysCreate="true" />
+    <ItemGroup>
+      <FileWrites Include="$(KilerUiStamp)" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="KilerAddUiResources" BeforeTargets="BeforeBuild" DependsOnTargets="KilerBuildUi" Condition="'$(KilerEmbedUi)' == 'true'">
+    <Error Condition="!Exists('$(KilerUiFolder)dist\index.html')" Text="The UI build left no $(KilerUiFolder)dist\index.html." />
+    <ItemGroup>
+      <KilerUiFile Include="$(KilerUiFolder)dist\**" />
+      <EmbeddedResource Include="@(KilerUiFile)" Link="ui\%(KilerUiFile.RecursiveDir)%(KilerUiFile.Filename)%(KilerUiFile.Extension)" />
+    </ItemGroup>
+  </Target>
+
+  <!--
+    Only Kiler.exe goes into the publish folder. Native AOT has compiled the referenced projects into it, so their managed
+    PDBs are of no use there.
+  -->
+  <Target Name="KilerPublishOnlyTheExe" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(Extension)' == '.pdb'" />
+    </ItemGroup>
+  </Target>
+
+  <!-- The native PDB, for a crash dump of the published exe. -->
+  <Target Name="KilerCopySymbols" AfterTargets="Publish" Condition="'$(KilerSymbolsDir)' != ''">
+    <Copy SourceFiles="$(NativeOutputPath)$(TargetName)$(NativeSymbolExt)" DestinationFolder="$(KilerSymbolsDir)" />
+  </Target>
 
 </Project>

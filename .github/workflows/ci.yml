@@ -47,6 +47,16 @@ jobs:
           key: nuget-${{ runner.os }}-${{ hashFiles('global.json', 'dotnet-tools.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj') }}
           restore-keys: nuget-${{ runner.os }}-
 
+      # The Release build runs npm ci and npm run build in src/ui and embeds the UI in Kiler.exe (Kiler.App.csproj).
+      # The npm cache, not node_modules, is cached; npm ci fills node_modules from it.
+      # check-latest: the Node 24 already on the runner may be older than the 24.15 that src/ui needs (engines).
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          check-latest: true
+          cache: npm
+          cache-dependency-path: src/ui/package-lock.json
+
       - name: Format check
         run: .\format.ps1
 

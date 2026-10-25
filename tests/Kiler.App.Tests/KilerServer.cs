@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 
 namespace Kiler.App.Tests;
@@ -46,6 +47,9 @@ internal sealed class KilerServer : IAsyncDisposable
     public static Task<KilerServer> StartAsync() => StartAsync(new StartOptions());
 
     public static Task<KilerServer> StartAsync(StartOptions options) => StartAsync(KilerHost.Build(options), options.DataFolder);
+
+    /// <summary>Starts Kiler with UI files of the test instead of the embedded ones.</summary>
+    public static Task<KilerServer> StartAsync(IFileProvider uiFiles) => StartAsync(KilerHost.Build(new StartOptions(), uiFiles));
 
     /// <summary>
     /// Starts an app from <see cref="KilerHost.Build"/> that the test has changed, for example with an extra endpoint.

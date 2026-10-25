@@ -64,6 +64,19 @@ Decisions come from `docs/PLAN.md` (section 2, M1, M6, M7), `docs/tasks/M1.md` a
 - Vite logs the address of a failed proxy request (`http proxy error: /?t=<token>`), so the dev server gets a logger that hides the token (`tokenMaskingLogger`).
 - A change of `vite.config.ts` restarts the dev server, which drops the streams; the page then shows "stopped", and Kiler stops after the idle wait. Run `npm run dev` again.
 
+## The embedded build (M1.8)
+
+- A Release build and a publish of Kiler run `npm ci` and `npm run build` and embed `dist/` in `Kiler.exe` (kiler-dotnet, "UI files and publish"). A Debug Kiler has no UI; in dev mode Vite serves it.
+- Kiler serves every UI file with a Content Security Policy: `default-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`. So the UI code:
+  - has no inline scripts and no event handler attributes;
+  - has no `<style>` elements or `style` attributes in HTML. React's `style` prop is fine, because it goes through the CSSOM;
+  - loads nothing from other hosts, and loads fonts and other files as files. Vite puts assets under 4 KB inline as `data:` (`build.assetsInlineLimit`), which the policy allows only for images.
+
+  A library that injects styles or needs more, such as CodeMirror or Mermaid (M6, M7), changes the policy in its own task, with a security review.
+- The dev server does not send this policy, because in dev mode Vite and the React plugin use inline scripts. A violation therefore shows only in the embedded build: check the console of the published exe, and the E2E tests (M4) fail on a `securitypolicyviolation` event.
+- Addresses of the UI's own routing (M6) have no dot in their last segment. Kiler gives `index.html` only to such addresses; a name with a dot is a file, and a missing one is 404 (also on a reload).
+- `/assets/` is cached for a year without a check, because Vite puts there only names with a hash of the content. Files in `public/` keep their names, are served from the root and are checked each time; nothing goes into `public/assets/`.
+
 ## Secret values
 
 - Passwords (`secret` fields) do not come with lists. The value is requested from the server only on "show" or "copy".
@@ -102,12 +115,13 @@ Light, dark and system (M1.7). Until M6 the choice is kept in `localStorage` (`k
 - Run `npm run dev -- --no-browser` from Claude, so it opens no window on the user's desktop; the address with the token is then in its output.
 - In the user's PowerShell it is `npm.cmd run dev`: the AllSigned policy stops the unsigned `npm.ps1`. In cmd it is `npm`.
 - In Chrome or Edge, `chrome://inspect/#workers` or `edge://inspect/#workers` lists the shared worker `kiler-events`, and `Get-NetTCPConnection -RemotePort <kiler port> -State Established` counts the streams (one for all the tabs).
+- The embedded build: `publish.ps1`, then `artifacts\publish\Kiler.exe --no-browser --data <temporary folder>` and the `Open:` address in Chrome or Edge. Its console shows CSP violations, which the dev mode does not have.
 
 ## Deferred
 
 | Question | When |
 |---|---|
 | UI component library | M6 |
-| Routing | M6 |
+| Routing (addresses without a dot in the last segment, M1.8) | M6 |
 | Data loading and state | M6 |
 | Code highlighting in Markdown | M7 |

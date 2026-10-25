@@ -1,4 +1,5 @@
 using System.Net;
+using Microsoft.Extensions.FileProviders;
 
 namespace Kiler.App;
 
@@ -12,7 +13,9 @@ internal static class KilerHost
     /// </summary>
     public static readonly TimeSpan ShutdownTimeout = TimeSpan.FromSeconds(5);
 
-    public static WebApplication Build(StartOptions options)
+    /// <param name="options">The parameters of the start.</param>
+    /// <param name="uiFiles">The UI files; by default the ones embedded in Kiler.exe (<see cref="UiFiles.Embedded"/>).</param>
+    public static WebApplication Build(StartOptions options, IFileProvider? uiFiles = null)
     {
         // The empty builder reads no config files and no environment variables, so nothing
         // outside the command line can change the address, and nothing watches the exe folder.
@@ -35,6 +38,7 @@ internal static class KilerHost
         // ShortCircuit() would run straight from routing, before the guard.
         AccessGuard.Use(app, token, InstancePlace.CookieNameFor(options.DataFolder));
         app.UseRouting();
+        UiFiles.Use(app, uiFiles ?? UiFiles.Embedded());
         HealthApi.Map(app, heartbeat);
         EventsApi.Map(app, heartbeat, times.PingInterval, TimeProvider.System, app.Lifetime.ApplicationStopping);
         return app;

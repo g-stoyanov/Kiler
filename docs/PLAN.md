@@ -55,6 +55,7 @@ dotnet-tools.json          local dotnet tools: ReportGenerator
 build.ps1                  build; CI and developers run the same scripts
 test.ps1                   tests with coverage and the coverage report
 format.ps1                 format check
+publish.ps1                publish: Kiler.exe alone in artifacts\publish, its PDB in artifacts\symbols
 src/
   Kiler.Crypto/            cryptography, no dependencies
   Kiler.Storage/           files: writing, history, trash, cache, change watching
@@ -135,7 +136,8 @@ Design sections 4 and 14.
    - on the first request, the token is exchanged for an HttpOnly cookie (`SameSite=Strict`) and the address is cleared. Cookies are not separated by port, so its name is per instance (decided in M1.7): `kiler`, and `kiler-<key>` for a start with `--data`, the key of step 5. Two Kilers that run at the same time, such as the dev mode and the Kiler of the user, then do not overwrite each other's cookie. Not per port, because the port changes with every start and the browser keeps the old cookies;
    - a request without a valid cookie gets 401;
    - a request whose `Host` is not `127.0.0.1:<port>` or `localhost:<port>` gets 400, as protection against DNS rebinding;
-   - a request that the browser marks as coming from another site (`Sec-Fetch-Site` other than `same-origin` or `none`) gets 403. Other ports of 127.0.0.1 are the same site for the browser, so `SameSite=Strict` does not stop their requests (decided in M1.4).
+   - a request that the browser marks as coming from another site (`Sec-Fetch-Site` other than `same-origin` or `none`) gets 403. Other ports of 127.0.0.1 are the same site for the browser, so `SameSite=Strict` does not stop their requests (decided in M1.4);
+   - the UI files carry a Content Security Policy that allows only Kiler itself (`default-src 'self'`, `data:` images) and no framing. A module that needs more, such as CodeMirror or Mermaid, changes it in its own task (decided in M1.8).
 4. Opening the default browser.
 5. Single instance: a named mutex and a file with the port and the token in `%LOCALAPPDATA%\Kiler`. A second start only opens the browser to the running instance. Decided in M1.5:
    - the mutex is per user and session, and so is the file;
@@ -151,13 +153,15 @@ Design sections 4 and 14.
    - Vite, React and TypeScript;
    - a common page frame, light and dark theme, an API client;
    - during development, the Vite dev server forwards `/api` to .NET;
-   - on build, MSBuild runs `npm ci` and `npm run build`, and the files are embedded as resources.
+   - on a Release build and a publish, MSBuild runs `npm ci` and `npm run build`, and the files are embedded as resources. A Debug build embeds nothing, because the dev mode serves the UI (decided in M1.8).
 
    Decided in M1.7:
    - `npm run dev` starts Kiler with `dotnet run -- --no-browser --data <repo>/dev-data`, reads the address with the token from its console, starts the Vite dev server with a proxy to it, and opens the browser on the dev server with the token. When Kiler stops, the dev server stops too;
    - all the pages of one Kiler share one event stream, held by a SharedWorker: without TLS the browser allows 6 connections per host, and a stream per page would stall the requests from the sixth page on. A browser without SharedWorker gets a stream per page;
    - all the UI texts live in one file, `src/texts.ts`.
-9. Publishing: `dotnet publish` with Native AOT produces one `Kiler.exe`.
+9. Publishing: `dotnet publish` with Native AOT produces one `Kiler.exe`. Decided in M1.8:
+   - `publish.ps1` puts the exe alone in `artifacts\publish` and its PDB apart in `artifacts\symbols`;
+   - a DLL with the name of a system DLL, put next to the exe in the shared folder, is not loaded: P/Invoke and the imports of the exe look only in System32.
 10. Diagnostic mode `--diag` for section 14: speed of listing and reading many small files, owner of a new file. It takes over the logic of the probe, and the probe is then deleted.
 11. Local copy (decided after M1.0b): started from a network folder, the exe copies itself to `%LOCALAPPDATA%\Programs\Kiler` if there is no copy yet, remembers the shared folder (the data and the updates), and starts the local copy. It never overwrites an existing copy; updates are signed and come in M3. Decided in M1.5a:
     - the single instance is checked first;
@@ -512,7 +516,7 @@ Throughout the project.
 
 1. The test projects and shared helpers: a temporary data folder, fake Windows services (account, DPAPI, file owner). They are made together with M1.
 2. `ci.yml` (on push and PR, on `windows-latest`). It starts with M1 and grows with the modules. The workflow calls scripts from the repo (for example `build.ps1` and `test.ps1`) instead of keeping the steps only in the GitHub YAML, so CI can move to another system later (section 9) and the same commands run locally. It includes:
-   - cache for NuGet, npm and the Playwright browsers;
+   - cache for NuGet, npm and the Playwright browsers. Node with the npm cache came in M1.8, because the Release build runs npm;
    - `npm ci`, ESLint, type check, Vitest, UI build;
    - `dotnet format --verify-no-changes`;
    - build, unit and API tests with coverage;
