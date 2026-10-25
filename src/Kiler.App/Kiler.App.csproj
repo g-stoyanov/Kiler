@@ -108,6 +108,8 @@
   <Target Name="KilerBuildUi" DependsOnTargets="KilerInstallUiPackages;KilerFindUiSources"
           Inputs="@(KilerUiSource)" Outputs="$(KilerUiStamp);$(KilerUiFolder)dist\index.html">
     <Exec Command="npm run build" WorkingDirectory="$(KilerUiFolder)" StdOutEncoding="utf-8" StdErrEncoding="utf-8" />
+    <!-- This runs before PrepareForBuild, so on a clean checkout the folder is not there yet. -->
+    <MakeDir Directories="$(IntermediateOutputPath)" />
     <Touch Files="$(KilerUiStamp)" AlwaysCreate="true" />
     <ItemGroup>
       <FileWrites Include="$(KilerUiStamp)" />
