@@ -33,7 +33,7 @@ The task number, for example `M1.4`. If it is missing, take the first unticked t
    - **Bugs:** edge cases, error handling, concurrency, resource disposal, async. Among the edge cases: the first run on a clean machine, where folders such as `%LOCALAPPDATA%\Kiler` do not exist yet, and files left over from a crash. For MSBuild targets and scripts: the first build on a clean checkout, as in CI, where `obj\`, `bin\`, `node_modules` and `dist` do not exist yet.
    - **Skill rules:** AOT-ready code, Windows parts behind interfaces, secret values in the browser, and so on.
    - **Real data:** internal system names, hosts, accounts, passwords or company paths in code, tests, data and comments. The known internal terms are listed in `.claude/data-guard.local.txt`, which is local and not in git. If you find one, give the file and line without quoting the term.
-   - **Scripts and hooks:** do they work in PowerShell 5.1, and do they block on failure instead of letting things through?
+   - **Scripts and hooks:** do they work in PowerShell 5.1, and do they block on failure instead of letting things through? A native tool that writes to stderr does not fail a script under `$ErrorActionPreference = 'Stop'`, also with the output piped as in CI; only a redirect inside PowerShell (`2>&1`, `2>file`) turns its lines into errors (checked in M1.9 through the wrapper GitHub uses for `shell: powershell`). The scripts check `$LASTEXITCODE` instead.
    - **Changes in `.claude/`:** only decisions that were made, deferred items marked as deferred, no internal names.
    - **Readability:** names, duplication, needless complexity.
 4. Verify every claim in the code. If you are not sure, add "doubt" to the label, for example `[major, doubt]`.

@@ -1,4 +1,5 @@
-# Build, format check and tests with coverage on every push to main and every pull request.
+# On every push to main and every pull request: the format check, the UI checks, the build, the tests with coverage, the
+# publish of Kiler.exe and the smoke tests against it. The coverage report and Kiler.exe are the artifacts of the run.
 # The steps call the scripts in the repository root, so the same commands run locally and can
 # move to another CI system (PLAN section 9). The YAML only sets up the machine around them.
 # The actions are pinned to a commit, because a tag can be moved to other code.
@@ -47,7 +48,8 @@ jobs:
           key: nuget-${{ runner.os }}-${{ hashFiles('global.json', 'dotnet-tools.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj') }}
           restore-keys: nuget-${{ runner.os }}-
 
-      # The Release build runs npm ci and npm run build in src/ui and embeds the UI in Kiler.exe (Kiler.App.csproj).
+      # check-ui.ps1 runs npm ci in src/ui. The Release build then finds node_modules in place and only runs npm run build,
+      # and embeds the UI in Kiler.exe (Kiler.App.csproj); publish.ps1 runs a clean npm ci and UI build of its own.
       # The npm cache, not node_modules, is cached; npm ci fills node_modules from it.
       # check-latest: the Node 24 already on the runner may be older than the 24.15 that src/ui needs (engines).
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -60,9 +62,14 @@ jobs:
       - name: Format check
         run: .\format.ps1
 
+      # Prettier, ESLint, the type check and Vitest in src/ui.
+      - name: UI checks
+        run: .\check-ui.ps1
+
       - name: Build
         run: .\build.ps1
 
+      # The smoke tests skip here; they run against the published exe below.
       - name: Test
         run: .\test.ps1 -NoBuild
 
@@ -77,3 +84,27 @@ jobs:
           name: coverage-report
           path: TestResults/coverage-report
           if-no-files-found: error
+
+      # Native AOT links with the Visual Studio C++ tools of the runner.
+      - name: Publish
+        run: .\publish.ps1
+
+      - name: Smoke tests
+        run: .\smoke.ps1 -NoBuild
+
+      # No exe from a pull request run. A pull request runs its own ci.yml, so this condition does not stop a hostile one; it
+      # keeps honest pull request runs from making exes that look the same. Take the exe from a push run on main, and check it
+      # against the SHA-256 on the run page.
+      # archive: false uploads the exe itself, not a zip; the artifact takes the file name, Kiler.exe.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: github.event_name != 'pull_request'
+        with:
+          path: artifacts/publish/Kiler.exe
+          archive: false
+          if-no-files-found: error
+
+      - name: Kiler.exe SHA-256
+        if: github.event_name != 'pull_request'
+        run: |
+          $hash = (Get-FileHash -LiteralPath artifacts\publish\Kiler.exe -Algorithm SHA256).Hash
+          [IO.File]::AppendAllText($env:GITHUB_STEP_SUMMARY, "`n**Kiler.exe** SHA-256: ``$hash```n")

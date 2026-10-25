@@ -32,6 +32,7 @@ Decisions come from `docs/PLAN.md` (section 2, M1, M6, M7), `docs/tasks/M1.md` a
 - Three TypeScript projects (`tsc -b`): `tsconfig.app.json` (DOM), `tsconfig.worker.json` (WebWorker, only the worker file) and `tsconfig.node.json` (`vite.config.ts` and `dev/`). DOM and WebWorker cannot be in one project. A module imported by the worker is checked in both, so it must not use `SharedWorker` or other names that only one of them has.
 - `dev/`: the dev mode (Node), with its tests.
 - Commands in `src/ui`: `npm run dev`, `npm run build`, `npm run lint`, `npm run typecheck`, `npm test`, `npm run format:check` (`npm run format` writes).
+- `check-ui.ps1` in the repository root runs `format:check`, `lint`, `typecheck` and `test`, and CI runs it before the build (M1.9). It runs `npm ci --ignore-scripts` first only when `package-lock.json` is newer than `node_modules`, the rule of the Release build, so it leaves alone the `node_modules` of a running dev server.
 
 ## API
 

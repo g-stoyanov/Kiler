@@ -99,4 +99,6 @@ The details are in [docs/PLAN.md](docs/PLAN.md), sections 2 and 3.
   - Build, Release by default: `powershell -ExecutionPolicy Bypass -File .\build.ps1`.
   - All tests with coverage: `powershell -ExecutionPolicy Bypass -File .\test.ps1`.
   - Format check: `powershell -ExecutionPolicy Bypass -File .\format.ps1`.
+  - UI checks (Prettier, ESLint, type check, Vitest): `powershell -ExecutionPolicy Bypass -File .\check-ui.ps1`.
+  - Smoke tests of the published exe, after `publish.ps1`: `powershell -ExecutionPolicy Bypass -File .\smoke.ps1`.
   - One test project, or some tests: `dotnet test --project tests\Kiler.App.Tests -- --filter-method "*Name*"`, or `--filter-class`.

@@ -25,9 +25,11 @@ internal sealed class EventStream : IDisposable
     public HttpResponseMessage Response => _response;
 
     /// <summary>Opens the stream with the cookie and reads the first event, so the server has counted the connection.</summary>
-    public static async Task<EventStream> OpenAsync(KilerServer server)
+    public static Task<EventStream> OpenAsync(KilerServer server) => OpenAsync(server.CreateSignedInClient());
+
+    /// <summary>The same with a client that has the address and the cookie, such as one for the published exe. The stream owns the client.</summary>
+    public static async Task<EventStream> OpenAsync(HttpClient client)
     {
-        var client = server.CreateSignedInClient();
         try
         {
             var response = await client.GetAsync("/api/events", HttpCompletionOption.ResponseHeadersRead, TestContext.Current.CancellationToken);

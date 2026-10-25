@@ -129,7 +129,8 @@ public class KilerHostTests
         return address.Port;
     }
 
-    private static int FreePort()
+    /// <summary>A port of 127.0.0.1 that was free a moment ago.</summary>
+    internal static int FreePort()
     {
         var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();

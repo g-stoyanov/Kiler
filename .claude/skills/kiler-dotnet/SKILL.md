@@ -98,6 +98,16 @@ The exe is published with Native AOT, decided after the checks in the real envir
 - A change of the MSBuild targets is checked from a fresh `git clone` in a temporary folder (`build.ps1`, then `test.ps1 -NoBuild`), as CI builds. A target that runs before `PrepareForBuild` finds no `obj\<configuration>\<framework>\<runtime>\` there and creates what it writes into (the first CI run of M1.8 failed on it).
 - `npm ci` runs with `--ignore-scripts`: no package runs code in the build. `publish.ps1` sets `KilerFreshUi`, so the published exe comes from a clean `npm ci` and a new UI build.
 
+## Smoke tests (M1.9)
+
+- `SmokeTests` in Kiler.App.Tests run the published `Kiler.exe` as a process. They carry the trait `Category=Smoke` and run only when `KILER_SMOKE_EXE` names the exe (`SkipUnless`). `smoke.ps1` sets it to `artifacts\publish\Kiler.exe` (or `-Exe <path>`) and runs only them, with `--fail-skips on`, so a skip fails the run there. `test.ps1` shows them as skipped. Run `publish.ps1` first: after a change of the code, the tests otherwise run the old exe.
+- What goes there: what only the published exe shows, such as Native AOT, the embedded UI, the PE header, the console and the exit codes, the single instance across processes, and the environment that a builder would read. The rest goes into the API tests on the real Kestrel, which are faster and count for coverage.
+- `KilerExe` copies the exe into a temporary folder on the local disk, so it does not copy itself into the profile (M1.5a), with a data folder of its own, so it is an instance of its own (M1.5). Every start gets `--no-browser --data <folder>` first: a test never opens a browser. Disposing it kills the runs that are left and deletes the instance file that a killed run leaves in the real `%LOCALAPPDATA%\Kiler`.
+- xUnit printed part of a token when a check of the output failed (see "Tests"). So `KilerRun.Output` and `Errors` hide the token (`KilerExe.MaskToken`: every `t=` value and every word of 43 base64url characters), the raw `Open:` line comes only from `WaitForLineAsync`, and the token and the cookie are compared with `Assert.True`.
+- `KilerExe.Dispose` always deletes the instance file and the temporary folder, also when a run cannot be ended, and tries the folder a few times, because an antivirus may still read the exe that has just run.
+- Waits: short `--first-wait` and `--idle-wait`, the lower bound from a time stamp taken before the action, the upper bound as the timeout of `WaitForExitAsync`. A health check puts the stop off by the first wait (M1.6), so a test that asks it and then wants the idle wait first waits out the first wait from the health check. The first wait also gives the test its time to open a page after the start: 3 s or more, for a busy CI machine.
+- A smoke test is checked to fail against a broken exe: break the code, `dotnet publish src\Kiler.App\Kiler.App.csproj -c Release -o <scratch folder>`, run the tests with `KILER_SMOKE_EXE` set to that exe, then put the code back.
+
 ## Local folder
 
 - `%LOCALAPPDATA%\Kiler` holds the instance file with the token, `share.json` and, from M2, the local copy of the data. `PrivateFolder.Create` makes it with a protected ACL: the user and SYSTEM, nothing inherited. A folder that exists is left as it is.
@@ -136,13 +146,14 @@ Opening the browser is `IBrowser` in Kiler.App (decided in M1.5), because only t
 - File tests work in a temporary folder that is deleted after the test.
 - Tests do not use the external network and do not depend on run order. The local server on loopback is allowed; API and smoke tests use it.
 - Test data is made up. No real system names, hosts, accounts or passwords.
+- An assertion prints what it compares, and the message of a failed test goes into the public CI log. A token, a password, a key or a decrypted value is compared with `Assert.True` and a message without it, or masked first; `Assert.Equal`, `Assert.Single` and `Assert.Contains` print the values or the whole collection (M1.9).
 - xUnit v3 treats a run with zero tests as a failure.
 - A new test is checked to fail against broken code: break or take out what it guards, see it fail, put the code back. A broken version that does not build proves nothing, because the tests then run against the old binaries (M1.3).
 - Tests on the real clock, such as the stop by the heartbeat: take the time stamp before the action that starts the wait, check a lower and an upper bound, and leave margins for a slow CI machine (`windows-latest`) (M1.6).
 
 ## Manual checks
 
-- Publish with `powershell -ExecutionPolicy Bypass -File .\publish.ps1` (M1.8). Native AOT needs the Visual Studio C++ tools and `vswhere.exe`; the script puts the Visual Studio Installer folder on PATH when `vswhere.exe` is not there (M1.0b, M1.3). `artifacts\` is out of git.
+- Publish with `powershell -ExecutionPolicy Bypass -File .\publish.ps1` (M1.8), then run the smoke tests with `powershell -ExecutionPolicy Bypass -File .\smoke.ps1` (M1.9). Native AOT needs the Visual Studio C++ tools and `vswhere.exe`; the script puts the Visual Studio Installer folder on PATH when `vswhere.exe` is not there (M1.0b, M1.3). `artifacts\` is out of git.
 - The UI of the published exe is checked in Chrome or Edge, not in the Claude Code in-app browser, which blocks the network requests of a SharedWorker and so shows "Stopped" (kiler-ui, Manual checks).
 - Kiler.exe started by hand or from a script runs with `--data <temporary folder>`, so it does not meet the user's own Kiler, and from a local folder, so it does not copy itself into the profile (M1.5a). Afterwards, check that no `instance-*.json` was left in `%LOCALAPPDATA%\Kiler`.
 - The `Open:` line holds the token. A script that reads it masks the token in everything it prints.

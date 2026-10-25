@@ -55,7 +55,9 @@ dotnet-tools.json          local dotnet tools: ReportGenerator
 build.ps1                  build; CI and developers run the same scripts
 test.ps1                   tests with coverage and the coverage report
 format.ps1                 format check
+check-ui.ps1               UI checks in src/ui: Prettier, ESLint, type check, Vitest
 publish.ps1                publish: Kiler.exe alone in artifacts\publish, its PDB in artifacts\symbols
+smoke.ps1                  smoke tests against the published Kiler.exe
 src/
   Kiler.Crypto/            cryptography, no dependencies
   Kiler.Storage/           files: writing, history, trash, cache, change watching
@@ -517,12 +519,12 @@ Throughout the project.
 1. The test projects and shared helpers: a temporary data folder, fake Windows services (account, DPAPI, file owner). They are made together with M1.
 2. `ci.yml` (on push and PR, on `windows-latest`). It starts with M1 and grows with the modules. The workflow calls scripts from the repo (for example `build.ps1` and `test.ps1`) instead of keeping the steps only in the GitHub YAML, so CI can move to another system later (section 9) and the same commands run locally. It includes:
    - cache for NuGet, npm and the Playwright browsers. Node with the npm cache came in M1.8, because the Release build runs npm;
-   - `npm ci`, ESLint, type check, Vitest, UI build;
+   - `npm ci`, Prettier, ESLint, type check, Vitest (`check-ui.ps1`, M1.9), UI build;
    - `dotnet format --verify-no-changes`;
    - build, unit and API tests with coverage;
-   - publish and smoke test of the exe;
+   - publish and smoke test of the exe. Decided in M1.9: the smoke tests live in Kiler.App.Tests with the trait `Category=Smoke` and run only when `KILER_SMOKE_EXE` names the exe; `smoke.ps1` sets it after `publish.ps1`, and `test.ps1` skips them;
    - E2E;
-   - artifacts: the exe, the coverage report, the traces on failure, the screenshots.
+   - artifacts: the exe, the coverage report, the traces on failure, the screenshots. Decided in M1.9: the exe is uploaded only from runs that are not pull requests, and its SHA-256 goes on the run page. The exe for the exam and for the shared folder is taken from a push run on main, of a known commit, and checked against that SHA-256.
 3. ~~`release.yml`: on a `v*` tag, a publish is made, plus a GitHub Release with `Kiler.exe` and its SHA256 checksum.~~ Dropped: a GitHub Release is useful only while the public repo exists. The CI artifact is enough for the exam, and in the company the exe is copied to the shared folder.
 4. `tools/Kiler.DemoData`. It uses the Kiler libraries, so it encrypts correctly. It grows with M4–M7. It has two modes:
    - a made-up set of about 30 records: stash paths of several systems, all templates, tags, levels 0–3, an admin and two users with demo passwords, and a few private records of one of the users;
