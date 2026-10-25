@@ -15,9 +15,8 @@ switch (options.Mode)
         Console.WriteLine(StartOptions.Usage);
         return 0;
     case StartMode.Diag:
-        // The --diag mode comes in M1.11.
-        Console.Error.WriteLine("--diag is not available yet.");
-        return 1;
+        // It measures a folder where it is started, with no server, and copies nothing.
+        return await DiagMode.RunAsync(options);
 }
 
 var place = InstancePlace.ForCurrentUser(options.DataFolder);
@@ -70,8 +69,7 @@ switch (decision)
 
 // Started from a shared folder, Kiler runs from its copy in the profile. The single instance comes first, so a Kiler that
 // runs already only gets the browser. The copy takes the lock itself.
-var localCopy = new LocalCopy(
-    CopyPlace.ForCurrentUser(), new ShareFile(Path.Combine(UserFolders.Kiler(), "share.json")), new CopyFiles(), new ShellShortcuts(), new ProcessStarter());
+var localCopy = new LocalCopy(CopyPlace.ForCurrentUser(), ShareFile.ForCurrentUser(), new CopyFiles(), new ShellShortcuts(), new ProcessStarter());
 var copyDecision = localCopy.Decide(Environment.ProcessPath);
 if (copyDecision is not LocalCopyDecision.RunHere)
 {

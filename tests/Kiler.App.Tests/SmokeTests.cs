@@ -36,6 +36,9 @@ public partial class SmokeTests
     /// <summary>The most the end of the process may come after its wait, on a busy machine.</summary>
     private static readonly TimeSpan Late = TimeSpan.FromSeconds(10);
 
+    /// <summary>The longest a run of <c>--diag</c> may take on the local disk: some seconds, and an antivirus scans every new file.</summary>
+    private static readonly TimeSpan DiagRun = TimeSpan.FromMinutes(2);
+
     public static bool HasExe => KilerExe.Published is not null;
 
     private static CancellationToken Cancel => TestContext.Current.CancellationToken;
@@ -242,6 +245,51 @@ public partial class SmokeTests
     }
 
     [Fact(Skip = NoExe, SkipUnless = nameof(HasExe))]
+    public async Task Diag_MeasuresTheDataFolder_CleansUp_AndSavesAReportWithoutPathsOrNames()
+    {
+        using var exe = new KilerExe();
+        using var run = exe.Diag(["--data", exe.DataFolder]);
+
+        var exitCode = await run.WaitForExitAsync(DiagRun);
+
+        // A process that runs as administrator may give new files to the Administrators group, and the owner checks fail.
+        Assert.True(exitCode == (FileDiagTests.OwnerIsTheUser ? 0 : 1), $"Exit code {exitCode}.{run.Describe()}");
+        Assert.Empty(run.Errors);
+        var output = run.Output;
+        Assert.StartsWith($"Kiler {HealthApi.Version}, --diag, ", output[0], StringComparison.Ordinal);
+        Assert.Equal("Exe location: local disk", output[2]);
+        Assert.StartsWith("Process start to Main: ", output[3], StringComparison.Ordinal);
+        Assert.Equal($"Test folder: {exe.DataFolder} (local disk)", output[4]);
+        Assert.Contains(output, line => line.StartsWith($"Write, one by one: {FileDiag.DefaultFileCount} files in ", StringComparison.Ordinal));
+        Assert.Contains(output, line => line.StartsWith("[OK] Replace by rename over the old file: ", StringComparison.Ordinal));
+        Assert.Contains(FileDiagTests.OwnerLine("Owner of a new file"), output);
+        Assert.Equal(FileDiagTests.OwnerIsTheUser ? 0 : 3, output.Count(line => line.StartsWith("[FAIL]", StringComparison.Ordinal)));
+        Assert.Equal("[OK] Temporary subfolder removed", output[^2]);
+        Assert.Empty(Directory.GetFileSystemEntries(exe.DataFolder));
+
+        var (path, report) = ReadDiagReport(exe);
+        Assert.Equal($"Report saved: {path}", output[^1]);
+        Assert.Equal(output.SkipLast(1).Select(line => line.Replace(exe.DataFolder, "<test folder>", StringComparison.Ordinal)), Lines(report.TrimEnd()));
+        AssertNoPathOrName(report);
+    }
+
+    [Fact(Skip = NoExe, SkipUnless = nameof(HasExe))]
+    public async Task Diag_AFolderThatDoesNotExist_EndsWithExitCode1_AndStillSavesAReport()
+    {
+        using var exe = new KilerExe();
+        var missing = Path.Combine(exe.DataFolder, "missing");
+        using var run = exe.Diag([missing]);
+
+        Assert.Equal(1, await run.WaitForExitAsync(Quick));
+        Assert.Equal($"[FAIL] Test folder: it does not exist, so give one that does: Kiler.exe --diag <folder> ({missing})", run.Output[^2]);
+        Assert.False(Directory.Exists(missing));
+
+        var (_, report) = ReadDiagReport(exe);
+        Assert.Contains("(<test folder>)", report, StringComparison.Ordinal);
+        AssertNoPathOrName(report);
+    }
+
+    [Fact(Skip = NoExe, SkipUnless = nameof(HasExe))]
     public async Task Help_PrintsTheUsage_AndEndsWithExitCode0()
     {
         using var exe = new KilerExe();
@@ -268,6 +316,26 @@ public partial class SmokeTests
     private static string Text(TimeSpan wait) => Text((int)wait.TotalSeconds);
 
     private static string[] Lines(string text) => text.ReplaceLineEndings("\n").Split('\n');
+
+    /// <summary>The one report that <c>--diag</c> saved next to the exe: its path and its text.</summary>
+    private static (string Path, string Text) ReadDiagReport(KilerExe exe)
+    {
+        var path = Assert.Single(Directory.GetFiles(Path.GetDirectoryName(exe.ExePath)!, "Kiler-diag-*.txt"));
+        return (path, File.ReadAllText(path));
+    }
+
+    /// <summary>
+    /// The report may stay on the shared folder, so it shows no folder (no drive and no UNC path) and not the name of the
+    /// user. The name counts as a whole word, as the report hides it: a user named "file" may still read "files".
+    /// </summary>
+    private static void AssertNoPathOrName(string report)
+    {
+        Assert.DoesNotContain(@":\", report, StringComparison.Ordinal);
+        Assert.DoesNotContain(@"\\", report, StringComparison.Ordinal);
+        Assert.DoesNotMatch(
+            new Regex($@"(?<![\p{{L}}\p{{N}}]){Regex.Escape(Environment.UserName)}(?![\p{{L}}\p{{N}}])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
+            report);
+    }
 
     /// <summary>
     /// What would move a host that reads the environment to every interface (<see cref="KilerHostTests"/>), on a port of its

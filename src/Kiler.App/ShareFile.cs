@@ -15,6 +15,8 @@ internal sealed class ShareFile(string path)
 {
     public string Path => path;
 
+    public static ShareFile ForCurrentUser() => new(System.IO.Path.Combine(UserFolders.Kiler(), "share.json"));
+
     public void Write(string folder) =>
         PrivateFolder.WriteFile(path, JsonSerializer.SerializeToUtf8Bytes(new ShareFileContent(folder), KilerJsonContext.Default.ShareFileContent));
 

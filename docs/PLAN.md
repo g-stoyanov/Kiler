@@ -127,7 +127,7 @@ Design sections 4 and 14.
 **Before the steps:**
 
 - Git hooks `pre-commit`, `commit-msg` and `pre-push` that call the `data-guard` script, so commits made outside Claude are checked too (M1.0a).
-- A probe exe, `tools/Kiler.Probe`, published the same way as `Kiler.exe`, for the checks from design section 14 before the real code is written (M1.0b). It starts a local server and opens the browser, and with `--diag <folder>` it measures many small files and checks the file owner. Only a summary of its results goes into the repo: the notes under M1.0b in [tasks/M1.md](tasks/M1.md). The decisions made after it are in this plan.
+- A probe exe, `tools/Kiler.Probe`, published the same way as `Kiler.exe`, for the checks from design section 14 before the real code is written (M1.0b). It starts a local server and opens the browser, and with `--diag <folder>` it measures many small files and checks the file owner. Only a summary of its results goes into the repo: the notes under M1.0b in [tasks/M1.md](tasks/M1.md). The decisions made after it are in this plan. M1.11 moved its `--diag` logic into `Kiler.exe` and deleted it.
 
 **Steps:**
 
@@ -164,7 +164,11 @@ Design sections 4 and 14.
 9. Publishing: `dotnet publish` with Native AOT produces one `Kiler.exe`. Decided in M1.8:
    - `publish.ps1` puts the exe alone in `artifacts\publish` and its PDB apart in `artifacts\symbols`;
    - a DLL with the name of a system DLL, put next to the exe in the shared folder, is not loaded: P/Invoke and the imports of the exe look only in System32.
-10. Diagnostic mode `--diag` for section 14: speed of listing and reading many small files, owner of a new file. It takes over the logic of the probe, and the probe is then deleted.
+10. Diagnostic mode `--diag` for section 14: speed of listing and reading many small files, owner of a new file. It takes over the logic of the probe, and the probe is then deleted. Decided in M1.11:
+    - `--diag` runs where it is started, before the single instance and the local copy, and starts no server;
+    - without a folder it takes the data folder: `--data`, else `data\` in the shared folder, which is the folder of the exe when it runs from a network folder and the folder in `share.json` otherwise. The folder must exist; `--diag` does not create it;
+    - the report file next to the exe shows placeholders instead of folders and account names, because it may stay on the shared folder;
+    - the instructions for the checks in the real environment are in [real-environment-checks.md](real-environment-checks.md).
 11. Local copy (decided after M1.0b): started from a network folder, the exe copies itself to `%LOCALAPPDATA%\Programs\Kiler` if there is no copy yet, remembers the shared folder (the data and the updates), and starts the local copy. It never overwrites an existing copy; updates are signed and come in M3. Decided in M1.5a:
     - the single instance is checked first;
     - the shared folder goes into `%LOCALAPPDATA%\Kiler\share.json` on every start from a shared folder, as it was started (a mapped drive stays a drive);
@@ -205,13 +209,13 @@ Design sections 5 and 7.10.
 4. Versions and conflicts (section 5.5): write only if the version on disk is the expected one. Otherwise the result is "conflict" with the version from disk.
 5. Deletion to `trash\` and restore from there. A list of the versions and restoring an old version (section 5.6).
 6. Loading and local cache (section 5.3): startup is from the copy in `%LOCALAPPDATA%\Kiler`, after which only the changed files are synchronized. Files are read from the share in parallel, about 16 at a time: one by one, 2000 files take about 25 s, and 16 at a time about 1 s (M1.0b).
-7. Watching for changes about every 10 seconds: one listing of the folder with names and dates, reloading the changed files, events to the upper layers.
+7. Watching for changes about every 10 seconds: one listing of the folder with names and dates, reloading the changed files, events to the upper layers. Folders it does not know, such as the `kiler-diag-*` subfolder of `--diag` (M1.11), which a stopped run can leave in `data\`, are ignored.
    - Only the current user's private folder is loaded and watched.
    - An admin's exe also copies the other users' private folders into its cache, without reading them, so they can be restored (step 10).
 8. Resilience:
    - a corrupted JSON file is skipped and reported, without a crash;
    - when the network is unavailable, the application works from the cache and shows this.
-9. File owner (section 7.8) as an interface, with a Windows implementation in Kiler.App. A file whose write time is later than its creation time was edited in place, outside Kiler (decided after M1.0b); the layer reports it, and M4 marks it.
+9. File owner (section 7.8) as an interface, with a Windows implementation in Kiler.App, which reads the owner through `FileOwner.Of` (M1.11). A file whose write time is later than its creation time was edited in place, outside Kiler (decided after M1.0b); the layer reports it, and M4 marks it.
 10. Restore from the local copy (decided after M1.0b): the share keeps no automatic copies, so missing or damaged files in `data\` can be written back from the cache in `%LOCALAPPDATA%\Kiler`. Here it is the API; the admin screen is in M6.
 
 **Tests** (the tests are written first):

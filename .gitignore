@@ -12,8 +12,8 @@ course/
 # List of internal terms for the data-guard hook
 .claude/data-guard.local.txt
 
-# Reports of the environment probe (M1.0b) can hold internal names
-Kiler.Probe-report-*.txt
+# The reports of --diag (M1.11): an error message can still hold an internal name
+Kiler-diag-*.txt
 
 # The UI build and the Vitest output (node_modules is ignored further down)
 src/ui/dist/

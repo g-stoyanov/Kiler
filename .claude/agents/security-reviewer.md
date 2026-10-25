@@ -61,7 +61,8 @@ The task number, for example `M1.4`.
      - only paths from records are read;
      - no escaping with `..`;
      - UNC and local paths are read with the user's rights;
-     - Explorer opens only paths from records.
+     - Explorer opens only paths from records;
+     - on the shared folder anyone can rename a folder and put a link in its place while Kiler writes into it or deletes from it by path. A check for a link before the work does not hold during it; `PinnedFolder` holds the folder (M1.11).
    - **HTML and Markdown:** sanitized with DOMPurify, no unsanitized HTML, Mermaid in strict mode.
    - **Input:** validation, size limits, errors without internal details.
    - **Dependencies:** new packages with known vulnerabilities.

@@ -64,32 +64,14 @@ internal sealed partial class KilerExe : IDisposable
     /// Starts the copy with <c>--no-browser --data &lt;data folder&gt;</c> and then <paramref name="arguments"/>. A test never
     /// opens a browser. <paramref name="environment"/> is added to the environment of the test.
     /// </summary>
-    public KilerRun Start(IEnumerable<string> arguments, IReadOnlyDictionary<string, string>? environment = null)
-    {
-        var start = new ProcessStartInfo(ExePath)
-        {
-            WorkingDirectory = _folder.Path,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8,
-        };
-        foreach (var argument in (string[])["--no-browser", "--data", DataFolder, .. arguments])
-        {
-            start.ArgumentList.Add(argument);
-        }
+    public KilerRun Start(IEnumerable<string> arguments, IReadOnlyDictionary<string, string>? environment = null) =>
+        Run(["--no-browser", "--data", DataFolder, .. arguments], environment);
 
-        foreach (var (name, value) in environment ?? new Dictionary<string, string>())
-        {
-            start.Environment[name] = value;
-        }
-
-        var run = new KilerRun(start);
-        _runs.Add(run);
-        return run;
-    }
+    /// <summary>
+    /// Starts the copy with <c>--diag</c> and then <paramref name="arguments"/>. It starts no server and opens no browser, so
+    /// it takes no <c>--no-browser</c>, and it uses the data folder only when the arguments name it.
+    /// </summary>
+    public KilerRun Diag(IEnumerable<string> arguments) => Run(["--diag", .. arguments], environment: null);
 
     /// <summary>
     /// The text as it may go into a test message: the value of every <c>t</c> parameter is hidden, and so is every word of
@@ -116,6 +98,33 @@ internal sealed partial class KilerExe : IDisposable
 
             DeleteFolder();
         }
+    }
+
+    private KilerRun Run(IEnumerable<string> arguments, IReadOnlyDictionary<string, string>? environment)
+    {
+        var start = new ProcessStartInfo(ExePath)
+        {
+            WorkingDirectory = _folder.Path,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
+        };
+        foreach (var argument in arguments)
+        {
+            start.ArgumentList.Add(argument);
+        }
+
+        foreach (var (name, value) in environment ?? new Dictionary<string, string>())
+        {
+            start.Environment[name] = value;
+        }
+
+        var run = new KilerRun(start);
+        _runs.Add(run);
+        return run;
     }
 
     private void DeleteFolder()
