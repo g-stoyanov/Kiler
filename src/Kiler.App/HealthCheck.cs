@@ -8,8 +8,11 @@ internal interface IHealthCheck
     Task<bool> AnswersAsync(RunningInstance instance, CancellationToken cancellationToken);
 }
 
-/// <summary><c>GET /api/health</c> with the cookie of the token, as a browser that has signed in sends it.</summary>
-internal sealed class HealthCheck : IHealthCheck, IDisposable
+/// <summary>
+/// <c>GET /api/health</c> with the cookie of the token, as a browser that has signed in sends it. The cookie has the name
+/// of the instance (<see cref="InstancePlace.CookieName"/>), which a second start of the same instance shares.
+/// </summary>
+internal sealed class HealthCheck(string cookieName) : IHealthCheck, IDisposable
 {
     /// <summary>One try is short. A Kiler that does not answer in this time gets another try (<see cref="SingleInstance"/>).</summary>
     private static readonly TimeSpan TryTimeout = TimeSpan.FromSeconds(2);
@@ -23,7 +26,7 @@ internal sealed class HealthCheck : IHealthCheck, IDisposable
     public async Task<bool> AnswersAsync(RunningInstance instance, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(instance.Server, "/api/health"));
-        request.Headers.Add("Cookie", $"{AccessGuard.CookieName}={instance.Token.Value}");
+        request.Headers.Add("Cookie", $"{cookieName}={instance.Token.Value}");
         try
         {
             using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);

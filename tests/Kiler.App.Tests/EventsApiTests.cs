@@ -113,7 +113,7 @@ public class EventsApiTests
             app.Lifetime.StopApplication();
             using var client = new HttpClient { BaseAddress = new Uri(Assert.Single(app.Urls)) };
             var token = app.Services.GetRequiredService<AccessToken>();
-            client.DefaultRequestHeaders.Add("Cookie", $"{AccessGuard.CookieName}={token.Value}");
+            client.DefaultRequestHeaders.Add("Cookie", $"{InstancePlace.CookieNameFor(null)}={token.Value}");
 
             using var events = await client.GetAsync("/api/events", HttpCompletionOption.ResponseHeadersRead, Cancel);
             using var health = await client.GetAsync("/api/health", Cancel);

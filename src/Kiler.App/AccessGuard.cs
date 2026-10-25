@@ -9,18 +9,16 @@ namespace Kiler.App;
 /// <item>the browser does not mark the request as coming from another site (403). Another port of 127.0.0.1 is the
 /// same site for the browser, so <c>SameSite=Strict</c> alone lets its requests through with the cookie;</item>
 /// <item><c>GET /?t=&lt;token&gt;</c> sets the cookie and redirects to <c>/</c>, which clears the token from the address;</item>
-/// <item>any other request needs the cookie (401).</item>
+/// <item>any other request needs the cookie (401). Its name is per instance (<see cref="InstancePlace.CookieNameFor"/>).</item>
 /// </list>
 /// </summary>
 internal static class AccessGuard
 {
-    public const string CookieName = "kiler";
-
     private const string TokenParameter = "t";
     private const string FetchSiteHeader = "Sec-Fetch-Site";
 
-    public static void Use(IApplicationBuilder app, AccessToken token) =>
-        app.Use((context, next) => CheckAsync(context, next, token));
+    public static void Use(IApplicationBuilder app, AccessToken token, string cookieName) =>
+        app.Use((context, next) => CheckAsync(context, next, token, cookieName));
 
     /// <summary>The address that lets a browser in: the root of the server with the token in <c>t</c>.</summary>
     public static Uri EntryAddress(Uri server, AccessToken token) => new(server, $"/?{TokenParameter}={token.Value}");
@@ -50,7 +48,7 @@ internal static class AccessGuard
     private static bool IsAllowedFetchSite(StringValues site) =>
         site.Count == 0 || (site.Count == 1 && site[0] is "same-origin" or "none");
 
-    private static Task CheckAsync(HttpContext context, RequestDelegate next, AccessToken token)
+    private static Task CheckAsync(HttpContext context, RequestDelegate next, AccessToken token, string cookieName)
     {
         var request = context.Request;
         var response = context.Response;
@@ -77,7 +75,7 @@ internal static class AccessGuard
 
             // No Expires: the cookie ends with the browser session. No Domain: only this host gets it.
             // Not Secure, because the server is plain HTTP on loopback.
-            response.Cookies.Append(CookieName, token.Value, new CookieOptions
+            response.Cookies.Append(cookieName, token.Value, new CookieOptions
             {
                 HttpOnly = true,
                 SameSite = SameSiteMode.Strict,
@@ -88,7 +86,7 @@ internal static class AccessGuard
             return Task.CompletedTask;
         }
 
-        if (!token.Matches(request.Cookies[CookieName]))
+        if (!token.Matches(request.Cookies[cookieName]))
         {
             response.StatusCode = StatusCodes.Status401Unauthorized;
             return Task.CompletedTask;

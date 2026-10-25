@@ -44,7 +44,8 @@ The task number, for example `M1.4`.
      - after the exchange, the token is never in JavaScript, browser storage or an address;
      - requests go only to the same origin: no CDN, no font or script from an external address;
      - the page closes its `EventSource` on the first error and does not let the browser reconnect, because a reconnect after a stop sends the cookie to a port that may belong to another program;
-     - the Vite dev server listens on 127.0.0.1 only, and its proxy keeps the guard working (`changeOrigin`, no header that turns a check off).
+     - the Vite dev server listens on 127.0.0.1 only, and its proxy keeps the guard working (`changeOrigin`, no header that turns a check off);
+     - the dev server is a second way into Kiler, without the guard for the files it serves itself (added after M1.7): its own reconnects (Vite's HMR client polls a server that went away, with the cookies), framing of the page it serves, its host check, and its logs, which print the addresses of failed proxy requests.
    - **Lifetime of the local server** (added after M1.6): who can keep Kiler running or stop it; a request that stays open or is sent only in part must not hold the stop up beyond `KilerHost.ShutdownTimeout`.
    - **Local files with secrets outside `data\`** (added after M1.5): location, ACL, leftovers after a crash, atomic writes, and sharing modes: a reader must not block the writer or the delete.
    - **Named kernel objects** (added after M1.5): user and session scope, squatting by another user, the abandoned state, and whether their scope matches the files and ports they guard.

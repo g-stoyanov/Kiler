@@ -33,7 +33,7 @@ internal static class KilerHost
         var heartbeat = app.Services.GetRequiredService<Heartbeat>();
         // Routing comes after the guard. WebApplication would otherwise put it first, and an endpoint with
         // ShortCircuit() would run straight from routing, before the guard.
-        AccessGuard.Use(app, token);
+        AccessGuard.Use(app, token, InstancePlace.CookieNameFor(options.DataFolder));
         app.UseRouting();
         HealthApi.Map(app, heartbeat);
         EventsApi.Map(app, heartbeat, times.PingInterval, TimeProvider.System, app.Lifetime.ApplicationStopping);

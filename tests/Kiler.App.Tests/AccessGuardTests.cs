@@ -38,7 +38,7 @@ public class AccessGuardTests
         await using var server = await KilerServer.StartAsync();
         using var client = server.CreateClient();
         using var request = new HttpRequestMessage(HttpMethod.Get, "/api/health");
-        request.Headers.Add("Cookie", $"{AccessGuard.CookieName}={Spoil(server.Token.Value, wrong)}");
+        request.Headers.Add("Cookie", $"{server.CookieName}={Spoil(server.Token.Value, wrong)}");
 
         using var response = await client.SendAsync(request, Cancel);
 
@@ -69,11 +69,56 @@ public class AccessGuardTests
         Assert.True(response.Headers.CacheControl?.NoStore);
 
         var cookie = Assert.Single(response.Headers.GetValues("Set-Cookie")).Split(';', StringSplitOptions.TrimEntries);
-        Assert.Equal($"{AccessGuard.CookieName}={server.Token.Value}", cookie[0]);
+        Assert.Equal($"{server.CookieName}={server.Token.Value}", cookie[0]);
         // No Expires or Max-Age: the cookie ends with the browser session. No Domain: only this host gets it.
         Assert.Equal(
             ["httponly", "path=/", "samesite=strict"],
             cookie[1..].Select(attribute => attribute.ToLowerInvariant()).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task Exchange_ForAKilerWithData_SetsTheCookieOfItsInstance()
+    {
+        const string DataFolder = @"D:\Demo\data";
+        await using var server = await KilerServer.StartAsync(new StartOptions { DataFolder = DataFolder });
+        using var client = server.CreateClient();
+
+        using var response = await client.GetAsync($"/?t={server.Token.Value}", Cancel);
+
+        var cookie = Assert.Single(response.Headers.GetValues("Set-Cookie")).Split(';', StringSplitOptions.TrimEntries);
+        Assert.Equal($"{InstancePlace.For(DataFolder, @"C:\Local\Kiler", 1).CookieName}={server.Token.Value}", cookie[0]);
+        Assert.Matches("^kiler-[0-9a-f]{16}=", cookie[0]);
+    }
+
+    // Cookies are not separated by port, so the browser sends the cookies of every Kiler to every one of them.
+    // Each reads only the cookie of its own instance.
+    [Theory]
+    [InlineData(null, "kiler-0123456789abcdef")]
+    [InlineData(@"D:\Demo\data", "kiler")]
+    [InlineData(@"D:\Demo\data", "kiler-0123456789abcdef")]
+    public async Task Request_WithTheTokenInTheCookieOfAnotherInstance_Returns401(string? dataFolder, string otherCookie)
+    {
+        await using var server = await KilerServer.StartAsync(new StartOptions { DataFolder = dataFolder });
+        using var client = server.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/health");
+        request.Headers.Add("Cookie", $"{otherCookie}={server.Token.Value}");
+
+        using var response = await client.SendAsync(request, Cancel);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Request_WithTheCookiesOfTwoInstances_ReadsItsOwn()
+    {
+        await using var server = await KilerServer.StartAsync(new StartOptions { DataFolder = @"D:\Demo\data" });
+        using var client = server.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/health");
+        request.Headers.Add("Cookie", $"kiler={new AccessToken().Value}; {server.CookieName}={server.Token.Value}");
+
+        using var response = await client.SendAsync(request, Cancel);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     [Theory]

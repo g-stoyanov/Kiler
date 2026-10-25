@@ -76,7 +76,7 @@ public class KilerHostTests
         Assert.Equal(port, AssertListensOnlyOnLoopback(app));
         using var client = new HttpClient();
         using var request = new HttpRequestMessage(HttpMethod.Get, $"http://127.0.0.1:{port}/api/health");
-        request.Headers.Add("Cookie", $"{AccessGuard.CookieName}={app.Services.GetRequiredService<AccessToken>().Value}");
+        request.Headers.Add("Cookie", $"{InstancePlace.CookieNameFor(null)}={app.Services.GetRequiredService<AccessToken>().Value}");
         using var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 

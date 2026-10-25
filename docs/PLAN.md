@@ -132,7 +132,7 @@ Design sections 4 and 14.
 2. ASP.NET Core on `127.0.0.1`, on a free port.
 3. Protection of the local server:
    - the address the browser is opened with contains a random 32-byte token;
-   - on the first request, the token is exchanged for an HttpOnly cookie (`SameSite=Strict`) and the address is cleared;
+   - on the first request, the token is exchanged for an HttpOnly cookie (`SameSite=Strict`) and the address is cleared. Cookies are not separated by port, so its name is per instance (decided in M1.7): `kiler`, and `kiler-<key>` for a start with `--data`, the key of step 5. Two Kilers that run at the same time, such as the dev mode and the Kiler of the user, then do not overwrite each other's cookie. Not per port, because the port changes with every start and the browser keeps the old cookies;
    - a request without a valid cookie gets 401;
    - a request whose `Host` is not `127.0.0.1:<port>` or `localhost:<port>` gets 400, as protection against DNS rebinding;
    - a request that the browser marks as coming from another site (`Sec-Fetch-Site` other than `same-origin` or `none`) gets 403. Other ports of 127.0.0.1 are the same site for the browser, so `SameSite=Strict` does not stop their requests (decided in M1.4).
@@ -152,6 +152,11 @@ Design sections 4 and 14.
    - a common page frame, light and dark theme, an API client;
    - during development, the Vite dev server forwards `/api` to .NET;
    - on build, MSBuild runs `npm ci` and `npm run build`, and the files are embedded as resources.
+
+   Decided in M1.7:
+   - `npm run dev` starts Kiler with `dotnet run -- --no-browser --data <repo>/dev-data`, reads the address with the token from its console, starts the Vite dev server with a proxy to it, and opens the browser on the dev server with the token. When Kiler stops, the dev server stops too;
+   - all the pages of one Kiler share one event stream, held by a SharedWorker: without TLS the browser allows 6 connections per host, and a stream per page would stall the requests from the sixth page on. A browser without SharedWorker gets a stream per page;
+   - all the UI texts live in one file, `src/texts.ts`.
 9. Publishing: `dotnet publish` with Native AOT produces one `Kiler.exe`.
 10. Diagnostic mode `--diag` for section 14: speed of listing and reading many small files, owner of a new file. It takes over the logic of the probe, and the probe is then deleted.
 11. Local copy (decided after M1.0b): started from a network folder, the exe copies itself to `%LOCALAPPDATA%\Programs\Kiler` if there is no copy yet, remembers the shared folder (the data and the updates), and starts the local copy. It never overwrites an existing copy; updates are signed and come in M3. Decided in M1.5a:
@@ -535,7 +540,7 @@ They are resolved at the start of the relevant module. The decisions are also re
 | M1 | How the heartbeat is sent. Decided: SSE. |
 | M1 | GitHub Actions with Claude (`claude-code-action`, PR review). Decided: no. The local `code-reviewer` is enough. |
 | process | Plan mode at the start of a module. Decided: no. Planning stays in the conversation, with multiple-choice questions. |
-| M1.7 or M6 | Whether all UI texts live in one file. |
+| M1.7 or M6 | Whether all UI texts live in one file. Decided in M1.7: yes, `src/ui/src/texts.ts`. |
 | M3 | Binding the encrypted group to the record id and the level (associated data in AES-GCM), so that a group cannot be moved to another record. This is an addition to the design. Decided for private records: the owner and the record id (design section 7.10). |
 | M3 | Where and how the key for the admin seal is kept. |
 | M5 | Rules for changing a template that has records. Private records are read only by their owner's exe, so the rules must work without the admin rewriting them. |

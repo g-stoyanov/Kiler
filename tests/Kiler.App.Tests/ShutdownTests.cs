@@ -127,7 +127,7 @@ public class ShutdownTests
     /// <summary>The page and health requests that the guard turns away, each with the status it gets.</summary>
     private static IEnumerable<(HttpRequestMessage Request, HttpStatusCode Rejected)> RejectedRequests(KilerServer server)
     {
-        var cookie = $"{AccessGuard.CookieName}={server.Token.Value}";
+        var cookie = $"{server.CookieName}={server.Token.Value}";
 
         yield return (new HttpRequestMessage(HttpMethod.Get, "/api/events"), HttpStatusCode.Unauthorized);
         yield return (new HttpRequestMessage(HttpMethod.Get, "/api/health"), HttpStatusCode.Unauthorized);

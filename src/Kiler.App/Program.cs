@@ -29,7 +29,7 @@ var browser = new DefaultBrowser();
 StartDecision decision;
 try
 {
-    using var health = new HealthCheck();
+    using var health = new HealthCheck(place.CookieName);
     decision = await new SingleInstance(instanceLock, instanceFile, health, TimeProvider.System).DecideAsync(CancellationToken.None);
 }
 // The mutex cannot be made or opened, for example because another user made one of the same name first.

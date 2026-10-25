@@ -1,0 +1,128 @@
+/*
+ * The theme (theme.ts): every colour is light-dark(<light>, <dark>), and color-scheme on the root picks the side.
+ * Without data-theme the root follows the system.
+ */
+:root {
+  color-scheme: light dark;
+
+  --color-page: light-dark(#f4f5f7, #16181d);
+  --color-surface: light-dark(#ffffff, #1f2229);
+  --color-text: light-dark(#1d2330, #e6e8ee);
+  --color-muted: light-dark(#5b6475, #9aa3b2);
+  --color-border: light-dark(#d9dde5, #343944);
+  --color-accent: light-dark(#2f6fdb, #6b9cf0);
+  --color-ok: light-dark(#1f7a45, #5cc98a);
+  --color-danger: light-dark(#b42318, #ff8a80);
+  --color-danger-surface: light-dark(#fdecea, #3a1d1b);
+
+  --radius: 6px;
+  --space: 0.75rem;
+
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--color-text);
+  background: var(--color-page);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+}
+
+.frame {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.frame-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space);
+  padding: var(--space) calc(var(--space) * 2);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.brand {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--color-accent);
+}
+
+.theme-switch {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--space) / 2);
+  margin-left: auto;
+  color: var(--color-muted);
+}
+
+.theme-switch select {
+  font: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.15rem 0.4rem;
+}
+
+.badge {
+  padding: 0.1rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font-size: 0.85rem;
+}
+
+.badge-connecting {
+  color: var(--color-muted);
+}
+
+.badge-connected {
+  color: var(--color-ok);
+}
+
+.badge-stopped {
+  color: var(--color-danger);
+}
+
+.frame-main {
+  flex: 1;
+  padding: calc(var(--space) * 2);
+}
+
+.card {
+  max-width: 40rem;
+  padding: calc(var(--space) * 1.5) calc(var(--space) * 2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.card h1 {
+  margin: 0 0 var(--space);
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+.muted {
+  color: var(--color-muted);
+}
+
+.banner {
+  margin: 0;
+  padding: var(--space) calc(var(--space) * 2);
+}
+
+.banner-danger {
+  color: var(--color-danger);
+  background: var(--color-danger-surface);
+}

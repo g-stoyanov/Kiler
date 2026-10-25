@@ -15,11 +15,12 @@ internal sealed class KilerServer : IAsyncDisposable
     /// <summary>The wait for the stop, as <c>Program</c> runs it, so a stop by the heartbeat stops the server.</summary>
     private readonly Task _shutdown;
 
-    private KilerServer(WebApplication app)
+    private KilerServer(WebApplication app, string? dataFolder)
     {
         _app = app;
         Address = new Uri(Assert.Single(app.Urls));
         Token = app.Services.GetRequiredService<AccessToken>();
+        CookieName = InstancePlace.CookieNameFor(dataFolder);
         var stopping = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         app.Lifetime.ApplicationStopping.Register(() => stopping.TrySetResult());
         Stopping = stopping.Task;
@@ -33,6 +34,9 @@ internal sealed class KilerServer : IAsyncDisposable
 
     public AccessToken Token { get; }
 
+    /// <summary>The name of the cookie with the token, which comes from the data folder of the instance.</summary>
+    public string CookieName { get; }
+
     /// <summary>Completes when the host starts to stop: by the heartbeat, or by <see cref="StopAsync"/>.</summary>
     public Task Stopping { get; }
 
@@ -41,10 +45,13 @@ internal sealed class KilerServer : IAsyncDisposable
 
     public static Task<KilerServer> StartAsync() => StartAsync(new StartOptions());
 
-    public static Task<KilerServer> StartAsync(StartOptions options) => StartAsync(KilerHost.Build(options));
+    public static Task<KilerServer> StartAsync(StartOptions options) => StartAsync(KilerHost.Build(options), options.DataFolder);
 
-    /// <summary>Starts an app from <see cref="KilerHost.Build"/> that the test has changed, for example with an extra endpoint.</summary>
-    public static async Task<KilerServer> StartAsync(WebApplication app)
+    /// <summary>
+    /// Starts an app from <see cref="KilerHost.Build"/> that the test has changed, for example with an extra endpoint.
+    /// <paramref name="dataFolder"/> is the one the app was built with.
+    /// </summary>
+    public static async Task<KilerServer> StartAsync(WebApplication app, string? dataFolder = null)
     {
         try
         {
@@ -56,7 +63,7 @@ internal sealed class KilerServer : IAsyncDisposable
             throw;
         }
 
-        return new KilerServer(app);
+        return new KilerServer(app, dataFolder);
     }
 
     /// <summary>A client that keeps no cookies and does not follow redirects, so each test sets what it sends.</summary>
@@ -67,7 +74,7 @@ internal sealed class KilerServer : IAsyncDisposable
     public HttpClient CreateSignedInClient()
     {
         var client = CreateClient();
-        client.DefaultRequestHeaders.Add("Cookie", $"{AccessGuard.CookieName}={Token.Value}");
+        client.DefaultRequestHeaders.Add("Cookie", $"{CookieName}={Token.Value}");
         return client;
     }
 

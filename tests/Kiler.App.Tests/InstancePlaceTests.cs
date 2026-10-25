@@ -12,6 +12,7 @@ public class InstancePlaceTests
 
         Assert.Equal("Kiler.Instance", place.MutexName);
         Assert.Equal(Path.Combine(LocalFolder, "instance-1.json"), place.FilePath);
+        Assert.Equal("kiler", place.CookieName);
     }
 
     [Fact]
@@ -34,8 +35,29 @@ public class InstancePlaceTests
         var place = InstancePlace.For(@"D:\Demo\data", LocalFolder, Session);
 
         Assert.Matches(@"^Kiler\.Instance\.[0-9a-f]{16}$", place.MutexName);
+        var key = place.MutexName["Kiler.Instance.".Length..];
         Assert.Equal(LocalFolder, Path.GetDirectoryName(place.FilePath));
-        Assert.Equal($"instance-1-{place.MutexName["Kiler.Instance.".Length..]}.json", Path.GetFileName(place.FilePath));
+        Assert.Equal($"instance-1-{key}.json", Path.GetFileName(place.FilePath));
+        Assert.Equal($"kiler-{key}", place.CookieName);
+    }
+
+    [Fact]
+    public void CookieName_IsTheSameInEverySession()
+    {
+        // One browser profile serves one session, and its cookies do not depend on the session.
+        Assert.Equal(InstancePlace.For(null, LocalFolder, 1).CookieName, InstancePlace.For(null, LocalFolder, 2).CookieName);
+        Assert.Equal(InstancePlace.For(@"D:\Demo\data", LocalFolder, 1).CookieName, InstancePlace.For(@"D:\Demo\data", LocalFolder, 2).CookieName);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(@"D:\Demo\data")]
+    [InlineData(@"d:\demo\DATA\")]
+    [InlineData("data")]
+    public void CookieNameFor_IsTheCookieNameOfThePlace(string? dataFolder)
+    {
+        // KilerHost names the cookie with CookieNameFor, and a second start sends the one of its InstancePlace.
+        Assert.Equal(InstancePlace.For(dataFolder, LocalFolder, Session).CookieName, InstancePlace.CookieNameFor(dataFolder));
     }
 
     [Theory]

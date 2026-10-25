@@ -7,20 +7,42 @@ namespace Kiler.App.Tests;
 /// <summary>The health check against the real Kiler server and against ports where no Kiler answers.</summary>
 public class HealthCheckTests
 {
+    /// <summary>The cookie name where no Kiler answers, so the name does not matter.</summary>
+    private const string AnyCookie = "kiler";
+
     [Fact]
     public async Task Answers_WithTheTokenOfTheServer_IsTrue()
     {
         await using var server = await KilerServer.StartAsync();
-        using var health = new HealthCheck();
+        using var health = new HealthCheck(server.CookieName);
 
         Assert.True(await health.AnswersAsync(new RunningInstance(server.Port, server.Token), TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task Answers_AKilerWithData_WithTheCookieNameOfItsInstance_IsTrue()
+    {
+        const string DataFolder = @"D:\Demo\data";
+        await using var server = await KilerServer.StartAsync(new StartOptions { DataFolder = DataFolder });
+        using var health = new HealthCheck(InstancePlace.For(DataFolder, @"C:\Local\Kiler", 1).CookieName);
+
+        Assert.True(await health.AnswersAsync(new RunningInstance(server.Port, server.Token), TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task Answers_WithTheCookieNameOfAnotherInstance_IsFalse()
+    {
+        await using var server = await KilerServer.StartAsync(new StartOptions { DataFolder = @"D:\Demo\data" });
+        using var health = new HealthCheck(InstancePlace.CookieNameFor(null));
+
+        Assert.False(await health.AnswersAsync(new RunningInstance(server.Port, server.Token), TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public async Task Answers_WithAnotherToken_IsFalse()
     {
         await using var server = await KilerServer.StartAsync();
-        using var health = new HealthCheck();
+        using var health = new HealthCheck(server.CookieName);
 
         Assert.False(await health.AnswersAsync(new RunningInstance(server.Port, new AccessToken()), TestContext.Current.CancellationToken));
     }
@@ -28,7 +50,7 @@ public class HealthCheckTests
     [Fact]
     public async Task Answers_WhenNothingListens_IsFalse()
     {
-        using var health = new HealthCheck();
+        using var health = new HealthCheck(AnyCookie);
 
         Assert.False(await health.AnswersAsync(new RunningInstance(ClosedPort(), new AccessToken()), TestContext.Current.CancellationToken));
     }
@@ -41,7 +63,7 @@ public class HealthCheckTests
         silent.Start();
         try
         {
-            using var health = new HealthCheck();
+            using var health = new HealthCheck(AnyCookie);
 
             Assert.False(await health.AnswersAsync(
                 new RunningInstance(((IPEndPoint)silent.LocalEndpoint).Port, new AccessToken()),
@@ -65,7 +87,7 @@ public class HealthCheckTests
         {
             var targetPort = ((IPEndPoint)target.LocalEndpoint).Port;
             var answer = AnswerOnceAsync(redirecting, $"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{targetPort}/api/health\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
-            using var health = new HealthCheck();
+            using var health = new HealthCheck(AnyCookie);
 
             Assert.False(await health.AnswersAsync(
                 new RunningInstance(((IPEndPoint)redirecting.LocalEndpoint).Port, new AccessToken()),
@@ -88,7 +110,7 @@ public class HealthCheckTests
         silent.Start();
         try
         {
-            using var health = new HealthCheck();
+            using var health = new HealthCheck(AnyCookie);
             using var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => health.AnswersAsync(
