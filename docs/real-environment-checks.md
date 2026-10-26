@@ -2,7 +2,7 @@
 
 The checkpoint right after M1: the checks of design section 14, now with the real `Kiler.exe` instead of the probe of M1.0b. The results of the probe are in the notes under M1.0b in [tasks/M1.md](tasks/M1.md); these checks confirm them and add what the probe could not show.
 
-Take `Kiler.exe` from the artifact of a CI push run on main and compare its SHA-256 with the one on the run page, or publish it with `publish.ps1`. Run everything as a normal user, not as administrator.
+Take `Kiler.exe` from the artifact of a CI push run on main and compare its SHA-256 with the one on the run page, or publish it with `publish.ps1`. The run page shows the SHA-256 twice: in the job summary, when signed in, and as the digest of the artifact. The artifact is the exe itself, not a zip; `gh run download` fails on it, so from the command line take it with `gh api repos/g-stoyanov/Kiler/actions/artifacts/<artifact id>/zip > Kiler.exe` (M1.12). Run everything as a normal user, not as administrator.
 
 ## 1. Start from the shared folder
 

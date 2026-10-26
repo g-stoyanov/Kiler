@@ -6,7 +6,7 @@ Here [the plan](../PLAN.md) is broken into small tasks with ticks. The work foll
 
 | Module | Tasks | Status |
 |---|---|---|
-| M1 Host and skeleton | [M1.md](M1.md) | in progress |
+| M1 Host and skeleton | [M1.md](M1.md) | done; the checkpoint in the real environment is pending, before M2 |
 | M2 Data layer | | not started |
 | M3 Cryptography | | not started |
 | M4 Users and permissions | | not started |

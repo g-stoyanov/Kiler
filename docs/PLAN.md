@@ -544,7 +544,7 @@ They are resolved at the start of the relevant module. The decisions are also re
 
 | When | Question |
 |---|---|
-| after M1 | The checks from design section 14 with the exe from M1. Decided: a probe exe before the code (M1.0b), and later a `--diag` mode (M1.11). Done in M1.0b: the architecture holds; the decisions are in M1, M2, M3, M4 and M6. |
+| after M1 | The checks from design section 14 with the exe from M1. Decided: a probe exe before the code (M1.0b), and later a `--diag` mode (M1.11). Done in M1.0b: the architecture holds; the decisions are in M1, M2, M3, M4 and M6. Pending, before M2: the checkpoint with the final exe of M1 ([real-environment-checks.md](real-environment-checks.md)). |
 | M1 | Native AOT or plain single-file. Decided after M1.0b: Native AOT. |
 | M3 | Where the private key for signing updates is kept, and how a release is signed. |
 | M1 | How the heartbeat is sent. Decided: SSE. |

@@ -95,10 +95,13 @@ The details are in [docs/PLAN.md](docs/PLAN.md), sections 2 and 3.
 - **The Windows parts** (account, DPAPI, file owner, Explorer) are interfaces in Kiler.Core, and their implementations are in Kiler.App.
 - **Tests:** xUnit v3, API tests on the real Kestrel, Vitest, Playwright for .NET. For Kiler.Crypto and Kiler.Storage the tests are written first (TDD).
 - **CI:** GitHub Actions on `windows-latest`.
-- **Build and test commands.** The execution policy on the developer machine is AllSigned, so the scripts run through `-ExecutionPolicy Bypass`. Task M1.12 adds the UI dev mode and the publish.
-  - Build, Release by default: `powershell -ExecutionPolicy Bypass -File .\build.ps1`.
-  - All tests with coverage: `powershell -ExecutionPolicy Bypass -File .\test.ps1`.
-  - Format check: `powershell -ExecutionPolicy Bypass -File .\format.ps1`.
-  - UI checks (Prettier, ESLint, type check, Vitest): `powershell -ExecutionPolicy Bypass -File .\check-ui.ps1`.
-  - Smoke tests of the published exe, after `publish.ps1`: `powershell -ExecutionPolicy Bypass -File .\smoke.ps1`.
-  - One test project, or some tests: `dotnet test --project tests\Kiler.App.Tests -- --filter-method "*Name*"`, or `--filter-class`.
+- **Build and test commands.** The execution policy on the developer machine is AllSigned, so the scripts run through `-ExecutionPolicy Bypass`, and in PowerShell npm is `npm.cmd`, because `npm.ps1` is not signed. They need Node.js 24.15 or newer, and the publish needs the Visual Studio C++ tools. CI runs the first six, in this order.
+  - Format check: `powershell -ExecutionPolicy Bypass -File .\format.ps1`. `dotnet format Kiler.slnx` fixes the files.
+  - UI checks (Prettier, ESLint, type check, Vitest): `powershell -ExecutionPolicy Bypass -File .\check-ui.ps1`. It runs `npm ci` first when `src\ui\node_modules` is missing or older than `package-lock.json`.
+  - Build, Release by default: `powershell -ExecutionPolicy Bypass -File .\build.ps1`. A Release build also builds the UI and embeds it; a Debug build (`-Configuration Debug`) has no UI.
+  - All tests with coverage: `powershell -ExecutionPolicy Bypass -File .\test.ps1`, with `-NoBuild` after `build.ps1`. The report is in `TestResults\coverage-report`. The smoke tests show as skipped here, and so does the test that runs only in Debug.
+  - Publish: `powershell -ExecutionPolicy Bypass -File .\publish.ps1`. `Kiler.exe` alone in `artifacts\publish`, its PDB in `artifacts\symbols`.
+  - Smoke tests of the published exe: `powershell -ExecutionPolicy Bypass -File .\smoke.ps1`. They run the exe in `artifacts\publish` as it is, so publish again after a change of the code. `-Exe <path>` runs them against another exe, such as the CI artifact.
+  - One test project, or some tests: `dotnet test --project tests\Kiler.App.Tests -- --filter-method "*Name*"`, or `--filter-class`. It builds Debug, so the tests of the embedded UI skip.
+  - One UI check, in `src\ui`: `npm.cmd run <script>` with `format:check`, `lint` or `typecheck`, and `npm.cmd test` for Vitest. `npm.cmd run format` fixes the format.
+  - UI dev mode, in `src\ui`, after `check-ui.ps1` has installed the packages: `npm.cmd run dev`. It starts Kiler with `dotnet run` and the data folder `dev-data\`, then the Vite dev server with a proxy to Kiler, and opens the browser. When the last tab closes, Kiler stops after the idle wait, and the dev server with it. There is no HMR, so reload the page after a change of the UI; after a change of the C# code, stop it and start it again. Claude runs `npm.cmd run dev -- --no-browser` in the background: it prints the address with the token instead of opening a browser, and without a page that holds `/api/events`, Kiler stops 60 s after the start. The details are in the `kiler-ui` skill.

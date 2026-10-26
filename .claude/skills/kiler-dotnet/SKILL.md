@@ -171,6 +171,4 @@ Opening the browser is `IBrowser` in Kiler.App (decided in M1.5), because only t
 
 ## Deferred
 
-| Question | When |
-|---|---|
-| Build and test commands | M1.12, in CLAUDE.md |
+Nothing at the end of M1; the build and test commands are in CLAUDE.md, section "Code" (M1.12). Open questions go here with the module that decides them; the current ones are in PLAN section 6.
