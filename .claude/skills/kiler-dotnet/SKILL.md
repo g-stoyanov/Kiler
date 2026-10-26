@@ -5,7 +5,7 @@ description: Kiler's rules for C# and .NET code. Use when writing or changing C#
 
 # Kiler: C# and .NET
 
-Decisions come from `docs/PLAN.md` (sections 2 and 3) and `docs/tasks/M1.md`. Anything not decided yet is listed under "Deferred" with the module where it gets decided. Do not invent it; if a task needs such a decision, ask.
+Decisions come from `docs/PLAN.md` (sections 2 and 3) and the task files `docs/tasks/M<n>.md`. Anything not decided yet is listed under "Deferred" with the module where it gets decided. Do not invent it; if a task needs such a decision, ask.
 
 ## Projects and dependencies
 
@@ -16,7 +16,7 @@ Kiler.App ──► Kiler.Core ──► Kiler.Crypto
 ```
 
 - **Kiler.Crypto:** cryptography. No files, no network, no dependency on the other projects.
-- **Kiler.Storage:** the JSON files in `data\`: atomic writes, history, trash, cache, change polling. It knows nothing about encryption; encrypted parts are plain strings to it.
+- **Kiler.Storage:** the JSON files in `data\`: atomic writes, history, trash, cache, change polling. It knows nothing about encryption; encrypted parts are plain strings to it. It knows only `id` and `version` of a document (see "Data layer").
 - **Kiler.Core:** templates, records, search, users, permissions, audit. It connects Crypto and Storage.
 - **Kiler.App:** `Kiler.exe`: the host, the API and the Windows implementations.
 - Records, users and settings in `data\` are written only by Kiler.Storage. The exception is the temporary subfolder of `--diag` (M1.11).
@@ -118,6 +118,18 @@ The exe is published with Native AOT, decided after the checks in the real envir
 - The owner checks fail on a local disk in a process whose token gives new files to the Administrators group (a run as administrator, possibly the CI machine). The tests expect what `FileDiagTests.OwnerIsTheUser` says.
 - The checks in the real environment, `--diag` among them, are in `docs/real-environment-checks.md`.
 
+## Data layer (M2)
+
+Decided at the start of M2 (`docs/tasks/M2.md`, "Decisions for the module"):
+
+- **Documents.** Every JSON file that Kiler writes in `data\` is a document with `id` and `version` at the top: records, users, templates, stashes, `settings.json`, `levels.json`, `key.json`. Kiler.Storage reads only these two and keeps the rest as it is; it sets `version` itself on every write. The typed models (records, users, templates, stashes, settings) live in Kiler.Core with their modules (M4, M5) and their own source-generated JSON, not in Kiler.Storage.
+- **Layout.** `history\` and `trash\` repeat the folders: `history\records\<id>\vN.json`, `history\settings\vN.json`, `trash\records\<id>.json`. A private folder `private\<account>\` is a root of its own with the same code.
+- **Writes.** A temporary file, the old version into its history slot, a rename; then the creation time is set equal to the write time (file tunneling). Once started, a write runs to its end: the stop aborts requests after 5 s (M1.6).
+- **The lock** is the history slot, created with create-new (`FileMode.CreateNew`), which is atomic also over SMB: the second writer of the same version gets a conflict. Do not replace it with a check followed by a rename.
+- **The local copy** follows only the changes that Kiler makes: new versions, history slots, moves to `trash\`. A file that disappears outside the trash, is damaged or was edited in place keeps its last good copy apart, and is reported for restore.
+- **Names from the share** become paths, also in the local copy in the profile. Anyone can write the shared folder, so a name is checked before a path is built from it, and links are not followed.
+- `share.json` is not checked again when it is read.
+
 ## Local folder
 
 - `%LOCALAPPDATA%\Kiler` holds the instance file with the token, `share.json` and, from M2, the local copy of the data. `PrivateFolder.Create` makes it with a protected ACL: the user and SYSTEM, nothing inherited. A folder that exists is left as it is.
@@ -141,7 +153,9 @@ The rest are general good practices, not project decisions. If a task asks for s
 
 ## Windows parts
 
-Per PLAN section 3, the current Windows account, DPAPI, the file owner and opening Explorer are interfaces in Kiler.Core, implemented in Kiler.App. Their names are chosen when they are first needed. Tests use fake implementations.
+Per PLAN section 3, the current Windows account, DPAPI and opening Explorer are interfaces in Kiler.Core, implemented in Kiler.App. Their names are chosen when they are first needed. Tests use fake implementations.
+
+The file owner is the exception (decided at the start of M2): an interface in Kiler.Storage, implemented in Kiler.App through `FileOwner`. Storage reads the owner through the handle it reads the file with and keeps it in the local copy, so a start from the local copy does not ask the share for every owner.
 
 Opening the browser is `IBrowser` in Kiler.App (decided in M1.5), because only the start of the exe opens a browser. Tests use a fake, and no test starts the real browser.
 
@@ -155,7 +169,7 @@ Opening the browser is `IBrowser` in Kiler.App (decided in M1.5), because only t
 - A test name states the scenario and the expected result.
 - File tests work in a temporary folder that is deleted after the test.
 - Tests do not use the external network and do not depend on run order. The local server on loopback is allowed; API and smoke tests use it.
-- Test data is made up. No real system names, hosts, accounts or passwords.
+- Test data is made up. No real system names, hosts, accounts or passwords. The example names of the design can be terms of `data-guard`, so do not copy them; take names such as `demo.user` (found at the start of M2).
 - An assertion prints what it compares, and the message of a failed test goes into the public CI log. A token, a password, a key or a decrypted value is compared with `Assert.True` and a message without it, or masked first; `Assert.Equal`, `Assert.Single` and `Assert.Contains` print the values or the whole collection (M1.9).
 - xUnit v3 treats a run with zero tests as a failure.
 - A new test is checked to fail against broken code: break or take out what it guards, see it fail, put the code back. A broken version that does not build proves nothing, because the tests then run against the old binaries (M1.3).

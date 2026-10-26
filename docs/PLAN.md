@@ -88,7 +88,8 @@ Kiler.App ──► Kiler.Core ──► Kiler.Crypto
 ```
 
 - Kiler.Crypto and Kiler.Storage do not know about each other. Kiler.Core connects them.
-- The Windows parts are interfaces in Kiler.Core: current account, DPAPI, file owner, Explorer. Their implementations are in Kiler.App. This way the core tests use fake implementations.
+- The Windows parts are interfaces in Kiler.Core: current account, DPAPI, Explorer. Their implementations are in Kiler.App. This way the core tests use fake implementations.
+- The file owner is the exception (decided at the start of M2): an interface in Kiler.Storage, implemented in Kiler.App. Storage reads the owner through the handle it reads the file with, and keeps it in the local copy with the file.
 - Opening the browser is an interface in Kiler.App (decided in M1.5), because only the start of the exe opens a browser. The same holds for copying the exe, the Start menu shortcut and starting the copy (M1.5a).
 
 ---
@@ -202,11 +203,13 @@ Design sections 5 and 7.10.
 
 **Steps:**
 
-1. The structure of `data\` (section 5.1): `settings.json`, `levels.json`, `templates`, `stashes`, `users`, `records`, `history`, `trash`, `audit`, `private`. By default it is `data\` in the shared folder that the local copy remembers (M1), and `--data` changes it.
+1. The structure of `data\` (section 5.1): `settings.json`, `levels.json`, `templates`, `stashes`, `users`, `records`, `history`, `trash`, `audit`, `private`. By default it is `data\` in the shared folder that the local copy remembers (M1), and `--data` changes it. `share.json` is not checked again when it is read (decided at the start of M2, [tasks/M2.md](tasks/M2.md)).
    - `private\<account>\` holds one user's private records (section 7.10): `key.json`, `records`, `history`, `trash`. The layer works with any root folder, so the private folder uses the same code.
-2. Models and serialization with System.Text.Json and source generation.
-3. Atomic write (section 5.4): a temporary file, a copy of the old version in `history\<id>\vN.json`, rename. The file is always created anew, and its creation time is set equal to the write time. It is set explicitly, because NTFS can give the new file the creation time of the old one on such a rename (file tunneling).
-4. Versions and conflicts (section 5.5): write only if the version on disk is the expected one. Otherwise the result is "conflict" with the version from disk.
+   - `history\` and `trash\` repeat the folders: `history\records\8f3a1c\v6.json`, `history\settings\v3.json`, `trash\records\8f3a1c.json` (decided at the start of M2).
+   - Names from the share become paths, also in the local copy in the profile, so they are checked before a path is built from them. Links are not followed.
+2. Documents (decided at the start of M2): every JSON file that Kiler writes in `data\` is a document with `id` and `version` at the top, also `settings.json`, `levels.json`, users, templates, stashes and `key.json`. The layer reads only these two, keeps the rest as it is, and sets `version` on every write. The models of records, users, templates, stashes and settings come with M4 and M5 in Kiler.Core. The layer's own types use System.Text.Json with source generation.
+3. Atomic write (section 5.4): a temporary file, a copy of the old version in `history\<folder>\<id>\vN.json`, rename. The file is always created anew, and its creation time is set equal to the write time. It is set explicitly, because NTFS can give the new file the creation time of the old one on such a rename (file tunneling). Once started, a write runs to its end, because the stop aborts requests after 5 s (M1.6).
+4. Versions and conflicts (section 5.5): write only if the version on disk is the expected one. Otherwise the result is "conflict" with the version from disk. The copy of the old version is the lock (decided at the start of M2): it is created only if it does not exist, which is atomic also over SMB, so of two writers of the same version the second gets a conflict. A copy left by a crash is taken over after a limit.
 5. Deletion to `trash\` and restore from there. A list of the versions and restoring an old version (section 5.6).
 6. Loading and local cache (section 5.3): startup is from the copy in `%LOCALAPPDATA%\Kiler`, after which only the changed files are synchronized. Files are read from the share in parallel, about 16 at a time: one by one, 2000 files take about 25 s, and 16 at a time about 1 s (M1.0b).
 7. Watching for changes about every 10 seconds: one listing of the folder with names and dates, reloading the changed files, events to the upper layers. Folders it does not know, such as the `kiler-diag-*` subfolder of `--diag` (M1.11), which a stopped run can leave in `data\`, are ignored.
@@ -215,15 +218,15 @@ Design sections 5 and 7.10.
 8. Resilience:
    - a corrupted JSON file is skipped and reported, without a crash;
    - when the network is unavailable, the application works from the cache and shows this.
-9. File owner (section 7.8) as an interface, with a Windows implementation in Kiler.App, which reads the owner through `FileOwner.Of` (M1.11). A file whose write time is later than its creation time was edited in place, outside Kiler (decided after M1.0b); the layer reports it, and M4 marks it.
-10. Restore from the local copy (decided after M1.0b): the share keeps no automatic copies, so missing or damaged files in `data\` can be written back from the cache in `%LOCALAPPDATA%\Kiler`. Here it is the API; the admin screen is in M6.
+9. File owner (section 7.8) as an interface in Kiler.Storage (decided at the start of M2), with a Windows implementation in Kiler.App, which reads the owner through `FileOwner` (M1.11). A file whose write time is later than its creation time was edited in place, outside Kiler (decided after M1.0b); the layer reports it, and M4 marks it.
+10. Restore from the local copy (decided after M1.0b): the share keeps no automatic copies, so missing or damaged files in `data\` can be written back from the cache in `%LOCALAPPDATA%\Kiler`. Here it is the API; the admin screen is in M6. Decided at the start of M2: the cache follows the changes that Kiler makes (new versions, history, moves to `trash\`). A file that disappears outside the trash, is damaged, or was edited in place keeps its last good copy apart in the cache and is reported for restore; the upper layers see the share as it is.
 
 **Tests** (the tests are written first):
 
 - atomic write with a simulated crash in the middle: the original stays intact;
 - after a write, also over an old file, the creation time equals the write time;
 - a file edited in place is reported;
-- version conflict;
+- version conflict; two writers of the same version at once: one wins, the other gets a conflict;
 - history and trash;
 - detecting a new, changed and deleted file;
 - cache synchronization;
@@ -554,8 +557,8 @@ They are resolved at the start of the relevant module. The decisions are also re
 | M3 | Binding the encrypted group to the record id and the level (associated data in AES-GCM), so that a group cannot be moved to another record. This is an addition to the design. Decided for private records: the owner and the record id (design section 7.10). |
 | M3 | Where and how the key for the admin seal is kept. |
 | M5 | Rules for changing a template that has records. Private records are read only by their owner's exe, so the rules must work without the admin rewriting them. |
-| M2 | Whether `share.json` is checked again when it is read: a folder that is no longer a network path is refused (M1.5a security review). A start of the real exe from a folder someone else controls moves the user's data there. |
-| M2 | How the local copy keeps what it is there to restore (step 10). If it mirrors the share, a file deleted outside Kiler (not through `trash\`), a damaged file or a file edited in place reaches every user's cache within about 10 s, and there is nothing left to restore from. Proposed: the cache does not delete or overwrite such files; it keeps the last good version and reports them for restore. |
+| M2 | Whether `share.json` is checked again when it is read: a folder that is no longer a network path is refused (M1.5a security review). A start of the real exe from a folder someone else controls moves the user's data there. Decided at the start of M2: no. Kiler writes only a network folder there, in the protected `%LOCALAPPDATA%\Kiler`, so a check would catch only a mapped drive letter that later became a local drive. A network folder that someone else controls passes such a check; the M6 question below answers it ([tasks/M2.md](tasks/M2.md)). |
+| M2 | How the local copy keeps what it is there to restore (step 10). If it mirrors the share, a file deleted outside Kiler (not through `trash\`), a damaged file or a file edited in place reaches every user's cache within about 10 s, and there is nothing left to restore from. Decided at the start of M2, as proposed: the cache does not delete or overwrite such files; it keeps the last good version apart and reports them for restore ([tasks/M2.md](tasks/M2.md)). |
 | M3 | Whether the first copy checks the copied exe against the signed `version.json` before it starts it. The bytes are copied by path some seconds after the start, and a DLL planted next to the exe in the shared folder runs in it (M1.5a security review). The checkpoint after M1 confirmed it: planted copies of `NTASN1.dll` and `SSPICLI.DLL` replaced the system ones in every start from the shared folder, and more in some ([tasks/M1.md](tasks/M1.md#checkpoint-in-the-real-environment)). |
 | M6 | Whether the UI shows the shared folder that Kiler uses (M1.5a security review). |
 | M6 | UI component library, routing, data loading. |
