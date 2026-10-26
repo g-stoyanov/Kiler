@@ -22,7 +22,7 @@ The task number, for example `M1.4`.
    - the task in `docs/tasks/M<n>.md` and its module in `docs/PLAN.md`;
    - `.claude/skills/kiler-crypto/SKILL.md` if the task touches encryption, keys, passwords or tokens;
    - sections 7 and 12 of `KILER_DESIGN.md` if the file exists. It is local and not in git. Do not quote internal names from it in the report.
-2. Collect the changes: `git status --short`, `git diff --cached`, `git diff HEAD` and the new files (`git ls-files --others --exclude-standard`). If you find an internal term from `.claude/data-guard.local.txt`, give the file and line without quoting the term.
+2. Collect the changes: `git status --short`, `git diff --cached`, `git diff HEAD` and the new files (`git ls-files --others --exclude-standard`). If you find an internal term from `.claude/data-guard.local.txt`, give the file and line without quoting the term. Look for the terms with the Grep tool and write no file, not even a temporary one: a copy of the terms outside that file can end up where it should not (M2.1).
 3. Check what applies to the task:
    - **Local server:**
      - it listens only on loopback;

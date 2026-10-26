@@ -207,6 +207,8 @@ Design sections 5 and 7.10.
    - `private\<account>\` holds one user's private records (section 7.10): `key.json`, `records`, `history`, `trash`. The layer works with any root folder, so the private folder uses the same code.
    - `history\` and `trash\` repeat the folders: `history\records\8f3a1c\v6.json`, `history\settings\v3.json`, `trash\records\8f3a1c.json` (decided at the start of M2).
    - Names from the share become paths, also in the local copy in the profile, so they are checked before a path is built from them. Links are not followed.
+   - A name has lowercase ASCII letters, digits, `.`, `-` and `_`, up to 64 characters (decided in M2.1). So M4 and M5 make every id, and the folder name of an account, in lowercase.
+   - A private folder is made under a temporary name and renamed without replacing, and one that exists, even an empty one, is refused (decided in M2.1): whoever makes it first is its owner (section 7.8).
 2. Documents (decided at the start of M2): every JSON file that Kiler writes in `data\` is a document with `id` and `version` at the top, also `settings.json`, `levels.json`, users, templates, stashes and `key.json`. The layer reads only these two, keeps the rest as it is, and sets `version` on every write. The models of records, users, templates, stashes and settings come with M4 and M5 in Kiler.Core. The layer's own types use System.Text.Json with source generation.
 3. Atomic write (section 5.4): a temporary file, a copy of the old version in `history\<folder>\<id>\vN.json`, rename. The file is always created anew, and its creation time is set equal to the write time. It is set explicitly, because NTFS can give the new file the creation time of the old one on such a rename (file tunneling). Once started, a write runs to its end, because the stop aborts requests after 5 s (M1.6).
 4. Versions and conflicts (section 5.5): write only if the version on disk is the expected one. Otherwise the result is "conflict" with the version from disk. The copy of the old version is the lock (decided at the start of M2): it is created only if it does not exist, which is atomic also over SMB, so of two writers of the same version the second gets a conflict. A copy left by a crash is taken over after a limit.
@@ -293,7 +295,7 @@ Design sections 7, 8.2 (audit) and 12.
 
 **Steps:**
 
-1. Models for `levels.json` and `users\*.json`. The current Windows account is behind an interface.
+1. Models for `levels.json` and `users\*.json`. The current Windows account is behind an interface. The account becomes the name of `users\<account>.json` and `private\<account>\` in lowercase, as the name check of M2.1 requires.
 2. "New Kiler" wizard (section 7.7):
    - setting the levels and the first admin;
    - generating the keys;

@@ -5,4 +5,9 @@
     It knows nothing about encryption and does not depend on the other Kiler projects.
   -->
 
+  <!-- The tests reach the internal file operations (IFileSystem) to put a fake in their place. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Kiler.Storage.Tests" />
+  </ItemGroup>
+
 </Project>
