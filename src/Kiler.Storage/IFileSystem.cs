@@ -64,6 +64,23 @@ internal interface IFileSystem
     /// <summary>Deletes a file; nothing when no file is there. A file that someone holds open with delete sharing goes too.</summary>
     void DeleteFile(string path);
 
+    /// <summary>
+    /// Holds a file, opened as itself to read and to be deleted, shared only to be read: no one else can open it to write or
+    /// delete it, or rename it, until the result is disposed (M2.4). <c>null</c> when no file is there. A link in its place
+    /// is an <see cref="IOException"/>, a folder an <see cref="UnauthorizedAccessException"/>. A file that someone else holds
+    /// open without sharing the delete, or to write or delete it, another hold too, is an <see cref="IOException"/> with a
+    /// sharing violation.
+    /// </summary>
+    HeldFile? HoldFile(string path);
+
+    /// <summary>
+    /// Deletes a held file through its handle, so the file that was read goes, never another one put at its name. Its name
+    /// goes when the hold is let go, also while others read the file. A file system that does not delete so keeps the name
+    /// until the last handle to the file is closed, and until then a rename to that name finds it taken. A file that may not
+    /// be deleted, such as a read-only one, is an <see cref="UnauthorizedAccessException"/>.
+    /// </summary>
+    void DeleteHeldFile(HeldFile file);
+
     /// <summary>Waits between two tries of a step. The tests count the waits instead.</summary>
     void Wait(TimeSpan time);
 }

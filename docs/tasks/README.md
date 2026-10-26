@@ -64,6 +64,8 @@ A dropped task stays in the list so the numbers stay stable. It is ticked and st
    - no real names, hosts, accounts or passwords in the code, tests and data;
    - **review by `code-reviewer`**. For security tasks (tokens, sign-in, permissions, encryption, passwords, paths, HTML, the local server and what reaches it, the browser code that handles the cookie or the event stream) the review is also done by `security-reviewer`.
 
+   The reviewers only read: they run no build and no test. Their brief says which checks ran and how they ended, and does not ask them to run anything (M2.4).
+
    Findings are verified before they are fixed, not applied blindly. If a reviewer misses something, raises a false alarm, or a skill gives a wrong rule, the agent or skill file is fixed in the same task.
 6. **Tick** in `M<n>.md`, plus a note if there is a deviation. If the deviation changes a decision, [PLAN.md](../PLAN.md) is also updated.
 

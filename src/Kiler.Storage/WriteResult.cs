@@ -16,8 +16,12 @@ public enum WriteOutcome
     Damaged,
 
     /// <summary>
-    /// Replacing: the version on disk is not the one the write changes, or another write of it is under way, as its history
-    /// slot shows (M2.4). Nothing was written.
+    /// Replacing: the version on disk is not the one the write changes, or its history slot is there (M2.4): another write
+    /// of that version is under way, a crash left the slot less than two minutes ago, or the slot is not a leftover that can
+    /// be taken over, such as one with other bytes, which stays in the way until it is removed. Nothing was written.
+    /// <see cref="WriteResult.OnDisk"/> is the document as the write read it. When its version is the one the write changes,
+    /// the slot was in the way, and the other write may replace the document a moment later: a write of the same version
+    /// again meets the same slot, so an upper layer does not repeat it in a loop.
     /// </summary>
     Conflict,
 

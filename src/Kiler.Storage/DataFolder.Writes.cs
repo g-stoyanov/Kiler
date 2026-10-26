@@ -20,6 +20,13 @@ public sealed partial class DataFolder
     internal static readonly TimeSpan TemporaryFileAge = TimeSpan.FromMinutes(10);
 
     /// <summary>
+    /// The age from which a history slot with the bytes of the document is a leftover of a crash, which the next write takes
+    /// over (M2.4). Younger, it is another write under way: the SMB client waits for a request about 60 s before it gives
+    /// up, so a write can stop for about a minute between its slot and its rename. Both times come from the file server.
+    /// </summary>
+    internal static readonly TimeSpan SlotAge = TimeSpan.FromMinutes(2);
+
+    /// <summary>
     /// The waits between the tries of a rename over a document that someone holds open (M2.2), such as another Kiler or an
     /// antivirus: about 1.6 s in all, well within the 5 s that the stop gives a request (M1.6).
     /// </summary>
@@ -50,7 +57,7 @@ public sealed partial class DataFolder
     {
         var bytes = DocumentFormat.New(key, content);
         using var folders = HoldDocumentFolders(key);
-        using var file = WriteTemporary(Path.Combine(Root, key.Folder ?? ""), key.Id, bytes, setTimes: true);
+        using var file = WriteTemporaryWithTimes(Path.Combine(Root, key.Folder ?? ""), key.Id, bytes, out _);
         try
         {
             folders.ThrowIfLink();
@@ -72,10 +79,10 @@ public sealed partial class DataFolder
     /// <summary>
     /// Replaces the version <paramref name="version"/> of a document with the next one: a temporary file, the old version
     /// into its history slot, then a rename over the document. The slot is written whole under a temporary name and renamed
-    /// to its own without replacing, which is atomic also over SMB, so it is made only when it is not there (M2.4), and of
-    /// two writes of one version the second stops there. Nothing is written when the document is missing, damaged, at
-    /// another version or at the last one; content that would make a damaged file is an <see cref="ArgumentException"/>,
-    /// before any file is made.
+    /// to its own without replacing, which is atomic also over SMB, so it is made only when it is not there, and of two
+    /// writes of one version the second stops there with a conflict (M2.4). A slot that a crash left is taken over
+    /// (<see cref="MakeSlot"/>). Nothing is written when the document is missing, damaged, at another version or at the last
+    /// one; content that would make a damaged file is an <see cref="ArgumentException"/>, before any file is made.
     /// </summary>
     internal WriteResult ReplaceDocument(DocumentKey key, int version, JsonObject content)
     {
@@ -117,30 +124,29 @@ public sealed partial class DataFolder
         }
 
         var bytes = DocumentFormat.Next(key, version, content);
-        using var file = WriteTemporary(Path.Combine(Root, key.Folder ?? ""), key.Id, bytes, setTimes: true);
+        using var file = WriteTemporaryWithTimes(Path.Combine(Root, key.Folder ?? ""), key.Id, bytes, out var written);
         NewFile? slotFile = null;
         try
         {
             using var historyFolders = HoldHistoryFolders(key);
             var slot = HistoryPath(key, version);
-            slotFile = WriteTemporary(Path.GetDirectoryName(slot)!, Path.GetFileNameWithoutExtension(slot), old, setTimes: false);
-            folders.ThrowIfLink();
-            historyFolders.ThrowIfLink();
-            if (!Files.MoveFile(slotFile.Path, slot, replace: false))
+            slotFile = WriteTemporary(Path.GetDirectoryName(slot)!, Path.GetFileNameWithoutExtension(slot), old);
+            if (!MakeSlot(key, slot, slotFile.Path, old, written.LastWriteTime, folders, historyFolders))
             {
                 Discard(slotFile);
                 Discard(file);
                 return WriteResult.Conflict(onDisk.Document);
             }
 
-            slotFile.Dispose();
+            // The slot stays open with write access until the document is replaced, so no other write can hold it to take it
+            // over while this one is alive, however long it stops (M2.4).
             if (!RenameOver(file.Path, DocumentPath(key)))
             {
-                // The document is as it was, so the slot goes too, and the write can be tried again at once. The slot was
-                // not held during the waits, so someone may have deleted it and made its emptied folder a link.
+                // The document is as it was, so the slot goes too, and the write can be tried again at once. The slot shares
+                // the delete, so someone may have deleted it during the waits and made its emptied folder a link.
                 Discard(file);
                 historyFolders.ThrowIfLink();
-                Files.DeleteFile(slot);
+                DeleteOwnSlot(slot);
                 return WriteResult.Not(WriteOutcome.Busy);
             }
 
@@ -148,7 +154,8 @@ public sealed partial class DataFolder
         }
         catch
         {
-            // The slot stays: when the rename was done and its answer lost, it is the right history (M2.4).
+            // The slot stays: when the rename was done and its answer lost, it is the right history, and when not, a write
+            // takes it over once it is old (M2.4).
             Discard(file);
             if (slotFile is not null)
             {
@@ -156,6 +163,10 @@ public sealed partial class DataFolder
             }
 
             throw;
+        }
+        finally
+        {
+            slotFile?.Dispose();
         }
     }
 
@@ -211,7 +222,10 @@ public sealed partial class DataFolder
         return !name.AsSpan(name.Length - suffix + 1, TemporaryDigits).ContainsAnyExcept(LowerHex) && StorageName.IsValid(name[..^suffix]);
     }
 
-    /// <summary>Whether a rename failed because someone holds the file at the new name open, or it is read-only.</summary>
+    /// <summary>
+    /// Whether a step was refused because someone holds the file open, or it is read-only: access denied or a sharing
+    /// violation.
+    /// </summary>
     private static bool IsHeldOpen(Exception ex) => ex is UnauthorizedAccessException || (ex is IOException && ex.HResult == SharingViolation);
 
     /// <summary>Lets go of a temporary file that will not become the document or the slot, and deletes it, as far as it can.</summary>
@@ -228,29 +242,127 @@ public sealed partial class DataFolder
         }
     }
 
-    /// <summary>
-    /// The bytes in a new temporary file <c>&lt;name&gt;.&lt;8 hex digits&gt;.tmp</c> in a held folder, held open. With
-    /// <paramref name="setTimes"/>, its creation time is set to its write time at once, so a document has the right times
-    /// also when the write stops after the rename and before they are set again.
-    /// </summary>
-    private NewFile WriteTemporary(string folder, string name, byte[] bytes, bool setTimes)
+    /// <summary>The bytes in a new temporary file <c>&lt;name&gt;.&lt;8 hex digits&gt;.tmp</c> in a held folder, held open.</summary>
+    private NewFile WriteTemporary(string folder, string name, byte[] bytes)
     {
         var path = Path.Combine(folder, TemporaryName(name));
         // The random name is never taken, unless a folder of the path has been made a link (measured in M2.3).
-        var file = Files.CreateFile(path, bytes) ?? throw new IOException($"The temporary file cannot be made, as its name is taken: {path}");
+        return Files.CreateFile(path, bytes) ?? throw new IOException($"The temporary file cannot be made, as its name is taken: {path}");
+    }
+
+    /// <summary>
+    /// The bytes in a new temporary file, held open, with its creation time set to its write time at once, so a document has
+    /// the right times also when the write stops after the rename and before they are set again. <paramref name="stamp"/>
+    /// gives its size and times, from the clock of the file server.
+    /// </summary>
+    private NewFile WriteTemporaryWithTimes(string folder, string name, byte[] bytes, out FileStamp stamp)
+    {
+        var file = WriteTemporary(folder, name, bytes);
         try
         {
-            if (setTimes)
-            {
-                Files.SetCreationToWriteTime(file);
-            }
-
+            stamp = Files.SetCreationToWriteTime(file);
             return file;
         }
         catch
         {
             Discard(file);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Renames the temporary file of a history slot to the slot, without replacing: the lock of the write (M2.4). When the
+    /// slot is there, a leftover of a crash is deleted (<see cref="DeleteLeftoverSlot"/>) and the rename is tried once more,
+    /// which decides between this write and any other that has come in between. <c>false</c>, a conflict, when the slot is
+    /// another write under way, a slot that is not taken over, or the rename after a takeover finds it taken again.
+    /// <paramref name="now"/> is the write time of the new temporary file of this write, on the clock of the file server.
+    /// </summary>
+    private bool MakeSlot(DocumentKey key, string slot, string temporary, byte[] old, DateTimeOffset now, Holds folders, Holds historyFolders)
+    {
+        folders.ThrowIfLink();
+        historyFolders.ThrowIfLink();
+        if (Files.MoveFile(temporary, slot, replace: false))
+        {
+            return true;
+        }
+
+        if (!DeleteLeftoverSlot(key, slot, old, now, folders, historyFolders))
+        {
+            return false;
+        }
+
+        folders.ThrowIfLink();
+        historyFolders.ThrowIfLink();
+        return Files.MoveFile(temporary, slot, replace: false);
+    }
+
+    /// <summary>
+    /// Deletes a history slot that a crash left between the slot and the rename over the document: one with the bytes of the
+    /// document, now as when the write read it, and <see cref="SlotAge"/> older than <paramref name="now"/> by its write
+    /// time, both from the file server. A younger slot is another write under way; one with other bytes is not the version
+    /// that the write replaces; and when the document has changed since the write read it, the slot is the history of the
+    /// write that changed it, which a write that stopped for a while after its read finds old. None of them is ever taken
+    /// over, nor a link, a folder or a slot that may not be deleted. The slot is held from its read to its delete, so of two
+    /// writes that take over one slot the second cannot hold it, and a write under way, which keeps its slot open to write,
+    /// cannot lose it. It is deleted through the handle, so the slot that was read goes, never a new one at its name, and
+    /// its name is free once the hold is let go (<see cref="IFileSystem.DeleteHeldFile"/>). <c>false</c> when nothing was
+    /// deleted.
+    /// </summary>
+    private bool DeleteLeftoverSlot(DocumentKey key, string slot, byte[] old, DateTimeOffset now, Holds folders, Holds historyFolders)
+    {
+        try
+        {
+            // A hold, which opens a file as itself, would throw on a link.
+            if (Files.Attributes(slot) is not { } attributes || (attributes & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0)
+            {
+                return false;
+            }
+
+            using var held = Files.HoldFile(slot);
+            if (held is null || now - held.LastWriteTime < SlotAge)
+            {
+                return false;
+            }
+
+            if (!DocumentFormat.TryReadBytes(held.Content, out var bytes) || !bytes.AsSpan().SequenceEqual(old) || !IsUnchanged(key, old))
+            {
+                return false;
+            }
+
+            // The reads went through the held folders, and the delete goes through them too.
+            folders.ThrowIfLink();
+            historyFolders.ThrowIfLink();
+            Files.DeleteHeldFile(held);
+            return true;
+        }
+        catch (Exception ex) when (IsHeldOpen(ex))
+        {
+            // Another write holds it, to take it over or as its own slot; someone else holds it or the document open without
+            // sharing; or it is read-only.
+            return false;
+        }
+    }
+
+    /// <summary>Whether the document has the bytes that the write read at its start.</summary>
+    private bool IsUnchanged(DocumentKey key, byte[] old)
+    {
+        using var stream = Files.OpenRead(DocumentPath(key));
+        return stream is not null && DocumentFormat.TryReadBytes(stream, out var bytes) && bytes.AsSpan().SequenceEqual(old);
+    }
+
+    /// <summary>
+    /// Deletes the slot of this write after the rename over the document was refused. Someone who holds it open without
+    /// sharing the delete keeps it there: then a write takes it over once it is old.
+    /// </summary>
+    private void DeleteOwnSlot(string slot)
+    {
+        try
+        {
+            Files.DeleteFile(slot);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // It stays as a leftover with the bytes of the document.
         }
     }
 

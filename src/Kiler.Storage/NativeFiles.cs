@@ -7,14 +7,27 @@ namespace Kiler.Storage;
 
 /// <summary>
 /// Opens a folder or a file as itself (M2.3): a link is opened as the link, not as what it points to, and then refused
-/// through the handle. Anyone can put a link on the shared folder, and .NET cannot open a path so, hence CreateFileW. Kiler
-/// runs on Windows only (PLAN section 2); the guard keeps the rest of Kiler.Storage free of the platform analyzer.
+/// through the handle. Anyone can put a link on the shared folder, and .NET cannot open a path so, hence CreateFileW. A file
+/// is deleted through its handle (M2.4), which .NET cannot do either. Kiler runs on Windows only (PLAN section 2); the
+/// guard keeps the rest of Kiler.Storage free of the platform analyzer.
 /// </summary>
 internal static partial class NativeFiles
 {
     private const uint GenericRead = 0x80000000;
     private const uint GenericWrite = 0x40000000;
     private const uint CreateNew = 1;
+
+    /// <summary><c>DELETE</c>, which a delete through the handle needs.</summary>
+    private const uint Delete = 0x00010000;
+
+    /// <summary><c>FileDispositionInfo</c> of <c>FILE_INFO_BY_HANDLE_CLASS</c>.</summary>
+    private const int FileDispositionInfo = 4;
+
+    /// <summary><c>FileDispositionInfoEx</c> of <c>FILE_INFO_BY_HANDLE_CLASS</c>.</summary>
+    private const int FileDispositionInfoEx = 21;
+
+    /// <summary><c>FILE_DISPOSITION_FLAG_DELETE</c> with <c>FILE_DISPOSITION_FLAG_POSIX_SEMANTICS</c>.</summary>
+    private const uint DeletePosix = 0x1 | 0x2;
 
     /// <summary><c>FILE_LIST_DIRECTORY</c>: a data access. A handle with only attribute access does not count in the sharing check that refuses a rename (M1.11).</summary>
     private const uint ListDirectory = 0x1;
@@ -82,15 +95,61 @@ internal static partial class NativeFiles
     /// <see cref="IOException"/>. A folder in its place, or a file that someone holds without sharing, is an
     /// <see cref="UnauthorizedAccessException"/> or an <see cref="IOException"/>.
     /// </summary>
-    public static SafeFileHandle? OpenFileToRead(string path)
+    public static SafeFileHandle? OpenFileToRead(string path) => OpenFile(path, GenericRead, FileShare.ReadWrite | FileShare.Delete);
+
+    /// <summary>
+    /// Opens a file to read and to be deleted through the handle (<see cref="DeleteOnClose"/>), shared only to be read: no one
+    /// else can open it to write, rename or delete it while it is open (M2.4). <c>null</c> when no file is there. A link in
+    /// its place is an <see cref="IOException"/>, a folder an <see cref="UnauthorizedAccessException"/>, and a file that
+    /// someone holds open without sharing a delete, or to write or delete it, an <see cref="IOException"/> with a sharing
+    /// violation.
+    /// </summary>
+    public static SafeFileHandle? OpenFileToDelete(string path) => OpenFile(path, GenericRead | Delete, FileShare.Read);
+
+    /// <summary>
+    /// Marks the file of a handle opened with delete access to be deleted, so the file that was opened goes, whatever is at
+    /// its name by then (M2.4). Its name goes when this handle is closed, also while others read the file, as DeleteFileW
+    /// deletes since Windows 10 (POSIX semantics, measured in M2.4). A file system that does not take them, as a file
+    /// server may answer with any error, gets the classic delete: the file goes when the last handle to it is closed, and
+    /// until then its name stays taken. A file that may not be deleted, such as a read-only one, is an
+    /// <see cref="UnauthorizedAccessException"/>.
+    /// </summary>
+    public static void DeleteOnClose(SafeFileHandle handle)
     {
         if (!OperatingSystem.IsWindows())
         {
             throw NotWindows();
         }
 
-        var handle = CreateFile(
-            Extended(path), GenericRead, (uint)(FileShare.ReadWrite | FileShare.Delete), 0, OpenExisting, OpenReparsePoint | AnonymousToPipes, 0);
+        // FILE_DISPOSITION_INFO_EX: the flags, a DWORD.
+        var flags = DeletePosix;
+        if (SetFileInformationByHandle(handle, FileDispositionInfoEx, ref flags, sizeof(uint)))
+        {
+            return;
+        }
+
+        // FILE_DISPOSITION_INFO: one BOOLEAN. What refuses the delete, such as the read-only attribute, refuses it again.
+        byte deleteFile = 1;
+        if (SetFileInformationByHandle(handle, FileDispositionInfo, ref deleteFile, sizeof(byte)))
+        {
+            return;
+        }
+
+        var error = Marshal.GetLastPInvokeError();
+        throw error == ErrorAccessDenied
+            ? new UnauthorizedAccessException($"Kiler cannot delete the file: {new Win32Exception(error).Message}")
+            : new IOException($"Kiler cannot delete the file: {new Win32Exception(error).Message}", HResult(error));
+    }
+
+    /// <summary>Opens a file that exists, as itself, as <see cref="OpenFileToRead"/> says.</summary>
+    private static SafeFileHandle? OpenFile(string path, uint access, FileShare share)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            throw NotWindows();
+        }
+
+        var handle = CreateFile(Extended(path), access, (uint)share, 0, OpenExisting, OpenReparsePoint | AnonymousToPipes, 0);
         if (handle.IsInvalid)
         {
             var error = Marshal.GetLastPInvokeError();
@@ -192,4 +251,14 @@ internal static partial class NativeFiles
     [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
     private static partial SafeFileHandle CreateFile(
         string fileName, uint desiredAccess, uint shareMode, nint securityAttributes, uint creationDisposition, uint flagsAndAttributes, nint templateFile);
+
+    [SupportedOSPlatform("windows")]
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool SetFileInformationByHandle(SafeFileHandle file, int informationClass, ref byte information, uint size);
+
+    [SupportedOSPlatform("windows")]
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool SetFileInformationByHandle(SafeFileHandle file, int informationClass, ref uint information, uint size);
 }

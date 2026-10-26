@@ -134,6 +134,37 @@ internal sealed class FileSystem : IFileSystem
 
     public void DeleteFile(string path) => File.Delete(path);
 
+    public HeldFile? HoldFile(string path)
+    {
+        if (NativeFiles.OpenFileToDelete(path) is not { } handle)
+        {
+            return null;
+        }
+
+        FileStream stream;
+        try
+        {
+            stream = new FileStream(handle, FileAccess.Read, bufferSize: 0);
+        }
+        catch
+        {
+            handle.Dispose();
+            throw;
+        }
+
+        try
+        {
+            return new HeldFile(path, stream, File.GetLastWriteTimeUtc(handle));
+        }
+        catch
+        {
+            stream.Dispose();
+            throw;
+        }
+    }
+
+    public void DeleteHeldFile(HeldFile file) => NativeFiles.DeleteOnClose(file.Handle);
+
     public void Wait(TimeSpan time) => Thread.Sleep(time);
 
     /// <summary>ERROR_ALREADY_EXISTS from a rename (measured in M2.3), or ERROR_FILE_EXISTS, which a file server may give.</summary>

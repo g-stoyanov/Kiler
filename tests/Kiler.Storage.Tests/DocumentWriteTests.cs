@@ -199,7 +199,7 @@ public sealed class DocumentWriteTests : IDisposable
         Assert.Equal(["8f3a1c.json"], Names(_records));
     }
 
-    /// <summary>Another write of the same version is under way, or one stopped there; M2.4 takes over an old leftover.</summary>
+    /// <summary>Another write of the same version is under way, or one stopped there a moment ago (<see cref="VersionConflictTests"/>).</summary>
     [Fact]
     public void ReplaceDocument_WhenItsHistorySlotExists_GivesConflictAndWritesNothing()
     {
@@ -332,6 +332,38 @@ public sealed class DocumentWriteTests : IDisposable
         Assert.Equal(["8f3a1c.json"], Names(_records));
         // The slot went with it, so the write can be tried again at once.
         Assert.Empty(Names(Path.Combine(_data, "history", "records", "8f3a1c")));
+        Assert.Equal(WriteOutcome.Written, data.ReplaceDocument(Record, 1, Content("again")).Outcome);
+    }
+
+    /// <summary>The slot of a busy write cannot be deleted: it stays, and a write takes it over once it is old (M2.4).</summary>
+    [Fact]
+    public void ReplaceDocument_WhenTheSlotOfABusyWriteCannotBeDeleted_GivesBusyAndLeavesTheSlot()
+    {
+        var files = new TestFileSystem();
+        var data = DataFolder.Create(_data, files);
+        data.CreateDocument(Record, Content("first"));
+        var path = data.DocumentPath(Record);
+        var before = File.ReadAllBytes(path);
+        var slot = data.HistoryPath(Record, 1);
+        files.Before = (step, at) =>
+        {
+            if (step == nameof(IFileSystem.DeleteFile) && at == slot)
+            {
+                throw new IOException("The specified network name is no longer available.");
+            }
+        };
+
+        WriteResult result;
+        using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+        {
+            result = data.ReplaceDocument(Record, 1, Content("second"));
+        }
+
+        Assert.Equal(WriteOutcome.Busy, result.Outcome);
+        Assert.Equal(before, File.ReadAllBytes(path));
+        Assert.Equal(before, File.ReadAllBytes(slot));
+        files.Before = null;
+        File.SetLastWriteTimeUtc(slot, Old);
         Assert.Equal(WriteOutcome.Written, data.ReplaceDocument(Record, 1, Content("again")).Outcome);
     }
 
@@ -778,15 +810,26 @@ public sealed class DocumentWriteTests : IDisposable
     /// After a crash, read with the real file operations as the next start reads: the document is whole, with the expected
     /// bytes or missing, and every <c>.json</c> name in its folder is a whole document. A file of the layer never looks edited
     /// in place, also when the crash came before its times were set after the rename. The next write of the document gives a
-    /// defined outcome: a conflict only on a whole slot that the crash left, which M2.4 takes over.
+    /// defined outcome: a conflict only on a whole slot that the crash left, until it is old enough to be taken over (M2.4).
     /// </summary>
     private void AssertWholeDocuments(byte[]? expected, int version)
     {
         AssertWholeDocuments(expected);
         var data = DataFolder.Open(_data);
-        var slotLeft = version > 0 && File.Exists(data.HistoryPath(Record, version));
-        var next = version == 0 ? data.CreateDocument(Record, Content("again")) : data.ReplaceDocument(Record, version, Content("again"));
-        Assert.Equal(slotLeft ? WriteOutcome.Conflict : WriteOutcome.Written, next.Outcome);
+        if (version == 0)
+        {
+            Assert.Equal(WriteOutcome.Written, data.CreateDocument(Record, Content("again")).Outcome);
+            return;
+        }
+
+        var slot = data.HistoryPath(Record, version);
+        if (File.Exists(slot))
+        {
+            Assert.Equal(WriteOutcome.Conflict, data.ReplaceDocument(Record, version, Content("again")).Outcome);
+            File.SetLastWriteTimeUtc(slot, Old);
+        }
+
+        Assert.Equal(WriteOutcome.Written, data.ReplaceDocument(Record, version, Content("again")).Outcome);
     }
 
     private void AssertWholeDocuments(byte[]? expected)

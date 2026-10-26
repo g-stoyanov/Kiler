@@ -125,6 +125,18 @@ internal sealed class TestFileSystem : IFileSystem
         FileSystem.Instance.DeleteFile(path);
     }
 
+    public HeldFile? HoldFile(string path)
+    {
+        Step(nameof(HoldFile), path);
+        return FileSystem.Instance.HoldFile(path);
+    }
+
+    public void DeleteHeldFile(HeldFile file)
+    {
+        Step(nameof(DeleteHeldFile), file.Path);
+        FileSystem.Instance.DeleteHeldFile(file);
+    }
+
     public void Wait(TimeSpan time)
     {
         Step(nameof(Wait), "");
