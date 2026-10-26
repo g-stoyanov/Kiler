@@ -544,7 +544,7 @@ They are resolved at the start of the relevant module. The decisions are also re
 
 | When | Question |
 |---|---|
-| after M1 | The checks from design section 14 with the exe from M1. Decided: a probe exe before the code (M1.0b), and later a `--diag` mode (M1.11). Done in M1.0b: the architecture holds; the decisions are in M1, M2, M3, M4 and M6. Pending, before M2: the checkpoint with the final exe of M1 ([real-environment-checks.md](real-environment-checks.md)). |
+| after M1 | The checks from design section 14 with the exe from M1. Decided: a probe exe before the code (M1.0b), and later a `--diag` mode (M1.11). Done in M1.0b: the architecture holds; the decisions are in M1, M2, M3, M4 and M6. The checkpoint with the final exe of M1 was done on 2026-10-26 and changes no decision ([tasks/M1.md](tasks/M1.md#checkpoint-in-the-real-environment)). |
 | M1 | Native AOT or plain single-file. Decided after M1.0b: Native AOT. |
 | M3 | Where the private key for signing updates is kept, and how a release is signed. |
 | M1 | How the heartbeat is sent. Decided: SSE. |
@@ -555,7 +555,7 @@ They are resolved at the start of the relevant module. The decisions are also re
 | M3 | Where and how the key for the admin seal is kept. |
 | M5 | Rules for changing a template that has records. Private records are read only by their owner's exe, so the rules must work without the admin rewriting them. |
 | M2 | Whether `share.json` is checked again when it is read: a folder that is no longer a network path is refused (M1.5a security review). A start of the real exe from a folder someone else controls moves the user's data there. |
-| M3 | Whether the first copy checks the copied exe against the signed `version.json` before it starts it. The bytes are copied by path some seconds after the start, and a DLL planted next to the exe in the shared folder runs in it (M1.5a security review). |
+| M3 | Whether the first copy checks the copied exe against the signed `version.json` before it starts it. The bytes are copied by path some seconds after the start, and a DLL planted next to the exe in the shared folder runs in it (M1.5a security review). The checkpoint after M1 confirmed it: planted copies of `NTASN1.dll` and `SSPICLI.DLL` replaced the system ones in every start from the shared folder, and more in some ([tasks/M1.md](tasks/M1.md#checkpoint-in-the-real-environment)). |
 | M6 | Whether the UI shows the shared folder that Kiler uses (M1.5a security review). |
 | M6 | UI component library, routing, data loading. |
 | M7 | What highlights the code in MD: CodeMirror or a separate library. |

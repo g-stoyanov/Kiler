@@ -60,6 +60,8 @@ Only if Process Monitor (Sysinternals) may run on the machine. Filter on the pro
 
 Which DLL names does it look for in the shared folder? The imports of the exe look only in System32 (M1.8). On the local disk the runtime still looked for `BCrypt.dll`, `ntdll.dll` and `NTASN1.dll` next to the exe (the residual risk under M1.8). The answer feeds the check of the first copy in M3.
 
+Process Monitor needs administrator rights. Without them, the checkpoint after M1 put copies of the System32 DLLs that the runs load next to the exe in the shared folder, read the module list of each of the four runs every few milliseconds, and deleted the copies afterwards. That shows what was loaded from the shared folder, not every name that was looked for.
+
 ## Results
 
 A summary without internal names, hosts, paths or accounts goes into [tasks/M1.md](tasks/M1.md), as the results of M1.0b did, and into the course notes.
