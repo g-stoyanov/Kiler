@@ -78,22 +78,21 @@ internal sealed class FileSystem : IFileSystem
 
     public NewFile? CreateFile(string path, ReadOnlySpan<byte> bytes)
     {
+        // Read access, too, for the times and the size; read sharing, as the rename makes it the document.
+        if (NativeFiles.CreateNewFile(path) is not { } handle)
+        {
+            return null;
+        }
+
         FileStream stream;
         try
         {
-            // CreateNew never opens what is there, a link neither, also one whose target is missing (measured in M2.3). Read
-            // access, too, for the times and the size (FILE_READ_ATTRIBUTES). Read sharing, as the rename makes it the document.
-            stream = new FileStream(path, new FileStreamOptions
-            {
-                Mode = FileMode.CreateNew,
-                Access = FileAccess.ReadWrite,
-                Share = FileShare.Read | FileShare.Delete,
-                BufferSize = 0,
-            });
+            stream = new FileStream(handle, FileAccess.ReadWrite, bufferSize: 0);
         }
-        catch (IOException ex) when (IsNameTaken(ex))
+        catch
         {
-            return null;
+            handle.Dispose();
+            throw;
         }
 
         try
@@ -137,6 +136,6 @@ internal sealed class FileSystem : IFileSystem
 
     public void Wait(TimeSpan time) => Thread.Sleep(time);
 
-    /// <summary>ERROR_FILE_EXISTS from a create, ERROR_ALREADY_EXISTS from a rename (measured in M2.3).</summary>
+    /// <summary>ERROR_ALREADY_EXISTS from a rename (measured in M2.3), or ERROR_FILE_EXISTS, which a file server may give.</summary>
     private static bool IsNameTaken(IOException ex) => ex.HResult is unchecked((int)0x80070050) or unchecked((int)0x800700B7);
 }

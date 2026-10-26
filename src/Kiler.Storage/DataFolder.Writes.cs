@@ -334,9 +334,9 @@ public sealed partial class DataFolder
 
         /// <summary>
         /// An <see cref="IOException"/> when a held folder has become a link: the hold stops renames and deletes, but anyone
-        /// who can write an empty folder can make it a mount point in place (measured in M2.3). On NTFS the create-new of
-        /// the temporary file through such a folder fails already; the check, before the renames, covers file servers where
-        /// that was not measured. A folder made a link and back between the steps is not seen.
+        /// who can write an empty folder can make it a mount point in place (measured in M2.3). On the developer machine the
+        /// create-new of the temporary file through such a folder failed already; the check, after a read and before the
+        /// renames, does not rely on that. A folder made a link and back between the steps is not seen.
         /// </summary>
         public void ThrowIfLink()
         {

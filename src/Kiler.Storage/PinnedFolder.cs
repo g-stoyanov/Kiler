@@ -5,9 +5,9 @@ namespace Kiler.Storage;
 /// <summary>
 /// A folder held open without delete sharing. While it is open, Windows refuses to rename or delete it or any folder above
 /// it, also on a network share, so no one can swap it for a link to another folder: the paths in it stay the ones Kiler
-/// checked. Anyone who can write it can still make it a mount point in place while it is empty (measured in M2.3), so a
-/// write checks its folders with <see cref="ThrowIfLink"/> before it renames into them. The writes of the data layer hold
-/// their folders so (M2.3), and <c>--diag</c> its temporary subfolder (M1.11).
+/// checked. Anyone who can write it can still make it a mount point in place while it is empty (measured in M2.3), so the
+/// layer checks its folders with <see cref="ThrowIfLink"/> after a read and before it renames into them. The reads and
+/// writes of the data layer hold their folders so (M2.3), and <c>--diag</c> its temporary subfolder (M1.11).
 /// </summary>
 public sealed class PinnedFolder : IDisposable
 {

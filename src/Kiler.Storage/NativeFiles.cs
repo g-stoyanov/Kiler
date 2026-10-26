@@ -13,6 +13,8 @@ namespace Kiler.Storage;
 internal static partial class NativeFiles
 {
     private const uint GenericRead = 0x80000000;
+    private const uint GenericWrite = 0x40000000;
+    private const uint CreateNew = 1;
 
     /// <summary><c>FILE_LIST_DIRECTORY</c>: a data access. A handle with only attribute access does not count in the sharing check that refuses a rename (M1.11).</summary>
     private const uint ListDirectory = 0x1;
@@ -43,6 +45,8 @@ internal static partial class NativeFiles
     private const int ErrorFileNotFound = 2;
     private const int ErrorPathNotFound = 3;
     private const int ErrorAccessDenied = 5;
+    private const int ErrorFileExists = 80;
+    private const int ErrorAlreadyExists = 183;
 
     /// <summary>
     /// Opens a folder to hold it: shared to read and write, so others can still list it and work in it, but not to delete,
@@ -102,6 +106,38 @@ internal static partial class NativeFiles
         }
 
         return Checked(handle, attributes => !attributes.HasFlag(FileAttributes.ReparsePoint), $"The file is a link, which Kiler does not follow: {path}");
+    }
+
+    /// <summary>
+    /// Makes a new file to read and write, shared to read and delete; <c>null</c> when the name is taken, a link at it too.
+    /// <see cref="FileMode.CreateNew"/> of .NET followed a symbolic link whose target was missing and made the target on the
+    /// CI machine (Windows Server, an administrator), though not on the developer machine (M2.3). The last part of the path
+    /// opened as itself is never followed. A missing folder is a <see cref="DirectoryNotFoundException"/>; a folder that
+    /// cannot be written an <see cref="UnauthorizedAccessException"/>.
+    /// </summary>
+    public static SafeFileHandle? CreateNewFile(string path)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            throw NotWindows();
+        }
+
+        var handle = CreateFile(
+            Extended(path), GenericRead | GenericWrite, (uint)(FileShare.Read | FileShare.Delete), 0, CreateNew, OpenReparsePoint | AnonymousToPipes, 0);
+        if (handle.IsInvalid)
+        {
+            var error = Marshal.GetLastPInvokeError();
+            handle.Dispose();
+            return error switch
+            {
+                ErrorFileExists or ErrorAlreadyExists => null,
+                ErrorPathNotFound => throw new DirectoryNotFoundException($"The folder of the file does not exist: {path}"),
+                ErrorAccessDenied => throw new UnauthorizedAccessException($"Kiler cannot make the file: {new Win32Exception(error).Message} {path}"),
+                _ => throw new IOException($"Kiler cannot make the file: {new Win32Exception(error).Message} {path}", HResult(error)),
+            };
+        }
+
+        return handle;
     }
 
     /// <summary>Whether the file or folder of an open handle is a link now.</summary>

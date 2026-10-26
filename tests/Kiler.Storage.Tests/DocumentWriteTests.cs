@@ -419,8 +419,8 @@ public sealed class DocumentWriteTests : IDisposable
     }
 
     /// <summary>
-    /// The hold does not stop it (<c>PinnedFolderTests</c>). NTFS refuses the create-new of the temporary file through a
-    /// mount point made in place (measured in M2.3); on a file server that lets it through, the check of the held folders
+    /// The hold does not stop it (<c>PinnedFolderTests</c>). The developer machine refused the create-new of the temporary
+    /// file through a mount point made in place (measured in M2.3); where it goes through, the check of the held folders
     /// refuses the write before its renames.
     /// </summary>
     [Theory]
