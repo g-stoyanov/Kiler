@@ -5,6 +5,25 @@
     It knows nothing about encryption and does not depend on the other Kiler projects.
   -->
 
+  <!--
+    A folder or a file of the shared folder is opened as itself, so a link is refused through the handle (NativeFiles, M2.3).
+    .NET cannot open a path so, hence CreateFileW, and the P/Invoke source generator emits unsafe code.
+  -->
+  <PropertyGroup>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <!--
+    As in Kiler.App: a DLL with the name of a system DLL, put next to Kiler.exe in the shared folder, must not load into it
+    (M1.5a security review). The attribute covers only the P/Invokes of its own assembly.
+  -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.InteropServices.DefaultDllImportSearchPathsAttribute">
+      <_Parameter1>System.Runtime.InteropServices.DllImportSearchPath.System32</_Parameter1>
+      <_Parameter1_IsLiteral>true</_Parameter1_IsLiteral>
+    </AssemblyAttribute>
+  </ItemGroup>
+
   <!-- The tests reach the internal file operations (IFileSystem) to put a fake in their place. -->
   <ItemGroup>
     <InternalsVisibleTo Include="Kiler.Storage.Tests" />

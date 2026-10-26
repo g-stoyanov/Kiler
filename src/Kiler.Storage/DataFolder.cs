@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Security.Cryptography;
 
 namespace Kiler.Storage;
 
@@ -8,10 +7,10 @@ namespace Kiler.Storage;
 /// design 7.10, which has the same structure with fewer folders and goes through the same code. <c>history\</c> and
 /// <c>trash\</c> repeat the document folders: <c>history\records\8f3a1c\v6.json</c>, <c>history\settings\v3.json</c>,
 /// <c>trash\records\8f3a1c.json</c>. Every name in a path passes <see cref="StorageName"/>. A folder that the layer works
-/// in is checked first, and a link in its place is refused; holding the folder so that it cannot be swapped between the
-/// check and the work comes with the writes (M2.3).
+/// in is checked first, and a link in its place is refused. A read or a write holds the folders of its path, each opened as
+/// itself (<see cref="PinnedFolder"/>), so none of them can be swapped for a link while it works there (M2.3).
 /// </summary>
-public sealed class DataFolder
+public sealed partial class DataFolder
 {
     public const string Templates = "templates";
     public const string Stashes = "stashes";
@@ -106,7 +105,7 @@ public sealed class DataFolder
             throw new IOException($"The private folder exists already: {root}");
         }
 
-        var temporary = Path.Combine(privateFolders, $"{account}.{RandomNumberGenerator.GetHexString(8, lowercase: true)}{StorageName.TemporaryEnding}");
+        var temporary = Path.Combine(privateFolders, TemporaryName(account));
         Files.CreateFolder(temporary);
         MakeFolders(temporary, PrivateLayout, Files);
         Files.MoveFolder(temporary, root);
@@ -138,13 +137,17 @@ public sealed class DataFolder
     public string TrashPath(DocumentKey key) => Path.Combine(Root, Trash, Known(key).Folder ?? "", key.Id + Extension);
 
     /// <summary>
-    /// Reads a document (M2.2): <c>null</c> when its file is not there, else the document or why the file is damaged. A file
-    /// that cannot be opened throws, as <see cref="IFileSystem.OpenRead"/> says. Neither the folder nor the file is checked
-    /// for a link yet: how a read refuses one through the handle comes with the writes (M2.3).
+    /// Reads a document (M2.2): <c>null</c> when its file is not there, else the document or why the file is damaged. Its
+    /// folders are held and the file is opened as itself, so a link in place of any of them is an <see cref="IOException"/>
+    /// (M2.3). A file that cannot be opened throws, as <see cref="IFileSystem.OpenRead"/> says.
     /// </summary>
     internal DocumentRead? Read(DocumentKey key)
     {
+        using var folders = HoldDocumentFolders(key);
         using var stream = Files.OpenRead(DocumentPath(key));
+
+        // An empty folder made a mount point in place would have given the file of that name elsewhere.
+        folders.ThrowIfLink();
         return stream is null ? null : DocumentFormat.Read(key, stream);
     }
 
@@ -152,16 +155,12 @@ public sealed class DataFolder
     /// The documents of a document folder, or of the root when <paramref name="folder"/> is <c>null</c>, from one listing:
     /// the files and their attributes come with it. Links, and <c>.json</c> files whose name fails the check, are skipped
     /// and given apart to be reported. Other files and folders are not documents and are left out. The folder that is
-    /// listed is checked first, so a link in its place is not listed: one request for the folder, not one per file.
+    /// listed is checked first, so a link in its place is not listed: one request for the folder, not one per file. The
+    /// temporary files of the layer's writes are given apart, so the old ones can be deleted.
     /// </summary>
     internal FolderListing List(string? folder)
     {
-        if (folder is not null && !_layout.DocumentFolders.Contains(folder))
-        {
-            throw new ArgumentException($"Not a document folder of this {Kind}.", nameof(folder));
-        }
-
-        var path = folder is null ? Root : Path.Combine(Root, folder);
+        var path = FolderPath(folder);
         if (!FolderExists(Files, path))
         {
             throw new DirectoryNotFoundException($"The folder does not exist: {path}");
@@ -170,6 +169,7 @@ public sealed class DataFolder
         var documents = new List<ListedDocument>();
         var links = new List<FileEntry>();
         var badNames = new List<FileEntry>();
+        var temporary = new List<FileEntry>();
         foreach (var entry in Files.List(path))
         {
             if (entry.IsLink)
@@ -180,6 +180,11 @@ public sealed class DataFolder
 
             if (entry.IsFolder || !entry.Name.EndsWith(Extension, StringComparison.OrdinalIgnoreCase))
             {
+                if (!entry.IsFolder && IsTemporaryName(entry.Name))
+                {
+                    temporary.Add(entry);
+                }
+
                 continue;
             }
 
@@ -198,7 +203,7 @@ public sealed class DataFolder
             }
         }
 
-        return new FolderListing(documents, links, badNames);
+        return new FolderListing(documents, links, badNames, temporary);
     }
 
     private static string FullPath(string path)
@@ -266,6 +271,17 @@ public sealed class DataFolder
         }
 
         return Path.Combine(Root, Private);
+    }
+
+    /// <summary>The path of a document folder of this root, or of the root itself when <paramref name="folder"/> is <c>null</c>.</summary>
+    private string FolderPath(string? folder)
+    {
+        if (folder is not null && !_layout.DocumentFolders.Contains(folder))
+        {
+            throw new ArgumentException($"Not a document folder of this {Kind}.", nameof(folder));
+        }
+
+        return folder is null ? Root : Path.Combine(Root, folder);
     }
 
     /// <summary>The key, when its folder or its root document belongs to this root.</summary>

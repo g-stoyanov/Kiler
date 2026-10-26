@@ -12,4 +12,9 @@
     <ProjectReference Include="..\..\src\Kiler.Storage\Kiler.Storage.csproj" />
   </ItemGroup>
 
+  <!-- FakeTimeProvider: the rule for edits in place without real time. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
+
 </Project>

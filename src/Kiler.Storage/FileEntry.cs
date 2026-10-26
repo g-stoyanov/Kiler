@@ -7,4 +7,6 @@ internal readonly record struct FileEntry(string Name, FileAttributes Attributes
 
     /// <summary>A reparse point: a junction, a symbolic link or another redirection. The layer never follows one.</summary>
     public bool IsLink => (Attributes & FileAttributes.ReparsePoint) != 0;
+
+    public FileStamp Stamp => new(Size, CreationTime, LastWriteTime);
 }

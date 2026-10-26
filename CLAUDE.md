@@ -92,7 +92,7 @@ The details are in [docs/PLAN.md](docs/PLAN.md), sections 2 and 3.
   - `src/`: Kiler.Crypto, Kiler.Storage, Kiler.Core, Kiler.App (produces `Kiler.exe`) and `ui/` with React.
   - `tools/Kiler.DemoData`.
   - `tests/`.
-- **The Windows parts** (account, DPAPI, file owner, Explorer) are interfaces in Kiler.Core, and their implementations are in Kiler.App.
+- **The Windows parts** (account, DPAPI, Explorer) are interfaces in Kiler.Core, and their implementations are in Kiler.App. The exceptions are in Kiler.Storage (PLAN section 3): the file owner is an interface there, and it opens the files and folders of the shared folder as themselves through Windows (M2.3).
 - **Tests:** xUnit v3, API tests on the real Kestrel, Vitest, Playwright for .NET. For Kiler.Crypto and Kiler.Storage the tests are written first (TDD).
 - **CI:** GitHub Actions on `windows-latest`.
 - **Build and test commands.** The execution policy on the developer machine is AllSigned, so the scripts run through `-ExecutionPolicy Bypass`, and in PowerShell npm is `npm.cmd`, because `npm.ps1` is not signed. They need Node.js 24.15 or newer, and the publish needs the Visual Studio C++ tools. CI runs the first six, in this order.

@@ -55,22 +55,88 @@ internal sealed class FileSystem : IFileSystem
     // MoveFile without MOVEFILE_REPLACE_EXISTING, a rename that SMB does in one step.
     public void MoveFolder(string from, string to) => Directory.Move(from, to);
 
+    public PinnedFolder HoldFolder(string path) => PinnedFolder.Open(path);
+
     public Stream? OpenRead(string path)
     {
-        try
-        {
-            // No buffer of its own: the reader reads the whole file into one buffer.
-            return new FileStream(path, new FileStreamOptions
-            {
-                Mode = FileMode.Open,
-                Access = FileAccess.Read,
-                Share = FileShare.ReadWrite | FileShare.Delete,
-                BufferSize = 0,
-            });
-        }
-        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        if (NativeFiles.OpenFileToRead(path) is not { } handle)
         {
             return null;
         }
+
+        try
+        {
+            // No buffer of its own: the reader reads the whole file into one buffer.
+            return new FileStream(handle, FileAccess.Read, bufferSize: 0);
+        }
+        catch
+        {
+            handle.Dispose();
+            throw;
+        }
     }
+
+    public NewFile? CreateFile(string path, ReadOnlySpan<byte> bytes)
+    {
+        FileStream stream;
+        try
+        {
+            // CreateNew never opens what is there, a link neither, also one whose target is missing (measured in M2.3). Read
+            // access, too, for the times and the size (FILE_READ_ATTRIBUTES). Read sharing, as the rename makes it the document.
+            stream = new FileStream(path, new FileStreamOptions
+            {
+                Mode = FileMode.CreateNew,
+                Access = FileAccess.ReadWrite,
+                Share = FileShare.Read | FileShare.Delete,
+                BufferSize = 0,
+            });
+        }
+        catch (IOException ex) when (IsNameTaken(ex))
+        {
+            return null;
+        }
+
+        try
+        {
+            stream.Write(bytes);
+            stream.Flush(flushToDisk: true);
+            return new NewFile(path, stream);
+        }
+        catch
+        {
+            stream.Dispose();
+            throw;
+        }
+    }
+
+    public FileStamp SetCreationToWriteTime(NewFile file)
+    {
+        var written = File.GetLastWriteTimeUtc(file.Handle);
+
+        // A write time set through the handle is not moved again by the file system, also not when the file is closed.
+        File.SetLastWriteTimeUtc(file.Handle, written);
+        File.SetCreationTimeUtc(file.Handle, written);
+        return new FileStamp(RandomAccess.GetLength(file.Handle), written, written);
+    }
+
+    // MoveFileEx, with MOVEFILE_REPLACE_EXISTING when it replaces: a rename that SMB does in one step.
+    public bool MoveFile(string from, string to, bool replace)
+    {
+        try
+        {
+            File.Move(from, to, replace);
+            return true;
+        }
+        catch (IOException ex) when (!replace && IsNameTaken(ex))
+        {
+            return false;
+        }
+    }
+
+    public void DeleteFile(string path) => File.Delete(path);
+
+    public void Wait(TimeSpan time) => Thread.Sleep(time);
+
+    /// <summary>ERROR_FILE_EXISTS from a create, ERROR_ALREADY_EXISTS from a rename (measured in M2.3).</summary>
+    private static bool IsNameTaken(IOException ex) => ex.HResult is unchecked((int)0x80070050) or unchecked((int)0x800700B7);
 }

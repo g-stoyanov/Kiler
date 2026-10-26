@@ -1,15 +1,13 @@
-using System.Diagnostics;
-
-namespace Kiler.App.Tests;
+namespace Kiler.Storage.Tests;
 
 public sealed class PinnedFolderTests : IDisposable
 {
-    private readonly TempFolder _folder = new();
+    private readonly TestFolder _test = new();
     private readonly string _pinned;
 
-    public PinnedFolderTests() => _pinned = Directory.CreateDirectory(Path.Combine(_folder.Path, "above", "pinned")).FullName;
+    public PinnedFolderTests() => _pinned = Directory.CreateDirectory(Path.Combine(_test.Root, "above", "pinned")).FullName;
 
-    public void Dispose() => _folder.Dispose();
+    public void Dispose() => _test.Dispose();
 
     [Fact]
     public void Open_NoOneCanRenameOrDeleteTheFolderOrAFolderAboveIt_UntilItIsLetGo()
@@ -46,7 +44,7 @@ public sealed class PinnedFolderTests : IDisposable
     [Fact]
     public void Open_TwiceTheSameFolder_Works()
     {
-        // The run lists the folder while it holds it, and Windows opens it for that.
+        // Two writes, or a write and a listing, hold the same folder at once.
         using var first = PinnedFolder.Open(_pinned);
         using var second = PinnedFolder.Open(_pinned);
     }
@@ -54,23 +52,28 @@ public sealed class PinnedFolderTests : IDisposable
     [Fact]
     public void Open_ALinkToAFolder_IsRefused()
     {
-        var link = Path.Combine(_folder.Path, "link");
-        CreateJunction(link, _pinned);
-        try
-        {
-            var refused = Assert.Throws<IOException>(() => PinnedFolder.Open(link));
+        var link = Path.Combine(_test.Root, "link");
+        TestFolder.CreateJunction(link, _pinned);
 
-            Assert.Equal($"Not a folder but a link or a file: {link}", refused.Message);
-            // Not held: the link can go.
-            Directory.Delete(link);
-        }
-        finally
-        {
-            if (Directory.Exists(link))
-            {
-                Directory.Delete(link);
-            }
-        }
+        var refused = Assert.Throws<IOException>(() => PinnedFolder.Open(link));
+
+        Assert.Equal($"Not a folder but a link or a file: {link}", refused.Message);
+        // Not held: the link can go.
+        Directory.Delete(link);
+    }
+
+    [Fact]
+    public void ThrowIfLink_AHeldEmptyFolderMadeAMountPointInPlace_IsALink()
+    {
+        var elsewhere = Directory.CreateDirectory(Path.Combine(_test.Root, "elsewhere")).FullName;
+        using var held = PinnedFolder.Open(_pinned);
+        held.ThrowIfLink();
+
+        // The hold shares writes, which a rename into the folder needs, so it does not stop this.
+        TestFolder.MakeMountPoint(_pinned, elsewhere);
+
+        var refused = Assert.Throws<IOException>(held.ThrowIfLink);
+        Assert.Equal($"The folder has become a link, which Kiler does not follow: {_pinned}", refused.Message);
     }
 
     [Fact]
@@ -86,25 +89,8 @@ public sealed class PinnedFolderTests : IDisposable
     [Fact]
     public void Open_AFolderThatIsNotThere_IsRefused()
     {
-        var refused = Assert.Throws<IOException>(() => PinnedFolder.Open(Path.Combine(_folder.Path, "missing")));
-
-        Assert.StartsWith("Kiler cannot hold the folder open: ", refused.Message, StringComparison.Ordinal);
-    }
-
-    /// <summary>A junction, which needs no special rights, unlike a symbolic link.</summary>
-    private static void CreateJunction(string link, string target)
-    {
-        var start = new ProcessStartInfo("cmd.exe") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true };
-        foreach (var argument in new[] { "/c", "mklink", "/J", link, target })
-        {
-            start.ArgumentList.Add(argument);
-        }
-
-        using var process = Process.Start(start)!;
-        process.StandardOutput.ReadToEnd();
-        process.WaitForExit();
-        Assert.Equal(0, process.ExitCode);
-        Assert.True(File.GetAttributes(link).HasFlag(FileAttributes.ReparsePoint), "The junction is not a link.");
+        Assert.Throws<DirectoryNotFoundException>(() => PinnedFolder.Open(Path.Combine(_test.Root, "missing")));
+        Assert.Throws<DirectoryNotFoundException>(() => PinnedFolder.Open(Path.Combine(_test.Root, "missing", "records")));
     }
 
     private static void AssertRefused(Action action) =>

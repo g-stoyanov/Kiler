@@ -102,17 +102,23 @@ public static class DocumentFormat
         return DocumentRead.Good(new Document(key, number, document));
     }
 
+    /// <summary>Reads a document from a stream, as <see cref="TryReadBytes"/> reads it.</summary>
+    internal static DocumentRead Read(DocumentKey key, Stream stream) =>
+        TryReadBytes(stream, out var bytes) ? Read(key, bytes) : DocumentRead.Damaged(DocumentDamage.TooLarge);
+
     /// <summary>
-    /// Reads a document from a stream, at most <see cref="MaxSize"/> + 1 bytes, so a file over the limit is not read whole.
-    /// The size from the handle comes first, and such a file is not read at all; the limit still holds when the file grows
-    /// while it is read, as an edit in place outside Kiler can make it.
+    /// The bytes of a file as they are, or <c>false</c> when it is larger than <see cref="MaxSize"/>. It reads at most
+    /// <see cref="MaxSize"/> + 1 bytes, so a file over the limit is not read whole. The size from the handle comes first, and
+    /// such a file is not read at all; the limit still holds when the file grows while it is read, as an edit in place
+    /// outside Kiler can make it.
     /// </summary>
-    internal static DocumentRead Read(DocumentKey key, Stream stream)
+    internal static bool TryReadBytes(Stream stream, out byte[] bytes)
     {
+        bytes = [];
         var size = stream.Length;
         if (size > MaxSize)
         {
-            return DocumentRead.Damaged(DocumentDamage.TooLarge);
+            return false;
         }
 
         // One byte more than the size, to see that the file has grown.
@@ -126,14 +132,15 @@ public static class DocumentFormat
             {
                 if (length > MaxSize)
                 {
-                    return DocumentRead.Damaged(DocumentDamage.TooLarge);
+                    return false;
                 }
 
                 Array.Resize(ref buffer, Math.Min(buffer.Length * 2, MaxSize + 1));
             }
         }
 
-        return Read(key, buffer.AsSpan(0, length));
+        bytes = buffer[..length];
+        return true;
     }
 
     /// <summary>
