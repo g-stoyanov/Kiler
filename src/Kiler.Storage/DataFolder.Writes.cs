@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 
@@ -50,13 +51,21 @@ public sealed partial class DataFolder
 
     /// <summary>
     /// Creates a document: version 1 in a temporary file, then a rename that does not replace.
-    /// <see cref="WriteOutcome.Exists"/> when the id is taken, a link too. Content that would make a damaged file is an
-    /// <see cref="ArgumentException"/>, before any file is made.
+    /// <see cref="WriteOutcome.Exists"/> when the id is taken, a link too, or has a history. Content that would make a damaged
+    /// file is an <see cref="ArgumentException"/>, before any file is made.
     /// </summary>
     internal WriteResult CreateDocument(DocumentKey key, JsonObject content)
     {
         var bytes = DocumentFormat.New(key, content);
         using var folders = HoldDocumentFolders(key);
+
+        // A deleted document keeps its history (M2.5). A new version 1 would meet the old slot of version 1, which has other
+        // bytes and is never taken over, so it could never be written. The id comes back by a restore from the trash.
+        if (Files.Attributes(HistoryFolderPath(key)) is not null)
+        {
+            return WriteResult.Not(WriteOutcome.Exists);
+        }
+
         using var file = WriteTemporaryWithTimes(Path.Combine(Root, key.Folder ?? ""), key.Id, bytes, out _);
         try
         {
@@ -88,34 +97,9 @@ public sealed partial class DataFolder
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(version, 1);
         using var folders = HoldDocumentFolders(key);
-
-        // The old version as it is on disk: its bytes go into the slot, unchanged.
-        byte[] old;
-        using (var stream = Files.OpenRead(DocumentPath(key)))
+        if (!TryReadVersion(key, version, folders, out var old, out var onDisk, out var refused))
         {
-            if (stream is null)
-            {
-                return WriteResult.Not(WriteOutcome.Missing);
-            }
-
-            if (!DocumentFormat.TryReadBytes(stream, out old))
-            {
-                return WriteResult.Damaged(DocumentDamage.TooLarge);
-            }
-        }
-
-        // An empty folder made a mount point in place would have given the file of that name elsewhere.
-        folders.ThrowIfLink();
-
-        var onDisk = DocumentFormat.Read(key, old);
-        if (onDisk.IsDamaged)
-        {
-            return WriteResult.Damaged(onDisk.Damage.Value);
-        }
-
-        if (onDisk.Document.Version != version)
-        {
-            return WriteResult.Conflict(onDisk.Document);
+            return refused;
         }
 
         if (version == int.MaxValue)
@@ -135,18 +119,19 @@ public sealed partial class DataFolder
             {
                 Discard(slotFile);
                 Discard(file);
-                return WriteResult.Conflict(onDisk.Document);
+                return WriteResult.Conflict(onDisk);
             }
 
             // The slot stays open with write access until the document is replaced, so no other write can hold it to take it
             // over while this one is alive, however long it stops (M2.4).
-            if (!RenameOver(file.Path, DocumentPath(key)))
+            // On any other failure the slot stays (below), as the rename may have been done, so this write needs no more than
+            // the outcome.
+            var mayHaveMoved = false;
+            if (TryMove(file.Path, DocumentPath(key), replace: true, ref mayHaveMoved) != MoveOutcome.Moved)
             {
-                // The document is as it was, so the slot goes too, and the write can be tried again at once. The slot shares
-                // the delete, so someone may have deleted it during the waits and made its emptied folder a link.
+                // The document is as it was, so the slot goes too, and the write can be tried again at once.
                 Discard(file);
-                historyFolders.ThrowIfLink();
-                DeleteOwnSlot(slot);
+                DeleteOwnSlot(slotFile);
                 return WriteResult.Not(WriteOutcome.Busy);
             }
 
@@ -179,27 +164,7 @@ public sealed partial class DataFolder
     {
         var path = FolderPath(folder);
         using var held = folder is null ? Hold(create: false) : Hold(create: false, folder);
-        var deleted = 0;
-        foreach (var entry in listing.Temporary)
-        {
-            // A name from the shared folder becomes a path only when it is the name of a temporary file of the layer.
-            if (!IsTemporaryName(entry.Name) || now - entry.LastWriteTime < TemporaryFileAge)
-            {
-                continue;
-            }
-
-            try
-            {
-                Files.DeleteFile(Path.Combine(path, entry.Name));
-                deleted++;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                // A folder at the name, or a file that someone holds without delete sharing: the next listing tries again.
-            }
-        }
-
-        return deleted;
+        return DeleteOldTemporaryFiles(path, listing.Temporary, now);
     }
 
     /// <summary>
@@ -227,6 +192,78 @@ public sealed partial class DataFolder
     /// violation.
     /// </summary>
     private static bool IsHeldOpen(Exception ex) => ex is UnauthorizedAccessException || (ex is IOException && ex.HResult == SharingViolation);
+
+    /// <summary>The old temporary files of a held folder, as the public overload deletes them.</summary>
+    private int DeleteOldTemporaryFiles(string folder, IEnumerable<FileEntry> temporary, DateTimeOffset now)
+    {
+        var deleted = 0;
+        foreach (var entry in temporary)
+        {
+            // A name from the shared folder becomes a path only when it is the name of a temporary file of the layer.
+            if (!IsTemporaryName(entry.Name) || now - entry.LastWriteTime < TemporaryFileAge)
+            {
+                continue;
+            }
+
+            try
+            {
+                Files.DeleteFile(Path.Combine(folder, entry.Name));
+                deleted++;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // A folder at the name, or a file that someone holds without delete sharing: the next listing tries again.
+            }
+        }
+
+        return deleted;
+    }
+
+    /// <summary>
+    /// Reads the document that a write or a delete changes, through its held folders: its bytes as they are on disk, which go
+    /// into the history slot unchanged, and the document. <c>false</c>, with the result to give, when nothing may be written:
+    /// the document is missing, damaged or at another version than <paramref name="version"/>.
+    /// </summary>
+    private bool TryReadVersion(
+        DocumentKey key, int version, Holds folders, out byte[] old, [NotNullWhen(true)] out Document? onDisk, [NotNullWhen(false)] out WriteResult? refused)
+    {
+        onDisk = null;
+        refused = null;
+        using (var stream = Files.OpenRead(DocumentPath(key)))
+        {
+            if (stream is null)
+            {
+                old = [];
+                refused = WriteResult.Not(WriteOutcome.Missing);
+                return false;
+            }
+
+            if (!DocumentFormat.TryReadBytes(stream, out old))
+            {
+                refused = WriteResult.Damaged(DocumentDamage.TooLarge);
+                return false;
+            }
+        }
+
+        // An empty folder made a mount point in place would have given the file of that name elsewhere.
+        folders.ThrowIfLink();
+
+        var read = DocumentFormat.Read(key, old);
+        if (read.IsDamaged)
+        {
+            refused = WriteResult.Damaged(read.Damage.Value);
+            return false;
+        }
+
+        if (read.Document.Version != version)
+        {
+            refused = WriteResult.Conflict(read.Document);
+            return false;
+        }
+
+        onDisk = read.Document;
+        return true;
+    }
 
     /// <summary>Lets go of a temporary file that will not become the document or the slot, and deletes it, as far as it can.</summary>
     private void Discard(NewFile file)
@@ -305,10 +342,11 @@ public sealed partial class DataFolder
     /// over, nor a link, a folder or a slot that may not be deleted. The slot is held from its read to its delete, so of two
     /// writes that take over one slot the second cannot hold it, and a write under way, which keeps its slot open to write,
     /// cannot lose it. It is deleted through the handle, so the slot that was read goes, never a new one at its name, and
-    /// its name is free once the hold is let go (<see cref="IFileSystem.DeleteHeldFile"/>). <c>false</c> when nothing was
-    /// deleted.
+    /// its name is free once the hold is let go (<see cref="IFileSystem.DeleteHeldFile"/>). Without <paramref name="now"/>
+    /// the age does not count: a restore from the trash deletes so the slot that the delete made (M2.5). <c>false</c> when
+    /// nothing was deleted.
     /// </summary>
-    private bool DeleteLeftoverSlot(DocumentKey key, string slot, byte[] old, DateTimeOffset now, Holds folders, Holds historyFolders)
+    private bool DeleteLeftoverSlot(DocumentKey key, string slot, byte[] old, DateTimeOffset? now, Holds folders, Holds historyFolders)
     {
         try
         {
@@ -319,7 +357,7 @@ public sealed partial class DataFolder
             }
 
             using var held = Files.HoldFile(slot);
-            if (held is null || now - held.LastWriteTime < SlotAge)
+            if (held is null || (now is { } time && time - held.LastWriteTime < SlotAge))
             {
                 return false;
             }
@@ -351,42 +389,74 @@ public sealed partial class DataFolder
     }
 
     /// <summary>
-    /// Deletes the slot of this write after the rename over the document was refused. Someone who holds it open without
-    /// sharing the delete keeps it there: then a write takes it over once it is old.
+    /// Deletes the slot of this write or delete after the move of the document was refused, through its own handle (M2.5):
+    /// the slot shares the delete, so someone may have deleted it during the waits and another write made its own at its
+    /// name, which a delete by the name would take. A slot that cannot be deleted stays as a leftover with the bytes of the
+    /// document, and a write takes it over once it is old.
     /// </summary>
-    private void DeleteOwnSlot(string slot)
+    private void DeleteOwnSlot(NewFile slot)
     {
         try
         {
-            Files.DeleteFile(slot);
+            Files.DeleteNewFile(slot);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // It stays as a leftover with the bytes of the document.
+            // It stays as a leftover.
         }
     }
 
     /// <summary>
-    /// Renames the temporary file over the document. Someone who holds the document open refuses the rename (M2.2), so it
-    /// is tried again after each of <see cref="RenameWaits"/>; <c>false</c> when it is still refused.
+    /// Moves a file, as <see cref="IFileSystem.MoveFile"/> does: a temporary file over the document, or a document to the
+    /// trash and back (M2.5). Someone who holds the file at either name open refuses it (M2.2), so it is tried again after
+    /// each of <see cref="RenameWaits"/>; <see cref="MoveOutcome.Refused"/> when it is still refused. The held folders of
+    /// <paramref name="check"/> are checked before each try and after the move: a folder that is empty, such as the trash
+    /// folder after a restore, can be made a mount point in place during a wait (security review of M2.5), and a move through
+    /// one is never given as done. A folder made a link right after the check and made a folder again before the check after
+    /// the move is not seen, as for the other steps (M2.3). <paramref name="mayHaveMoved"/> says, also when it throws, whether
+    /// the file may have moved: a move that went through, or one that failed otherwise than as refused or as a missing file,
+    /// whose answer may have been lost (fourth security review of M2.5).
     /// </summary>
-    private bool RenameOver(string temporary, string path)
+    private MoveOutcome TryMove(string from, string to, bool replace, ref bool mayHaveMoved, params ReadOnlySpan<Holds> check)
     {
         for (var tries = 0; ; tries++)
         {
             try
             {
-                Files.MoveFile(temporary, path, replace: true);
-                return true;
+                ThrowIfLink(check);
+                mayHaveMoved = true;
+                if (!Files.MoveFile(from, to, replace))
+                {
+                    mayHaveMoved = false;
+                    return MoveOutcome.NameTaken;
+                }
+
+                ThrowIfLink(check);
+                return MoveOutcome.Moved;
             }
             catch (Exception ex) when (IsHeldOpen(ex) && tries < RenameWaits.Count)
             {
+                mayHaveMoved = false;
                 Files.Wait(RenameWaits[tries]);
             }
             catch (Exception ex) when (IsHeldOpen(ex))
             {
-                return false;
+                mayHaveMoved = false;
+                return MoveOutcome.Refused;
             }
+            catch (FileNotFoundException)
+            {
+                mayHaveMoved = false;
+                throw;
+            }
+        }
+    }
+
+    private static void ThrowIfLink(ReadOnlySpan<Holds> check)
+    {
+        foreach (var holds in check)
+        {
+            holds.ThrowIfLink();
         }
     }
 
@@ -394,13 +464,56 @@ public sealed partial class DataFolder
     private Holds HoldDocumentFolders(DocumentKey key) => Known(key).Folder is { } folder ? Hold(create: false, folder) : Hold(create: false);
 
     /// <summary>The folders of the history slots of a document, from the root down, made where they are missing, and held.</summary>
-    private Holds HoldHistoryFolders(DocumentKey key) =>
-        Known(key).Folder is { } folder ? Hold(create: true, History, folder, key.Id) : Hold(create: true, History, key.Id);
+    private Holds HoldHistoryFolders(DocumentKey key) => Hold(create: true, HistoryFolders(key));
+
+    /// <summary>The folders below the root of the history slots of a document: <c>history\records\8f3a1c</c>, <c>history\settings</c>.</summary>
+    private string[] HistoryFolders(DocumentKey key) => Known(key).Folder is { } folder ? [History, folder, key.Id] : [History, key.Id];
+
+    /// <summary>The folders below the root of the copy of a document in the trash: <c>trash\records</c>, or <c>trash</c> for a document at the root.</summary>
+    private string[] TrashFolders(DocumentKey key) => Known(key).Folder is { } folder ? [Trash, folder] : [Trash];
+
+    /// <summary>
+    /// Holds the root and then the folders below it as <see cref="Hold"/> does, without making any, or gives <c>null</c> when
+    /// one below the root is missing: <c>history\&lt;folder&gt;\</c> and <c>trash\&lt;folder&gt;\</c> come only with the first
+    /// write or delete that needs them (M2.1). A missing root is a <see cref="DirectoryNotFoundException"/>.
+    /// </summary>
+    private Holds? HoldIfThere(params ReadOnlySpan<string> folders)
+    {
+        var holds = new Holds();
+        try
+        {
+            var path = Root;
+            holds.Add(Files.HoldFolder(path));
+            foreach (var folder in folders)
+            {
+                path = Path.Combine(path, folder);
+                PinnedFolder held;
+                try
+                {
+                    held = Files.HoldFolder(path);
+                }
+                catch (DirectoryNotFoundException)
+                {
+                    holds.Dispose();
+                    return null;
+                }
+
+                holds.Add(held);
+            }
+
+            return holds;
+        }
+        catch
+        {
+            holds.Dispose();
+            throw;
+        }
+    }
 
     /// <summary>
     /// Holds the root and then each folder below it on the way down, each opened as itself through the folders held above
     /// it, so none of them can be renamed or deleted until they are let go. With <paramref name="create"/>, a missing folder
-    /// below the root is made first, one at a time.
+    /// below the root is made first, one at a time, in the same call that holds it (M2.5).
     /// </summary>
     private Holds Hold(bool create, params ReadOnlySpan<string> folders)
     {
@@ -424,6 +537,11 @@ public sealed partial class DataFolder
         }
     }
 
+    /// <summary>
+    /// A folder that is there is opened as it was before M2.5; only a missing one goes through the create, which on a file
+    /// server may ask for the right to make a folder in the one above even when the folder is there (not measured, M2.11).
+    /// The create also holds a folder that someone made in between.
+    /// </summary>
     private PinnedFolder HoldOrCreate(string path)
     {
         try
@@ -432,9 +550,20 @@ public sealed partial class DataFolder
         }
         catch (DirectoryNotFoundException)
         {
-            Files.CreateFolder(path);
-            return Files.HoldFolder(path);
+            return Files.HoldOrCreateFolder(path);
         }
+    }
+
+    /// <summary>How <see cref="TryMove"/> ended.</summary>
+    private enum MoveOutcome
+    {
+        Moved,
+
+        /// <summary>Without replace: the new name is taken.</summary>
+        NameTaken,
+
+        /// <summary>Someone held a file at either name open for all the tries.</summary>
+        Refused,
     }
 
     /// <summary>Folders held together, let go from the bottom up.</summary>

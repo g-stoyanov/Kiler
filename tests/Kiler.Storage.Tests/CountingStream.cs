@@ -7,6 +7,9 @@ namespace Kiler.Storage.Tests;
 /// </summary>
 internal sealed class CountingStream(Stream inner, Action<int> onRead, long? length = null, int maxChunk = int.MaxValue) : Stream
 {
+    /// <summary>The stream it reports the reads of, such as the file that <see cref="IFileSystem.OpenRead"/> opened.</summary>
+    public Stream Inner => inner;
+
     public override bool CanRead => true;
 
     public override bool CanSeek => inner.CanSeek;

@@ -8,14 +8,56 @@ namespace Kiler.Storage;
 /// <summary>
 /// Opens a folder or a file as itself (M2.3): a link is opened as the link, not as what it points to, and then refused
 /// through the handle. Anyone can put a link on the shared folder, and .NET cannot open a path so, hence CreateFileW. A file
-/// is deleted through its handle (M2.4), which .NET cannot do either. Kiler runs on Windows only (PLAN section 2); the
-/// guard keeps the rest of Kiler.Storage free of the platform analyzer.
+/// is deleted through its handle (M2.4), which .NET cannot do either; a folder is made as itself through NtCreateFile, which
+/// CreateDirectoryW does not do, and a file is moved without the copy that File.Move allows (M2.5). Kiler runs on Windows
+/// only (PLAN section 2); the guard keeps the rest of Kiler.Storage free of the platform analyzer.
 /// </summary>
 internal static partial class NativeFiles
 {
     private const uint GenericRead = 0x80000000;
     private const uint GenericWrite = 0x40000000;
     private const uint CreateNew = 1;
+
+    /// <summary><c>FILE_WRITE_ATTRIBUTES</c>, which setting the times needs.</summary>
+    private const uint WriteAttributes = 0x100;
+
+    /// <summary><c>FILE_FLAG_DELETE_ON_CLOSE</c>: the file goes when its last handle is closed.</summary>
+    private const uint DeleteOnCloseFlag = 0x04000000;
+
+    /// <summary>
+    /// <c>MOVEFILE_REPLACE_EXISTING</c>. A move never gets <c>MOVEFILE_COPY_ALLOWED</c>, which <see cref="File.Move(string, string, bool)"/>
+    /// of .NET sets.
+    /// </summary>
+    private const uint ReplaceExisting = 0x1;
+
+    /// <summary><c>SYNCHRONIZE</c>, which <c>FILE_SYNCHRONOUS_IO_NONALERT</c> needs.</summary>
+    private const uint Synchronize = 0x00100000;
+
+    /// <summary><c>FILE_ATTRIBUTE_NORMAL</c>, as CreateDirectoryW makes a folder.</summary>
+    private const uint NormalAttributes = 0x80;
+
+    /// <summary><c>FILE_OPEN_IF</c> of NtCreateFile: open what is there, else make it.</summary>
+    private const uint OpenIf = 3;
+
+    /// <summary>
+    /// <c>FILE_DIRECTORY_FILE</c>, <c>FILE_SYNCHRONOUS_IO_NONALERT</c> and <c>FILE_OPEN_REPARSE_POINT</c>: a folder, opened
+    /// as itself, so a link at the name is opened as the link and never followed, also when it is made.
+    /// </summary>
+    private const uint FolderAsItself = 0x1 | 0x20 | 0x00200000;
+
+    /// <summary><c>OBJ_CASE_INSENSITIVE</c>, as CreateFileW opens a path.</summary>
+    private const uint CaseInsensitive = 0x40;
+
+    /// <summary>The longest NT path that a <c>UNICODE_STRING</c> holds, in characters.</summary>
+    private const int MaxNtPath = short.MaxValue;
+
+    private const string NtPrefix = "\\??\\";
+    private const string NtUncPrefix = "\\??\\UNC\\";
+
+    private const int StatusObjectNameNotFound = unchecked((int)0xC0000034);
+    private const int StatusObjectPathNotFound = unchecked((int)0xC000003A);
+    private const int StatusAccessDenied = unchecked((int)0xC0000022);
+    private const int StatusNotADirectory = unchecked((int)0xC0000103);
 
     /// <summary><c>DELETE</c>, which a delete through the handle needs.</summary>
     private const uint Delete = 0x00010000;
@@ -88,6 +130,110 @@ internal static partial class NativeFiles
         }
 
         return Checked(handle, attributes => !attributes.HasFlag(FileAttributes.ReparsePoint) && attributes.HasFlag(FileAttributes.Directory), $"Not a folder but a link or a file: {path}");
+    }
+
+    /// <summary>
+    /// Holds a folder as <see cref="OpenFolder"/> does, and makes it first when it is missing, in one call (M2.5): NtCreateFile
+    /// with <c>FILE_OPEN_IF</c>, as a folder and as itself. A link at the name is opened as the link and refused, and its
+    /// target is never made, which CreateDirectoryW, with no flag for it, may do: the CI machine followed such a link with a
+    /// create-new of a file (M2.3). No one can put a link at the name between the create and the hold, as they are one call.
+    /// Only the last folder is made, never a chain: a missing folder above is a <see cref="DirectoryNotFoundException"/>. A
+    /// link or a file in its place is an <see cref="IOException"/>; a folder that may not be made or opened an
+    /// <see cref="UnauthorizedAccessException"/>.
+    /// </summary>
+    public static unsafe SafeFileHandle OpenOrCreateFolder(string path)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            throw NotWindows();
+        }
+
+        var name = NtPath(path);
+        if (name.Length > MaxNtPath)
+        {
+            throw new PathTooLongException($"The path is too long for Windows: {path}");
+        }
+
+        SafeFileHandle handle;
+        int status;
+        fixed (char* buffer = name)
+        {
+            var bytes = (ushort)(name.Length * sizeof(char));
+            var unicode = new UnicodeString { Length = bytes, MaximumLength = bytes, Buffer = buffer };
+
+            // SECURITY_ANONYMOUS with static tracking, as CreateFileW opens with SECURITY_SQOS_PRESENT.
+            var quality = new SecurityQualityOfService { Length = (uint)sizeof(SecurityQualityOfService) };
+            var attributes = new ObjectAttributes
+            {
+                Length = (uint)sizeof(ObjectAttributes),
+                ObjectName = &unicode,
+                Attributes = CaseInsensitive,
+                SecurityQualityOfService = &quality,
+            };
+            IoStatusBlock io;
+            status = NtCreateFile(
+                out handle, ListDirectory | ReadAttributes | Synchronize, &attributes, &io, null, NormalAttributes, (uint)(FileShare.Read | FileShare.Write), OpenIf, FolderAsItself, null, 0);
+        }
+
+        if (status < 0)
+        {
+            handle.Dispose();
+            var error = (int)RtlNtStatusToDosError(status);
+            throw status switch
+            {
+                StatusObjectNameNotFound or StatusObjectPathNotFound => new DirectoryNotFoundException($"The folder above it does not exist: {path}"),
+                StatusNotADirectory => new IOException($"A file or a link to a file is where a folder should be: {path}", HResult(error)),
+                StatusAccessDenied => new UnauthorizedAccessException($"Kiler cannot make or hold the folder: {new Win32Exception(error).Message} {path}"),
+                _ => new IOException($"Kiler cannot make or hold the folder: {new Win32Exception(error).Message} {path}", HResult(error)),
+            };
+        }
+
+        return Checked(handle, attributes => !attributes.HasFlag(FileAttributes.ReparsePoint) && attributes.HasFlag(FileAttributes.Directory), $"A link is where a folder should be: {path}");
+    }
+
+    /// <summary>
+    /// Opens a file only for its times, to read them and, with <paramref name="toSet"/>, to set them, shared with everything
+    /// (M2.5). A handle with only attribute access counts in no sharing check (M1.11), so it stops no one from opening, moving
+    /// or deleting the file, and it follows the file through a move. It still stops a rename over the file, as any open handle
+    /// does (measured in M2.5). <c>null</c> when no file is there. A link in its place is an <see cref="IOException"/>; a
+    /// folder, or times that may not be set, an <see cref="UnauthorizedAccessException"/>.
+    /// </summary>
+    public static SafeFileHandle? OpenFileForTimes(string path, bool toSet) =>
+        OpenFile(path, toSet ? ReadAttributes | WriteAttributes : ReadAttributes, FileShare.ReadWrite | FileShare.Delete);
+
+    /// <summary>
+    /// Renames a file, or moves it to another folder of the same volume, in one step, also over SMB (M2.5). It never copies:
+    /// <see cref="File.Move(string, string, bool)"/> of .NET allows MoveFileExW to copy, so a move whose new folder is on
+    /// another volume, as through a mount point, would be a copy and then a delete, and a crash between them would leave the
+    /// file in both places. Such a move fails here with ERROR_NOT_SAME_DEVICE, an <see cref="IOException"/>. Like
+    /// <see cref="File.Move(string, string, bool)"/>, a taken name without <paramref name="replace"/> is an
+    /// <see cref="IOException"/> with ERROR_ALREADY_EXISTS or ERROR_FILE_EXISTS, a missing file a
+    /// <see cref="FileNotFoundException"/>, access denied an <see cref="UnauthorizedAccessException"/>, and a sharing violation
+    /// an <see cref="IOException"/>. A rename never follows a link at the new name: it replaces it or finds the name taken.
+    /// Unlike <see cref="File.Move(string, string, bool)"/>, which looks for a file first, it moves whatever is at
+    /// <paramref name="from"/>, a folder or a link too, as itself (second security review of M2.5).
+    /// </summary>
+    public static void MoveFile(string from, string to, bool replace)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            throw NotWindows();
+        }
+
+        if (MoveFileEx(Extended(from), Extended(to), replace ? ReplaceExisting : 0))
+        {
+            return;
+        }
+
+        var error = Marshal.GetLastPInvokeError();
+        var message = $"Kiler cannot move the file: {new Win32Exception(error).Message} {from}";
+        throw error switch
+        {
+            ErrorFileNotFound => new FileNotFoundException(message, from),
+            ErrorPathNotFound => new DirectoryNotFoundException(message),
+            ErrorAccessDenied => new UnauthorizedAccessException(message),
+            _ => new IOException(message, HResult(error)),
+        };
     }
 
     /// <summary>
@@ -168,21 +314,54 @@ internal static partial class NativeFiles
     }
 
     /// <summary>
-    /// Makes a new file to read and write, shared to read and delete; <c>null</c> when the name is taken, a link at it too.
-    /// <see cref="FileMode.CreateNew"/> of .NET followed a symbolic link whose target was missing and made the target on the
-    /// CI machine (Windows Server, an administrator), though not on the developer machine (M2.3). The last part of the path
-    /// opened as itself is never followed. A missing folder is a <see cref="DirectoryNotFoundException"/>; a folder that
-    /// cannot be written an <see cref="UnauthorizedAccessException"/>.
+    /// Makes a new file to read, write and delete through its handle (<see cref="DeleteOnClose"/>, M2.5), shared to read and
+    /// delete; <c>null</c> when the name is taken, a link at it too. <see cref="FileMode.CreateNew"/> of .NET followed a
+    /// symbolic link whose target was missing and made the target on the CI machine (Windows Server, an administrator), though
+    /// not on the developer machine (M2.3). The last part of the path opened as itself is never followed. A missing folder is
+    /// a <see cref="DirectoryNotFoundException"/>; a folder that cannot be written an <see cref="UnauthorizedAccessException"/>.
     /// </summary>
-    public static SafeFileHandle? CreateNewFile(string path)
+    public static SafeFileHandle? CreateNewFile(string path) =>
+        CreateNewFile(path, GenericRead | GenericWrite | Delete, FileShare.Read | FileShare.Delete, OpenReparsePoint | AnonymousToPipes);
+
+    /// <summary>
+    /// Makes a marker, a new empty file that keeps its folder from being empty while the handle is open (M2.5): NTFS refuses
+    /// to make a folder that is not empty a mount point (ERROR_DIR_NOT_EMPTY, measured). It has only delete access and is
+    /// shared only to read, so no one can delete, rename or write it, and Windows deletes it when the handle is closed, also
+    /// when the process ends (<c>FILE_FLAG_DELETE_ON_CLOSE</c>). <c>null</c> when the name is taken, a link at it too; the
+    /// errors are those of <see cref="CreateNewFile(string)"/>.
+    /// </summary>
+    public static SafeFileHandle? CreateMarkerFile(string path) =>
+        CreateNewFile(path, Delete, FileShare.Read, DeleteOnCloseFlag | OpenReparsePoint | AnonymousToPipes);
+
+    /// <summary>
+    /// The id of the file of a handle (M2.5): the serial number of its volume and its index there, through
+    /// GetFileInformationByHandle, which needs only attribute access. A move keeps it; another file has another one.
+    /// </summary>
+    public static FileId Id(SafeFileHandle handle)
     {
         if (!OperatingSystem.IsWindows())
         {
             throw NotWindows();
         }
 
-        var handle = CreateFile(
-            Extended(path), GenericRead | GenericWrite, (uint)(FileShare.Read | FileShare.Delete), 0, CreateNew, OpenReparsePoint | AnonymousToPipes, 0);
+        if (!GetFileInformationByHandle(handle, out var information))
+        {
+            var error = Marshal.GetLastPInvokeError();
+            throw new IOException($"Kiler cannot read the id of the file: {new Win32Exception(error).Message}", HResult(error));
+        }
+
+        return new FileId(information.VolumeSerialNumber, ((ulong)information.FileIndexHigh << 32) | information.FileIndexLow);
+    }
+
+    /// <summary>Makes a new file as itself, with the access, sharing and flags given; as <see cref="CreateNewFile(string)"/> says.</summary>
+    private static SafeFileHandle? CreateNewFile(string path, uint access, FileShare share, uint flags)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            throw NotWindows();
+        }
+
+        var handle = CreateFile(Extended(path), access, (uint)share, 0, CreateNew, flags, 0);
         if (handle.IsInvalid)
         {
             var error = Marshal.GetLastPInvokeError();
@@ -223,6 +402,21 @@ internal static partial class NativeFiles
         return full.StartsWith(UncPrefix, StringComparison.Ordinal) ? ExtendedUncPrefix + full[UncPrefix.Length..] : ExtendedPrefix + full;
     }
 
+    /// <summary>
+    /// The NT path of a path, as CreateFileW makes it: <c>\??\C:\…</c>, or <c>\??\UNC\server\share\…</c> for a network path.
+    /// A path with the <c>\\?\</c> or <c>\\.\</c> prefix is taken as it is; any other is made full first.
+    /// </summary>
+    private static string NtPath(string path)
+    {
+        if (path.StartsWith(ExtendedPrefix, StringComparison.Ordinal) || path.StartsWith(DevicePrefix, StringComparison.Ordinal))
+        {
+            return NtPrefix + path[ExtendedPrefix.Length..];
+        }
+
+        var full = Path.GetFullPath(path);
+        return full.StartsWith(UncPrefix, StringComparison.Ordinal) ? NtUncPrefix + full[UncPrefix.Length..] : NtPrefix + full;
+    }
+
     /// <summary>The handle when its attributes pass the check, else it is closed and refused with the message.</summary>
     private static SafeFileHandle Checked(SafeFileHandle handle, Func<FileAttributes, bool> check, string refused)
     {
@@ -261,4 +455,86 @@ internal static partial class NativeFiles
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool SetFileInformationByHandle(SafeFileHandle file, int informationClass, ref uint information, uint size);
+
+    [SupportedOSPlatform("windows")]
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GetFileInformationByHandle(SafeFileHandle file, out ByHandleFileInformation information);
+
+    [SupportedOSPlatform("windows")]
+    [LibraryImport("kernel32.dll", EntryPoint = "MoveFileExW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool MoveFileEx(string existingFileName, string newFileName, uint flags);
+
+    [SupportedOSPlatform("windows")]
+    [LibraryImport("ntdll.dll")]
+    private static unsafe partial int NtCreateFile(
+        out SafeFileHandle fileHandle,
+        uint desiredAccess,
+        ObjectAttributes* objectAttributes,
+        IoStatusBlock* ioStatusBlock,
+        long* allocationSize,
+        uint fileAttributes,
+        uint shareAccess,
+        uint createDisposition,
+        uint createOptions,
+        void* eaBuffer,
+        uint eaLength);
+
+    [SupportedOSPlatform("windows")]
+    [LibraryImport("ntdll.dll")]
+    private static partial uint RtlNtStatusToDosError(int status);
+
+    /// <summary><c>UNICODE_STRING</c>: the lengths in bytes, without a null at the end.</summary>
+    private unsafe struct UnicodeString
+    {
+        public ushort Length;
+        public ushort MaximumLength;
+        public char* Buffer;
+    }
+
+    /// <summary><c>OBJECT_ATTRIBUTES</c>.</summary>
+    private unsafe struct ObjectAttributes
+    {
+        public uint Length;
+        public nint RootDirectory;
+        public UnicodeString* ObjectName;
+        public uint Attributes;
+        public void* SecurityDescriptor;
+        public void* SecurityQualityOfService;
+    }
+
+    /// <summary><c>IO_STATUS_BLOCK</c>.</summary>
+    private struct IoStatusBlock
+    {
+        public nint Status;
+        public nuint Information;
+    }
+
+    /// <summary><c>BY_HANDLE_FILE_INFORMATION</c>: each <c>FILETIME</c> is two DWORDs, so nothing is padded.</summary>
+    private struct ByHandleFileInformation
+    {
+        public uint FileAttributes;
+        public uint CreationTimeLow;
+        public uint CreationTimeHigh;
+        public uint LastAccessTimeLow;
+        public uint LastAccessTimeHigh;
+        public uint LastWriteTimeLow;
+        public uint LastWriteTimeHigh;
+        public uint VolumeSerialNumber;
+        public uint FileSizeHigh;
+        public uint FileSizeLow;
+        public uint NumberOfLinks;
+        public uint FileIndexHigh;
+        public uint FileIndexLow;
+    }
+
+    /// <summary><c>SECURITY_QUALITY_OF_SERVICE</c>: zeros are <c>SecurityAnonymous</c> and static tracking.</summary>
+    private struct SecurityQualityOfService
+    {
+        public uint Length;
+        public int ImpersonationLevel;
+        public byte ContextTrackingMode;
+        public byte EffectiveOnly;
+    }
 }

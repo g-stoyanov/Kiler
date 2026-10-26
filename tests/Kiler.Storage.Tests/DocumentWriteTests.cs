@@ -42,8 +42,8 @@ public sealed class DocumentWriteTests : IDisposable
         { nameof(IFileSystem.CreateFile), DocumentTemporary, 1, 1 },
         { nameof(IFileSystem.SetCreationToWriteTime), DocumentTemporary, 1, 1 },
         { nameof(IFileSystem.HoldFolder), @"\history", 1, 1 },
-        { nameof(IFileSystem.CreateFolder), @"\history\records", 1, 1 },
-        { nameof(IFileSystem.CreateFolder), @"\history\records\8f3a1c", 1, 1 },
+        { nameof(IFileSystem.HoldOrCreateFolder), @"\history\records", 1, 1 },
+        { nameof(IFileSystem.HoldOrCreateFolder), @"\history\records\8f3a1c", 1, 1 },
         { nameof(IFileSystem.CreateFile), SlotTemporary, 1, 1 },
         { nameof(IFileSystem.MoveFile), SlotTemporary, 1, 1 },
         { nameof(IFileSystem.MoveFile), DocumentTemporary, 1, 1 },
@@ -347,7 +347,7 @@ public sealed class DocumentWriteTests : IDisposable
         var slot = data.HistoryPath(Record, 1);
         files.Before = (step, at) =>
         {
-            if (step == nameof(IFileSystem.DeleteFile) && at == slot)
+            if (step == nameof(IFileSystem.DeleteNewFile) && at.Contains(SlotTemporary, StringComparison.Ordinal))
             {
                 throw new IOException("The specified network name is no longer available.");
             }
@@ -533,7 +533,10 @@ public sealed class DocumentWriteTests : IDisposable
         Assert.False(created, "The write made a file with what it read through the link.");
     }
 
-    /// <summary>Nothing holds the slot during the waits of a rename, so someone can delete it and make its folder a link.</summary>
+    /// <summary>
+    /// Nothing holds the slot during the waits of a rename, so someone can delete it and make its folder a link. The busy
+    /// write deletes its slot through its own handle (M2.5), not by its path, so nothing goes through the link.
+    /// </summary>
     [Fact]
     public void ReplaceDocument_WhenTheSlotFolderIsMadeALinkDuringTheWaits_DeletesNothingThroughIt()
     {
@@ -557,7 +560,7 @@ public sealed class DocumentWriteTests : IDisposable
 
         using (new FileStream(data.DocumentPath(Record), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
         {
-            Assert.Throws<IOException>(() => data.ReplaceDocument(Record, 1, Content("second")));
+            Assert.Equal(WriteOutcome.Busy, data.ReplaceDocument(Record, 1, Content("second")).Outcome);
         }
 
         Assert.Equal("made up", File.ReadAllText(other));

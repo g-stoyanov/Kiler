@@ -26,6 +26,12 @@ public sealed class PinnedFolder : IDisposable
     /// </summary>
     public static PinnedFolder Open(string path) => new(NativeFiles.OpenFolder(path), path);
 
+    /// <summary>
+    /// Holds the folder as <see cref="Open"/> does, and makes it first when it is missing, in one call that never follows a
+    /// link at its name (M2.5). The folder above must exist.
+    /// </summary>
+    internal static PinnedFolder OpenOrCreate(string path) => new(NativeFiles.OpenOrCreateFolder(path), path);
+
     /// <summary>An <see cref="IOException"/> when the held folder has become a link, read through the handle.</summary>
     public void ThrowIfLink()
     {

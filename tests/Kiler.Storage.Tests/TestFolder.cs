@@ -1,6 +1,8 @@
 using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
 
@@ -66,6 +68,16 @@ internal sealed class TestFolder : IDisposable
     /// </summary>
     public static void MakeMountPoint(string folder, string target)
     {
+        var error = TryMakeMountPoint(folder, target);
+        Assert.True(error == 0, $"Windows made no mount point: error {error}");
+    }
+
+    /// <summary>
+    /// Tries to make a folder a mount point in place, as <see cref="MakeMountPoint"/> does, and gives the error of Windows, or
+    /// 0 when it is made: a folder that is not empty gives ERROR_DIR_NOT_EMPTY, 145 (measured in M2.5).
+    /// </summary>
+    public static int TryMakeMountPoint(string folder, string target)
+    {
         SkipWithoutJunctions(folder);
         using var handle = CreateFileW(folder, GenericWrite, FileShare.ReadWrite | FileShare.Delete, 0, FileMode.Open, BackupSemantics | OpenReparsePoint, 0);
         Assert.False(handle.IsInvalid, $"The folder could not be opened to write: error {Marshal.GetLastPInvokeError()}");
@@ -85,7 +97,7 @@ internal sealed class TestFolder : IDisposable
         BinaryPrimitives.WriteUInt16LittleEndian(buffer.AsSpan(4), (ushort)data.Length);
         data.CopyTo(buffer, 8);
 
-        Assert.True(DeviceIoControl(handle, SetReparsePoint, buffer, buffer.Length, 0, 0, out _, 0), $"Windows made no mount point: error {Marshal.GetLastPInvokeError()}");
+        return DeviceIoControl(handle, SetReparsePoint, buffer, buffer.Length, 0, 0, out _, 0) ? 0 : Marshal.GetLastPInvokeError();
     }
 
     /// <summary>
@@ -97,6 +109,64 @@ internal sealed class TestFolder : IDisposable
         try
         {
             File.CreateSymbolicLink(link, target);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Assert.Skip($"Windows made no symbolic link here: {ex.Message}");
+        }
+
+        Assert.True(File.GetAttributes(link).HasFlag(FileAttributes.ReparsePoint), "The symbolic link is not a link.");
+    }
+
+    /// <summary>
+    /// Denies the current user the right to set the attributes and times of a file, as a file server may for a file of
+    /// another account that it still lets be moved (M2.5). The file can still be read, moved and deleted.
+    /// </summary>
+    public static void DenyWriteAttributes(string path)
+    {
+        // CA1416 does not take Assert.Skip for the end of the method, so the Windows calls stand inside the guard.
+        if (OperatingSystem.IsWindows())
+        {
+            using var identity = WindowsIdentity.GetCurrent();
+            var file = new FileInfo(path);
+            var security = file.GetAccessControl();
+            security.AddAccessRule(new FileSystemAccessRule(identity.User!, FileSystemRights.WriteAttributes, AccessControlType.Deny));
+            file.SetAccessControl(security);
+        }
+        else
+        {
+            Assert.Skip("The rights of a file are set through Windows.");
+        }
+    }
+
+    /// <summary>
+    /// The path of a test folder through the administrative share of its drive on this machine,
+    /// <c>\\localhost\C$\…</c>, so a test goes through SMB and a UNC path. The test is skipped where the share cannot be
+    /// reached, as for a user who is not an administrator.
+    /// </summary>
+    public static string ThroughLoopbackShare(string path)
+    {
+        var root = Path.GetPathRoot(path);
+        if (root is null || root.Length != 3 || root[1] != ':')
+        {
+            Assert.Skip("The folder is not on a drive of this machine.");
+        }
+
+        var unc = $@"\\localhost\{root[0]}$\{path[root.Length..]}";
+        if (!Directory.Exists(unc))
+        {
+            Assert.Skip("The administrative share of the drive cannot be reached.");
+        }
+
+        return unc;
+    }
+
+    /// <summary>A symbolic link to a folder, skipped as <see cref="CreateFileLink"/> is.</summary>
+    public static void CreateFolderLink(string link, string target)
+    {
+        try
+        {
+            Directory.CreateSymbolicLink(link, target);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

@@ -27,6 +27,9 @@ public sealed partial class DataFolder
 
     private const string Extension = ".json";
 
+    /// <summary>The start of the name of a history slot: <c>v6.json</c>.</summary>
+    private const char SlotPrefix = 'v';
+
     private static readonly Layout SharedLayout = new([Templates, Stashes, Users, Records], [Settings, Levels], [Audit, Private]);
     private static readonly Layout PrivateLayout = new([Records], [Key], []);
 
@@ -130,8 +133,7 @@ public sealed partial class DataFolder
     public string HistoryPath(DocumentKey key, int version)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(version, 1);
-        var slot = "v" + version.ToString(CultureInfo.InvariantCulture) + Extension;
-        return Path.Combine(Root, History, Known(key).Folder ?? "", key.Id, slot);
+        return Path.Combine(HistoryFolderPath(key), SlotPrefix + version.ToString(CultureInfo.InvariantCulture) + Extension);
     }
 
     public string TrashPath(DocumentKey key) => Path.Combine(Root, Trash, Known(key).Folder ?? "", key.Id + Extension);
@@ -283,6 +285,26 @@ public sealed partial class DataFolder
 
         return folder is null ? Root : Path.Combine(Root, folder);
     }
+
+    /// <summary>
+    /// The version in a name that <see cref="HistoryPath"/> makes, <c>v&lt;N&gt;.json</c> with N from 1 and no leading zero, or
+    /// <c>null</c> for any other name: a name from the shared folder is a slot only in the one form the layer writes.
+    /// </summary>
+    private static int? SlotVersion(string name)
+    {
+        if (name.Length <= 1 + Extension.Length || name[0] != SlotPrefix || !name.EndsWith(Extension, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var digits = name.AsSpan(1, name.Length - 1 - Extension.Length);
+        return digits[0] != '0' && !digits.ContainsAnyExceptInRange('0', '9') && int.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out var version)
+            ? version
+            : null;
+    }
+
+    /// <summary>The folder of the history slots of a document: <c>history\records\8f3a1c</c>, <c>history\settings</c>.</summary>
+    private string HistoryFolderPath(DocumentKey key) => Path.Combine(Root, History, Known(key).Folder ?? "", key.Id);
 
     /// <summary>The key, when its folder or its root document belongs to this root.</summary>
     private DocumentKey Known(DocumentKey key)

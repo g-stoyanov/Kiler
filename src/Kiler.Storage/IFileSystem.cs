@@ -32,12 +32,45 @@ internal interface IFileSystem
     PinnedFolder HoldFolder(string path);
 
     /// <summary>
+    /// Holds a folder as <see cref="HoldFolder"/> does, and makes it first when it is missing, in one call that never follows
+    /// a link at its name (M2.5). The folder above must exist: it never makes a chain. A link or a file in its place is an
+    /// <see cref="IOException"/>, a missing folder above a <see cref="DirectoryNotFoundException"/>.
+    /// </summary>
+    PinnedFolder HoldOrCreateFolder(string path);
+
+    /// <summary>
     /// Opens a file to read, as itself, shared with writes and deletes; <c>null</c> when no file is there. A link in its place
     /// is an <see cref="IOException"/>. A rename over the file still fails while it is open (measured in M2.2), which the
     /// writes retry. A file that cannot be opened, such as a folder in its place or a file that someone holds without
     /// sharing, is an <see cref="UnauthorizedAccessException"/> or an <see cref="IOException"/>.
     /// </summary>
     Stream? OpenRead(string path);
+
+    /// <summary>The size and the times of a file that <see cref="OpenRead"/> opened, through its handle.</summary>
+    FileStamp Stamp(Stream file);
+
+    /// <summary>
+    /// Opens a file as itself only to read and set its times (<see cref="FileTimes"/>), which stops no one from opening,
+    /// moving or deleting it; <c>null</c> when no file is there. As any open handle, it stops a rename over the file (measured
+    /// in M2.5), so it is held only for a move. When the times may not be set, they are only read
+    /// (<see cref="FileTimes.CanSet"/>). A link in its place is an <see cref="IOException"/>, a folder an
+    /// <see cref="UnauthorizedAccessException"/>.
+    /// </summary>
+    FileTimes? OpenTimes(string path);
+
+    /// <summary>
+    /// Puts back the creation time that the file had when it was opened, through its handle, wherever it is now; nothing when
+    /// the times may not be set.
+    /// </summary>
+    void KeepCreationTime(FileTimes file);
+
+    /// <summary>
+    /// Makes a marker: a new empty file that keeps its folder from being empty while it is held, so no one can make the folder
+    /// a mount point in place, as NTFS refuses one on a folder that is not empty (measured in M2.5). No one can delete, rename
+    /// or write it, and it is deleted when it is let go, also when the process ends. <c>null</c> when the name is taken, a
+    /// link too.
+    /// </summary>
+    IDisposable? CreateMarker(string path);
 
     /// <summary>
     /// Makes a new file with the bytes, flushed to the disk, and keeps it open, shared to be read, renamed or deleted but not
@@ -54,15 +87,23 @@ internal interface IFileSystem
     FileStamp SetCreationToWriteTime(NewFile file);
 
     /// <summary>
-    /// Renames a file in the same folder, in one step also over SMB. Without <paramref name="replace"/>, <c>false</c> when the
-    /// new name is taken, a link too. With it, an <see cref="UnauthorizedAccessException"/> while someone holds the file at
-    /// the new name open, with or without delete sharing (M2.2), or when that file is read-only; a file server may give a
-    /// sharing violation instead.
+    /// Renames a file in its folder, or moves it to another folder of the same root, such as the trash (M2.5), in one step
+    /// also over SMB. Without <paramref name="replace"/>, <c>false</c> when the new name is taken, a link too. With it, an
+    /// <see cref="UnauthorizedAccessException"/> while someone holds the file at the new name open, with or without delete
+    /// sharing (M2.2), or when that file is read-only; a file server may give a sharing violation instead. A file that someone
+    /// holds open without delete sharing cannot be moved: a sharing violation.
     /// </summary>
     bool MoveFile(string from, string to, bool replace);
 
     /// <summary>Deletes a file; nothing when no file is there. A file that someone holds open with delete sharing goes too.</summary>
     void DeleteFile(string path);
+
+    /// <summary>
+    /// Deletes a file that <see cref="CreateFile"/> made, through its handle, wherever a rename has taken it: the file goes
+    /// when it is let go, never another one at its name (M2.5). A file that may not be deleted is an
+    /// <see cref="UnauthorizedAccessException"/>.
+    /// </summary>
+    void DeleteNewFile(NewFile file);
 
     /// <summary>
     /// Holds a file, opened as itself to read and to be deleted, shared only to be read: no one else can open it to write or

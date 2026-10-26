@@ -16,7 +16,8 @@ internal sealed class TestFileSystem : IFileSystem
 
     /// <summary>
     /// Called before every operation with its name, such as <c>nameof(IFileSystem.MoveFile)</c>, and its path; it can throw
-    /// to fail that step. <see cref="IFileSystem.SetCreationToWriteTime"/> gives the path where the file was made.
+    /// to fail that step. <see cref="IFileSystem.SetCreationToWriteTime"/> and <see cref="IFileSystem.DeleteNewFile"/> give
+    /// the path where the file was made, <see cref="IFileSystem.Stamp"/> none.
     /// </summary>
     public Action<string, string>? Before { get; set; }
 
@@ -37,6 +38,12 @@ internal sealed class TestFileSystem : IFileSystem
     /// refuses for a create-new (measured in M2.3), so a test reaches the check of the held folders.
     /// </summary>
     public bool CreateThroughLinks { get; set; }
+
+    /// <summary>
+    /// Makes no markers, as for a file server that would let a folder that is not empty be made a mount point, which NTFS
+    /// refuses (measured in M2.5), so a test reaches the checks after a move.
+    /// </summary>
+    public bool MarkersKeepNothing { get; set; }
 
     /// <summary>The waits between the tries of a step, in order. None is waited.</summary>
     public List<TimeSpan> Waits { get; } = [];
@@ -74,10 +81,35 @@ internal sealed class TestFileSystem : IFileSystem
         return FileSystem.Instance.HoldFolder(path);
     }
 
+    public PinnedFolder HoldOrCreateFolder(string path)
+    {
+        Step(nameof(HoldOrCreateFolder), path);
+        return FileSystem.Instance.HoldOrCreateFolder(path);
+    }
+
     public Stream? OpenRead(string path)
     {
         Step(nameof(OpenRead), path);
         return FileSystem.Instance.OpenRead(path) is { } stream ? new CountingStream(stream, read => BytesRead += read) : null;
+    }
+
+    public FileStamp Stamp(Stream file)
+    {
+        Step(nameof(Stamp), "");
+        return FileSystem.Instance.Stamp(file is CountingStream counting ? counting.Inner : file);
+    }
+
+    public FileTimes? OpenTimes(string path)
+    {
+        Step(nameof(OpenTimes), path);
+        return FileSystem.Instance.OpenTimes(path);
+    }
+
+    /// <summary><see cref="IFileSystem.KeepCreationTime"/>; the step gives the path where the file was opened.</summary>
+    public void KeepCreationTime(FileTimes file)
+    {
+        Step(nameof(KeepCreationTime), file.Path);
+        FileSystem.Instance.KeepCreationTime(file);
     }
 
     public NewFile? CreateFile(string path, ReadOnlySpan<byte> bytes)
@@ -125,6 +157,13 @@ internal sealed class TestFileSystem : IFileSystem
         FileSystem.Instance.DeleteFile(path);
     }
 
+    /// <summary><see cref="IFileSystem.DeleteNewFile"/>; the step gives the path where the file was made.</summary>
+    public void DeleteNewFile(NewFile file)
+    {
+        Step(nameof(DeleteNewFile), file.Path);
+        FileSystem.Instance.DeleteNewFile(file);
+    }
+
     public HeldFile? HoldFile(string path)
     {
         Step(nameof(HoldFile), path);
@@ -135,6 +174,12 @@ internal sealed class TestFileSystem : IFileSystem
     {
         Step(nameof(DeleteHeldFile), file.Path);
         FileSystem.Instance.DeleteHeldFile(file);
+    }
+
+    public IDisposable? CreateMarker(string path)
+    {
+        Step(nameof(CreateMarker), path);
+        return MarkersKeepNothing ? new NoMarker() : FileSystem.Instance.CreateMarker(path);
     }
 
     public void Wait(TimeSpan time)
@@ -161,4 +206,11 @@ internal sealed class TestFileSystem : IFileSystem
 
     /// <summary>What a step that the test stops throws. An <see cref="IOException"/>, as a lost network gives.</summary>
     private sealed class SimulatedCrash() : IOException("The test stopped the process here.");
+
+    private sealed class NoMarker : IDisposable
+    {
+        public void Dispose()
+        {
+        }
+    }
 }
