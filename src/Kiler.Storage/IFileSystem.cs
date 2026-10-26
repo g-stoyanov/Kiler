@@ -20,4 +20,12 @@ internal interface IFileSystem
 
     /// <summary>Renames a folder in the same folder. It never replaces: when the new name is taken, an <see cref="IOException"/>.</summary>
     void MoveFolder(string from, string to);
+
+    /// <summary>
+    /// Opens a file to read, shared with writes and deletes; <c>null</c> when no file is there. A rename over the file still
+    /// fails while it is open (measured in M2.2), which the writes of M2.3 handle. A file that cannot be opened, such as a
+    /// folder in its place or a file that someone holds without sharing, is an <see cref="UnauthorizedAccessException"/> or
+    /// an <see cref="IOException"/>.
+    /// </summary>
+    Stream? OpenRead(string path);
 }

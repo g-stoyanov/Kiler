@@ -7,6 +7,35 @@ public sealed class FileSystemTests : IDisposable
     public void Dispose() => _test.Dispose();
 
     [Fact]
+    public void OpenRead_AMissingFile_GivesNothing()
+    {
+        Assert.Null(FileSystem.Instance.OpenRead(Path.Combine(_test.Root, "8f3a1c.json")));
+        Assert.Null(FileSystem.Instance.OpenRead(Path.Combine(_test.Root, "records", "8f3a1c.json")));
+    }
+
+    [Fact]
+    public void OpenRead_AFolder_Throws()
+    {
+        var path = Path.Combine(_test.Root, "8f3a1c.json");
+        Directory.CreateDirectory(path);
+
+        Assert.Throws<UnauthorizedAccessException>(() => FileSystem.Instance.OpenRead(path));
+    }
+
+    [Fact]
+    public void OpenRead_AFileOpenToRead_CanStillBeWrittenAndDeleted()
+    {
+        var path = Path.Combine(_test.Root, "8f3a1c.json");
+        File.WriteAllText(path, "{}");
+
+        using var stream = FileSystem.Instance.OpenRead(path);
+
+        Assert.NotNull(stream);
+        File.WriteAllText(path, "[]");
+        File.Delete(path);
+    }
+
+    [Fact]
     public void CreateFolder_WhenTheFolderAboveIsMissing_IsRefusedAndMakesNothing()
     {
         var above = Path.Combine(_test.Root, "data");

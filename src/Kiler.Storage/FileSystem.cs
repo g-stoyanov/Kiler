@@ -54,4 +54,23 @@ internal sealed class FileSystem : IFileSystem
 
     // MoveFile without MOVEFILE_REPLACE_EXISTING, a rename that SMB does in one step.
     public void MoveFolder(string from, string to) => Directory.Move(from, to);
+
+    public Stream? OpenRead(string path)
+    {
+        try
+        {
+            // No buffer of its own: the reader reads the whole file into one buffer.
+            return new FileStream(path, new FileStreamOptions
+            {
+                Mode = FileMode.Open,
+                Access = FileAccess.Read,
+                Share = FileShare.ReadWrite | FileShare.Delete,
+                BufferSize = 0,
+            });
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return null;
+        }
+    }
 }

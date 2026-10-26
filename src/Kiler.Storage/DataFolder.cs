@@ -138,6 +138,17 @@ public sealed class DataFolder
     public string TrashPath(DocumentKey key) => Path.Combine(Root, Trash, Known(key).Folder ?? "", key.Id + Extension);
 
     /// <summary>
+    /// Reads a document (M2.2): <c>null</c> when its file is not there, else the document or why the file is damaged. A file
+    /// that cannot be opened throws, as <see cref="IFileSystem.OpenRead"/> says. Neither the folder nor the file is checked
+    /// for a link yet: how a read refuses one through the handle comes with the writes (M2.3).
+    /// </summary>
+    internal DocumentRead? Read(DocumentKey key)
+    {
+        using var stream = Files.OpenRead(DocumentPath(key));
+        return stream is null ? null : DocumentFormat.Read(key, stream);
+    }
+
+    /// <summary>
     /// The documents of a document folder, or of the root when <paramref name="folder"/> is <c>null</c>, from one listing:
     /// the files and their attributes come with it. Links, and <c>.json</c> files whose name fails the check, are skipped
     /// and given apart to be reported. Other files and folders are not documents and are left out. The folder that is

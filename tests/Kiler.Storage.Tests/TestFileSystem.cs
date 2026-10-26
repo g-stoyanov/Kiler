@@ -1,12 +1,14 @@
 namespace Kiler.Storage.Tests;
 
 /// <summary>
-/// The real file operations with hooks for the tests: a count of the requests for attributes, and actions just before a
-/// folder is made or renamed, which can also throw to fail that step.
+/// The real file operations with hooks for the tests: a count of the requests for attributes and of the bytes read, and
+/// actions just before a folder is made or renamed, which can also throw to fail that step.
 /// </summary>
 internal sealed class TestFileSystem : IFileSystem
 {
     public int AttributeRequests { get; set; }
+
+    public long BytesRead { get; set; }
 
     public Action<string>? BeforeCreate { get; set; }
 
@@ -31,4 +33,7 @@ internal sealed class TestFileSystem : IFileSystem
         BeforeMove?.Invoke(from, to);
         FileSystem.Instance.MoveFolder(from, to);
     }
+
+    public Stream? OpenRead(string path) =>
+        FileSystem.Instance.OpenRead(path) is { } stream ? new CountingStream(stream, read => BytesRead += read) : null;
 }

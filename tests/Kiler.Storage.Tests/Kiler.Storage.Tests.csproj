@@ -1,5 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!--
+    Native AOT has no reflection-based JSON. The tests turn it off too, so JSON code of the
+    layer that needs it fails here and not only in the published exe.
+  -->
+  <PropertyGroup>
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\Kiler.Storage\Kiler.Storage.csproj" />
   </ItemGroup>
