@@ -3,10 +3,13 @@ namespace Kiler.Storage.Tests;
 /// <summary>
 /// A stream to read that reports every read to the test. <paramref name="length"/> puts another size in place of the real
 /// one, as a file that grows or shrinks while it is read shows it. <paramref name="maxChunk"/> limits the bytes of one
-/// read, as a network folder can give fewer bytes than asked.
+/// read, as a network folder can give fewer bytes than asked. <paramref name="onDispose"/> is called once, when the stream is
+/// disposed.
 /// </summary>
-internal sealed class CountingStream(Stream inner, Action<int> onRead, long? length = null, int maxChunk = int.MaxValue) : Stream
+internal sealed class CountingStream(Stream inner, Action<int> onRead, long? length = null, int maxChunk = int.MaxValue, Action? onDispose = null) : Stream
 {
+    private Action? _onDispose = onDispose;
+
     /// <summary>The stream it reports the reads of, such as the file that <see cref="IFileSystem.OpenRead"/> opened.</summary>
     public Stream Inner => inner;
 
@@ -48,6 +51,7 @@ internal sealed class CountingStream(Stream inner, Action<int> onRead, long? len
         if (disposing)
         {
             inner.Dispose();
+            Interlocked.Exchange(ref _onDispose, null)?.Invoke();
         }
 
         base.Dispose(disposing);

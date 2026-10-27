@@ -1,22 +1,54 @@
 namespace Kiler.Storage.Tests;
 
 /// <summary>
-/// The real file operations with hooks for the tests: a count of the requests for attributes and of the bytes read, actions
-/// just before a step, which can throw to fail that step, a simulated crash, and the waits counted instead of waited. The
-/// owners come from a fake (<see cref="Owners"/>), through the handles of the real operations.
+/// The real file operations with hooks for the tests: a count of the requests for attributes, of the files opened to read and
+/// of the bytes read, actions just before a step, which can throw to fail that step, a simulated crash, and the waits counted
+/// instead of waited. The owners come from a fake (<see cref="Owners"/>), through the handles of the real operations. The
+/// counts hold when the operations run on many threads at once, as the reads of a load do (M2.7); the hooks are called on
+/// those threads.
 /// </summary>
 internal sealed class TestFileSystem : IFileSystem
 {
     private readonly FileSystem _real;
+    private int _attributeRequests;
+    private long _bytesRead;
+    private int _reads;
+    private int _readsNow;
+    private int _mostReadsAtOnce;
 
     public TestFileSystem() => _real = new FileSystem(Owners);
 
     /// <summary>The owners that the files and folders have, by default <see cref="TestOwners.Me"/>.</summary>
     public TestOwners Owners { get; } = new();
 
-    public int AttributeRequests { get; set; }
+    public int AttributeRequests
+    {
+        get => Volatile.Read(ref _attributeRequests);
+        set => Volatile.Write(ref _attributeRequests, value);
+    }
 
-    public long BytesRead { get; set; }
+    public long BytesRead
+    {
+        get => Interlocked.Read(ref _bytesRead);
+        set => Interlocked.Exchange(ref _bytesRead, value);
+    }
+
+    /// <summary>The files that <see cref="IFileSystem.OpenRead"/> opened.</summary>
+    public int Reads
+    {
+        get => Volatile.Read(ref _reads);
+        set => Volatile.Write(ref _reads, value);
+    }
+
+    /// <summary>
+    /// The most reads at once: each counts from the call of <see cref="IFileSystem.OpenRead"/>, its <see cref="Before"/>
+    /// included, until its file is closed.
+    /// </summary>
+    public int MostReadsAtOnce
+    {
+        get => Volatile.Read(ref _mostReadsAtOnce);
+        set => Volatile.Write(ref _mostReadsAtOnce, value);
+    }
 
     public Action<string>? BeforeCreate { get; set; }
 
@@ -66,14 +98,14 @@ internal sealed class TestFileSystem : IFileSystem
     public FileAttributes? Attributes(string path)
     {
         Step(nameof(Attributes), path);
-        AttributeRequests++;
+        Interlocked.Increment(ref _attributeRequests);
         return _real.Attributes(path);
     }
 
-    public IReadOnlyList<FileEntry> List(string folder)
+    public IReadOnlyList<FileEntry> List(string folder, int limit = int.MaxValue)
     {
         Step(nameof(List), folder);
-        return _real.List(folder);
+        return _real.List(folder, limit);
     }
 
     public void CreateFolder(string path)
@@ -119,8 +151,40 @@ internal sealed class TestFileSystem : IFileSystem
 
     public Stream? OpenRead(string path)
     {
-        Step(nameof(OpenRead), path);
-        return _real.OpenRead(path) is { } stream ? new CountingStream(stream, read => BytesRead += read) : null;
+        var now = Interlocked.Increment(ref _readsNow);
+        var most = Volatile.Read(ref _mostReadsAtOnce);
+        while (now > most)
+        {
+            var seen = Interlocked.CompareExchange(ref _mostReadsAtOnce, now, most);
+            if (seen == most)
+            {
+                break;
+            }
+
+            most = seen;
+        }
+
+        Stream? stream = null;
+        try
+        {
+            Step(nameof(OpenRead), path);
+            stream = _real.OpenRead(path);
+        }
+        finally
+        {
+            if (stream is null)
+            {
+                Interlocked.Decrement(ref _readsNow);
+            }
+        }
+
+        if (stream is null)
+        {
+            return null;
+        }
+
+        Interlocked.Increment(ref _reads);
+        return new CountingStream(stream, read => Interlocked.Add(ref _bytesRead, read), onDispose: () => Interlocked.Decrement(ref _readsNow));
     }
 
     public FileStamp Stamp(Stream file)

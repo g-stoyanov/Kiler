@@ -1052,6 +1052,19 @@ public sealed class TrashAndHistoryTests : IDisposable
             versions);
     }
 
+    /// <summary>Anyone on the share can give a slot a time after the year 9999, which has no stamp to give (M2.7).</summary>
+    [Fact]
+    public void Versions_ASlotWithATimeAfterTheYear9999_IsSkipped()
+    {
+        var data = DataFolder.Create(_data, new TestOwners());
+        data.CreateDocument(Record, Content("first"));
+        data.ReplaceDocument(Record, 1, Content("second"));
+        data.ReplaceDocument(Record, 2, Content("third"));
+        TestFolder.SetRawTimes(data.HistoryPath(Record, 1), TestFolder.FarFuture, TestFolder.FarFuture);
+
+        Assert.Equal([2, 3], data.Versions(Record, DateTimeOffset.UtcNow).Select(version => version.Version));
+    }
+
     [Fact]
     public void Versions_OfADeletedDocument_AreItsHistorySlots_AndOfANewOneItsCurrentVersion()
     {

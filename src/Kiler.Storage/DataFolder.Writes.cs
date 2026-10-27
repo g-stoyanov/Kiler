@@ -169,14 +169,14 @@ public sealed partial class DataFolder
 
     /// <summary>
     /// A name that is never a document's or an account's, as <see cref="StorageName"/> refuses the ending:
-    /// <c>&lt;name&gt;.&lt;8 hex digits&gt;.tmp</c>. The writes name their temporary files so, and
-    /// <see cref="CreatePrivate"/> its temporary folder.
+    /// <c>&lt;name&gt;.&lt;8 hex digits&gt;.tmp</c>. The writes name their temporary files so, <see cref="CreatePrivate"/> its
+    /// temporary folder, and the local copy its own temporary files (M2.7).
     /// </summary>
-    private static string TemporaryName(string name) =>
+    internal static string TemporaryName(string name) =>
         $"{name}.{RandomNumberGenerator.GetHexString(TemporaryDigits, lowercase: true)}{StorageName.TemporaryEnding}";
 
     /// <summary>Whether a name is one that <see cref="TemporaryName"/> makes.</summary>
-    private static bool IsTemporaryName(string name)
+    internal static bool IsTemporaryName(string name)
     {
         var suffix = 1 + TemporaryDigits + StorageName.TemporaryEnding.Length;
         if (name.Length <= suffix || !name.EndsWith(StorageName.TemporaryEnding, StringComparison.Ordinal) || name[^suffix] != '.')
@@ -199,8 +199,9 @@ public sealed partial class DataFolder
         var deleted = 0;
         foreach (var entry in temporary)
         {
-            // A name from the shared folder becomes a path only when it is the name of a temporary file of the layer.
-            if (!IsTemporaryName(entry.Name) || now - entry.LastWriteTime < TemporaryFileAge)
+            // A name from the shared folder becomes a path only when it is the name of a temporary file of the layer. One
+            // whose time could not be read is never taken for old.
+            if (!IsTemporaryName(entry.Name) || entry.TimesUnread || now - entry.LastWriteTime < TemporaryFileAge)
             {
                 continue;
             }

@@ -102,7 +102,7 @@ public static class DocumentFormat
         return DocumentRead.Good(new Document(key, number, document));
     }
 
-    /// <summary>Reads a document from a stream, as <see cref="TryReadBytes"/> reads it.</summary>
+    /// <summary>Reads a document from a stream, as <see cref="TryReadBytes(Stream, out byte[])"/> reads it.</summary>
     internal static DocumentRead Read(DocumentKey key, Stream stream) =>
         TryReadBytes(stream, out var bytes) ? Read(key, bytes) : DocumentRead.Damaged(DocumentDamage.TooLarge);
 
@@ -112,11 +112,19 @@ public static class DocumentFormat
     /// such a file is not read at all; the limit still holds when the file grows while it is read, as an edit in place
     /// outside Kiler can make it.
     /// </summary>
-    internal static bool TryReadBytes(Stream stream, out byte[] bytes)
+    internal static bool TryReadBytes(Stream stream, out byte[] bytes) => TryReadBytes(stream, MaxSize, out bytes);
+
+    /// <summary>
+    /// The bytes of a file as they are, or <c>false</c> when it is larger than <paramref name="max"/>, at most
+    /// <see cref="MaxSize"/>, as <see cref="TryReadBytes(Stream, out byte[])"/> reads them. A load reads a file so with the
+    /// size its listing gave, which its budget counts (M2.7).
+    /// </summary>
+    internal static bool TryReadBytes(Stream stream, long max, out byte[] bytes)
     {
         bytes = [];
+        max = Math.Min(max, MaxSize);
         var size = stream.Length;
-        if (size > MaxSize)
+        if (size > max)
         {
             return false;
         }
@@ -130,12 +138,12 @@ public static class DocumentFormat
             length += read;
             if (length == buffer.Length)
             {
-                if (length > MaxSize)
+                if (length > max)
                 {
                     return false;
                 }
 
-                Array.Resize(ref buffer, Math.Min(buffer.Length * 2, MaxSize + 1));
+                Array.Resize(ref buffer, (int)Math.Min(buffer.Length * 2L, max + 1));
             }
         }
 

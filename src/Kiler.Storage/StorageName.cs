@@ -1,6 +1,8 @@
 using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Text;
 
 namespace Kiler.Storage;
 
@@ -45,6 +47,42 @@ public static class StorageName
     /// </summary>
     public static string Check(string name, [CallerArgumentExpression(nameof(name))] string? paramName = null) =>
         IsValid(name) ? name : throw new ArgumentException("Not a valid name for a file or folder of the data layer.", paramName);
+
+    /// <summary>
+    /// A raw name from the shared folder in a form that can be reported and shown (M2.7): printable ASCII as it is, a
+    /// backslash doubled, and every other UTF-16 unit, control characters, bidi marks and the halves of a surrogate pair too,
+    /// as a backslash, <c>u</c> and its code in four hex digits. A name on the share can have up to 255 units, so only the
+    /// first <see cref="MaxLength"/> are shown, followed by <c>...</c> when there are more. Anyone can name a file on the share,
+    /// so a report never carries the raw name.
+    /// </summary>
+    public static string Escape(string raw)
+    {
+        ArgumentNullException.ThrowIfNull(raw);
+        var shown = raw.AsSpan(0, Math.Min(raw.Length, MaxLength));
+        var escaped = new StringBuilder(shown.Length + 3);
+        foreach (var unit in shown)
+        {
+            if (unit == '\\')
+            {
+                escaped.Append(@"\\");
+            }
+            else if (unit is >= ' ' and <= '~')
+            {
+                escaped.Append(unit);
+            }
+            else
+            {
+                escaped.Append(CultureInfo.InvariantCulture, $@"\u{(int)unit:x4}");
+            }
+        }
+
+        if (raw.Length > MaxLength)
+        {
+            escaped.Append("...");
+        }
+
+        return escaped.ToString();
+    }
 
     /// <summary>CON, PRN, AUX, NUL, COM0 to COM9 and LPT0 to LPT9, in lowercase, as the check lets nothing else through.</summary>
     private static bool IsDeviceName(ReadOnlySpan<char> stem) =>

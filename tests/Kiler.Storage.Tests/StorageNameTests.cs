@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace Kiler.Storage.Tests;
 
 public class StorageNameTests
@@ -90,4 +92,50 @@ public class StorageNameTests
         Assert.Equal("account", refused.ParamName);
         Assert.DoesNotContain("made-up", refused.Message, StringComparison.Ordinal);
     }
+
+    [Theory]
+    [InlineData("8f3a1c.json")]
+    [InlineData("Demo file (2).JSON")]
+    [InlineData("a~b!c@d#e$f%g^h&i'j[k]l{m}n")]
+    public void Escape_PrintableAscii_StaysAsItIs(string name) => Assert.Equal(name, StorageName.Escape(name));
+
+    [Fact]
+    public void Escape_ABackslash_IsDoubled() => Assert.Equal(@"a\\b", StorageName.Escape(@"a\b"));
+
+    [Theory]
+    [InlineData(0x01)]
+    [InlineData(0x09)]
+    [InlineData(0x1F)]
+    [InlineData(0x7F)]
+    [InlineData(0xA0)]
+    // A Cyrillic letter, the right-to-left mark and override, a byte order mark, and a lone surrogate.
+    [InlineData(0x0437)]
+    [InlineData(0x200F)]
+    [InlineData(0x202E)]
+    [InlineData(0xFEFF)]
+    [InlineData(0xD800)]
+    public void Escape_AnyOtherCharacter_IsAnEscapeWithItsCode(int code) =>
+        Assert.Equal("a" + Code(code) + "b", StorageName.Escape("a" + (char)code + "b"));
+
+    [Fact]
+    public void Escape_ACharacterOutsideTheBasicPlane_IsTheEscapesOfItsTwoHalves() =>
+        Assert.Equal(Code(0xD83D) + Code(0xDE00), StorageName.Escape(char.ConvertFromUtf32(0x1F600)));
+
+    [Fact]
+    public void Escape_ANameOfTheLongestLength_IsNotCut() =>
+        Assert.Equal(new string('A', StorageName.MaxLength), StorageName.Escape(new string('A', StorageName.MaxLength)));
+
+    [Fact]
+    public void Escape_ALongerName_IsCutAtTheLongestLength() =>
+        Assert.Equal(new string('A', StorageName.MaxLength) + "...", StorageName.Escape(new string('A', 255)));
+
+    [Fact]
+    public void Escape_ALongName_IsCutBeforeItsEscapes() =>
+        Assert.Equal(string.Concat(Enumerable.Repeat(Code(0x202E), StorageName.MaxLength)) + "...", StorageName.Escape(new string((char)0x202E, 200)));
+
+    /// <summary>
+    /// The escape of a character, built in code: the Write and Edit tools turn such an escape in their text into the
+    /// character (M2.2).
+    /// </summary>
+    internal static string Code(int code) => @"\u" + code.ToString("x4", CultureInfo.InvariantCulture);
 }

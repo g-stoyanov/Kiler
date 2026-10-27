@@ -11,8 +11,11 @@ internal interface IFileSystem
     /// <summary>The attributes of a path as itself, so a link shows as a link; <c>null</c> when nothing is there.</summary>
     FileAttributes? Attributes(string path);
 
-    /// <summary>The entries of a folder with their attributes, hidden and system ones too, without <c>.</c> and <c>..</c>.</summary>
-    IReadOnlyList<FileEntry> List(string folder);
+    /// <summary>
+    /// The entries of a folder with their attributes, hidden and system ones too, without <c>.</c> and <c>..</c>; at most
+    /// <paramref name="limit"/> of them, as anyone can put any number of names in a folder of the share (M2.7).
+    /// </summary>
+    IReadOnlyList<FileEntry> List(string folder, int limit = int.MaxValue);
 
     /// <summary>
     /// Makes one folder in a folder that exists, never a chain. A folder that exists is left as it is; a link or a file in

@@ -8,6 +8,34 @@ public sealed class FileSystemTests : IDisposable
 
     public void Dispose() => _test.Dispose();
 
+    /// <summary>Anyone on the share can set such a time, and one entry must not stop a listing (third security review of M2.7).</summary>
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void List_AFileWithATimeAfterTheYear9999_GivesItWithItsTimesUnread(bool creation, bool lastWrite)
+    {
+        var path = Path.Combine(_test.Root, "8f3a1c.json");
+        File.WriteAllText(path, "{}");
+        var now = DateTime.UtcNow.ToFileTimeUtc();
+        TestFolder.SetRawTimes(path, creation ? TestFolder.FarFuture : now, lastWrite ? TestFolder.FarFuture : now);
+
+        var entry = Assert.Single(Files.List(_test.Root));
+
+        Assert.Equal("8f3a1c.json", entry.Name);
+        Assert.True(entry.TimesUnread, "The times are given as read.");
+    }
+
+    [Fact]
+    public void Stamp_OfAFileWithATimeAfterTheYear9999_IsAnIOException()
+    {
+        var path = Path.Combine(_test.Root, "8f3a1c.json");
+        File.WriteAllText(path, "{}");
+        TestFolder.SetRawTimes(path, TestFolder.FarFuture, TestFolder.FarFuture);
+        using var stream = Files.OpenRead(path)!;
+
+        Assert.Throws<IOException>(() => Files.Stamp(stream));
+    }
+
     [Fact]
     public void OpenRead_AMissingFile_GivesNothing()
     {

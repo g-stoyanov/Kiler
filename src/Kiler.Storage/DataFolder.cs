@@ -25,7 +25,7 @@ public sealed partial class DataFolder
     public const string Levels = "levels";
     public const string Key = "key";
 
-    private const string Extension = ".json";
+    internal const string Extension = ".json";
 
     /// <summary>The start of the name of a history slot: <c>v6.json</c>.</summary>
     private const char SlotPrefix = 'v';
@@ -212,11 +212,22 @@ public sealed partial class DataFolder
             throw new DirectoryNotFoundException($"The folder does not exist: {path}");
         }
 
+        return Sort(folder, Files.List(path));
+    }
+
+    /// <summary>
+    /// The entries of a listing of a document folder, or of the root, sorted as <see cref="List"/> gives them. A document
+    /// whose times could not be read (<see cref="FileEntry.TimesUnread"/>) is given apart: it is there, but has no stamp to
+    /// compare (M2.7).
+    /// </summary>
+    private FolderListing Sort(string? folder, IReadOnlyList<FileEntry> entries)
+    {
         var documents = new List<ListedDocument>();
+        var unread = new List<ListedDocument>();
         var links = new List<FileEntry>();
         var badNames = new List<FileEntry>();
         var temporary = new List<FileEntry>();
-        foreach (var entry in Files.List(path))
+        foreach (var entry in entries)
         {
             if (entry.IsLink)
             {
@@ -241,15 +252,15 @@ public sealed partial class DataFolder
             }
             else if (folder is not null)
             {
-                documents.Add(new ListedDocument(DocumentKey.InFolder(folder, id), entry));
+                (entry.TimesUnread ? unread : documents).Add(new ListedDocument(DocumentKey.InFolder(folder, id), entry));
             }
             else if (_layout.RootDocuments.Contains(id))
             {
-                documents.Add(new ListedDocument(DocumentKey.AtRoot(id), entry));
+                (entry.TimesUnread ? unread : documents).Add(new ListedDocument(DocumentKey.AtRoot(id), entry));
             }
         }
 
-        return new FolderListing(documents, links, badNames, temporary);
+        return new FolderListing(documents, links, badNames, temporary, unread);
     }
 
     private static string FullPath(string path)
@@ -367,8 +378,7 @@ public sealed partial class DataFolder
     private DocumentKey Known(DocumentKey key)
     {
         ArgumentNullException.ThrowIfNull(key);
-        var known = key.Folder is null ? _layout.RootDocuments.Contains(key.Id) : _layout.DocumentFolders.Contains(key.Folder);
-        return known ? key : throw new ArgumentException($"Not a document of this {Kind}: {key}", nameof(key));
+        return IsDocumentOf(key) ? key : throw new ArgumentException($"Not a document of this {Kind}: {key}", nameof(key));
     }
 
     /// <summary>The document folders, the documents at the root, and the other folders that a new root gets.</summary>

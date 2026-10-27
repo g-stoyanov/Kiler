@@ -140,6 +140,29 @@ internal sealed class TestFolder : IDisposable
     }
 
     /// <summary>
+    /// Denies the current user the right to read the data of a file, as an ACL on the share can (M2.7): an open to read is
+    /// refused, while the file is still listed and can be deleted. <see cref="AllowRead"/> takes the rule away.
+    /// </summary>
+    public static void DenyRead(string path) => SetReadDenied(path, denied: true);
+
+    /// <summary>Takes away the rule that <see cref="DenyRead"/> put on a file.</summary>
+    public static void AllowRead(string path) => SetReadDenied(path, denied: false);
+
+    /// <summary>A FILETIME in the year 30828, which Windows takes and a <see cref="DateTime"/> cannot hold.</summary>
+    public const long FarFuture = 0x7FFF_0000_0000_0000;
+
+    /// <summary>
+    /// Sets the creation and write times of a file as raw FILETIME values, also those after the year 9999 that a
+    /// <see cref="DateTime"/> cannot hold, as anyone on the share can set them through Windows (third security review of M2.7).
+    /// </summary>
+    public static void SetRawTimes(string path, long creation, long lastWrite)
+    {
+        using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+        var access = lastWrite;
+        Assert.True(SetFileTime(handle, ref creation, ref access, ref lastWrite), $"Windows did not set the times: error {Marshal.GetLastPInvokeError()}");
+    }
+
+    /// <summary>
     /// The path of a test folder through the administrative share of its drive on this machine,
     /// <c>\\localhost\C$\…</c>, so a test goes through SMB and a UNC path. The test is skipped where the share cannot be
     /// reached, as for a user who is not an administrator.
@@ -205,6 +228,32 @@ internal sealed class TestFolder : IDisposable
         return folder;
     }
 
+    private static void SetReadDenied(string path, bool denied)
+    {
+        // CA1416 does not take Assert.Skip for the end of the method, so the Windows calls stand inside the guard.
+        if (OperatingSystem.IsWindows())
+        {
+            using var identity = WindowsIdentity.GetCurrent();
+            var rule = new FileSystemAccessRule(identity.User!, FileSystemRights.ReadData, AccessControlType.Deny);
+            var file = new FileInfo(path);
+            var security = file.GetAccessControl();
+            if (denied)
+            {
+                security.AddAccessRule(rule);
+            }
+            else
+            {
+                security.RemoveAccessRule(rule);
+            }
+
+            file.SetAccessControl(security);
+        }
+        else
+        {
+            Assert.Skip("The rights of a file are set through Windows.");
+        }
+    }
+
     private static void DeleteLinks(string folder)
     {
         foreach (var subfolder in new DirectoryInfo(folder).EnumerateDirectories("*", new EnumerationOptions { AttributesToSkip = 0 }))
@@ -226,6 +275,10 @@ internal sealed class TestFolder : IDisposable
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern SafeFileHandle CreateFileW(
         string fileName, FileAccess access, FileShare share, nint securityAttributes, FileMode mode, FileAttributes flags, nint template);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetFileTime(SafeFileHandle file, ref long creation, ref long lastAccess, ref long lastWrite);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

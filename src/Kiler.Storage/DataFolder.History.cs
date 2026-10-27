@@ -202,7 +202,7 @@ public sealed partial class DataFolder
     /// <summary>
     /// The versions of a document, in order: its history slots, from one listing of its history folder, and its current
     /// version, when it is there and not damaged, last. Only the names that the layer gives its slots count; a link, a
-    /// folder or any other name is skipped. The temporary files of the slots are skipped too, and those older than
+    /// folder, any other name, and a slot whose times are after the year 9999 (M2.7) are skipped. The temporary files of the slots are skipped too, and those older than
     /// <see cref="TemporaryFileAge"/> at <paramref name="now"/> deleted, as a crash leaves them (M2.3). A deleted document has
     /// only its slots. The current version is read first, so a write in between gives a slot with the number of the current
     /// version, or after it, never a gap; a slot of a write under way, or a leftover, can have that number too. What the times
@@ -243,7 +243,8 @@ public sealed partial class DataFolder
                 var slots = new List<(int Version, FileStamp Stamp)>();
                 foreach (var entry in Files.List(path))
                 {
-                    if (entry.IsLink || entry.IsFolder)
+                    // A slot whose times are after the year 9999 has no stamp to give (M2.7).
+                    if (entry.IsLink || entry.IsFolder || entry.TimesUnread)
                     {
                         continue;
                     }

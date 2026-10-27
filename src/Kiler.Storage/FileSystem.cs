@@ -25,13 +25,8 @@ internal sealed class FileSystem(IFileOwner owners) : IFileSystem
         }
     }
 
-    public IReadOnlyList<FileEntry> List(string folder) =>
-    [
-        .. new FileSystemEnumerable<FileEntry>(
-            folder,
-            static (ref entry) => new FileEntry(entry.FileName.ToString(), entry.Attributes, entry.Length, entry.CreationTimeUtc, entry.LastWriteTimeUtc),
-            AllEntries),
-    ];
+    public IReadOnlyList<FileEntry> List(string folder, int limit = int.MaxValue) =>
+        [.. new FileSystemEnumerable<FileEntry>(folder, Entry, AllEntries).Take(limit)];
 
     // Not Directory.CreateDirectory: it makes every missing folder above, and a data folder that has gone must not come
     // back, and it may follow a link at the name (M2.5).
@@ -148,7 +143,8 @@ internal sealed class FileSystem(IFileOwner owners) : IFileSystem
 
     public FileStamp SetCreationToWriteTime(NewFile file)
     {
-        var written = File.GetLastWriteTimeUtc(file.Handle);
+        // Anyone who sees the new file on the share can set its times before this read.
+        var written = TimeOf(File.GetLastWriteTimeUtc, file.Handle);
 
         // A write time set through the handle is not moved again by the file system, also not when the file is closed.
         File.SetLastWriteTimeUtc(file.Handle, written);
@@ -197,7 +193,7 @@ internal sealed class FileSystem(IFileOwner owners) : IFileSystem
 
         try
         {
-            return new HeldFile(path, stream, File.GetLastWriteTimeUtc(handle));
+            return new HeldFile(path, stream, TimeOf(File.GetLastWriteTimeUtc, handle));
         }
         catch
         {
@@ -211,7 +207,38 @@ internal sealed class FileSystem(IFileOwner owners) : IFileSystem
     public void Wait(TimeSpan time) => Thread.Sleep(time);
 
     private static FileStamp StampOf(SafeFileHandle handle) =>
-        new(RandomAccess.GetLength(handle), File.GetCreationTimeUtc(handle), File.GetLastWriteTimeUtc(handle));
+        new(RandomAccess.GetLength(handle), TimeOf(File.GetCreationTimeUtc, handle), TimeOf(File.GetLastWriteTimeUtc, handle));
+
+    /// <summary>
+    /// An entry of a listing. Anyone on the share can give a file a time after the year 9999, which Windows takes and a
+    /// <see cref="DateTime"/> cannot hold; such an entry comes with its times unread, so it does not stop the listing (third
+    /// security review of M2.7).
+    /// </summary>
+    private static FileEntry Entry(ref FileSystemEntry entry)
+    {
+        var name = entry.FileName.ToString();
+        try
+        {
+            return new FileEntry(name, entry.Attributes, entry.Length, entry.CreationTimeUtc, entry.LastWriteTimeUtc);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return new FileEntry(name, entry.Attributes, entry.Length, default, default, TimesUnread: true);
+        }
+    }
+
+    /// <summary>A time of a file through its handle; one after the year 9999 is an <see cref="IOException"/>, as <see cref="Entry"/> says.</summary>
+    private static DateTime TimeOf(Func<SafeFileHandle, DateTime> read, SafeFileHandle handle)
+    {
+        try
+        {
+            return read(handle);
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            throw new IOException("The file has a time after the year 9999, which Kiler cannot read.", ex);
+        }
+    }
 
     /// <summary>ERROR_ALREADY_EXISTS from a rename (measured in M2.3), or ERROR_FILE_EXISTS, which a file server may give.</summary>
     private static bool IsNameTaken(IOException ex) => ex.HResult is unchecked((int)0x80070050) or unchecked((int)0x800700B7);
