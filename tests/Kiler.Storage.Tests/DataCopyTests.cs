@@ -89,6 +89,7 @@ public sealed class DataCopyTests : IDisposable
 
         var load = Open().Load();
 
+        // The slot of the version that the changed one replaced comes from the copy, not from the share (M2.7a).
         Assert.Equal(2, _files.Reads);
         Assert.Equal(Keys([Template, Record]), Keys(load.Changed));
         var record = load.Changed.Single(document => document.Key == Record).Read.Document;
@@ -101,7 +102,7 @@ public sealed class DataCopyTests : IDisposable
     public void Documents_AfterARestart_ComeFromTheLocalCopy_WithoutTheShare()
     {
         var content = new JsonObject { ["template"] = "db", ["name"] = "Демо база" };
-        File.WriteAllBytes(_share.DocumentPath(Record), DocumentFormat.Next(Record, 4, content));
+        TestFolder.WriteAsKiler(_share.DocumentPath(Record), DocumentFormat.Next(Record, 4, content));
         Write(Settings, "settings");
         Open().Load();
         var steps = 0;
@@ -565,7 +566,7 @@ public sealed class DataCopyTests : IDisposable
         File.Delete(_share.DocumentPath(DocumentKey.InFolder(DataFolder.Records, "r0000")));
         copy.Load();
         var large = DocumentKey.InFolder(DataFolder.Records, "r8999");
-        File.WriteAllBytes(_share.DocumentPath(large), DocumentFormat.New(large, Content(new string('x', (int)(3 * RecordSize)))));
+        TestFolder.WriteAsKiler(_share.DocumentPath(large), DocumentFormat.New(large, Content(new string('x', (int)(3 * RecordSize)))));
         _clock.Advance(TimeSpan.FromMinutes(1));
 
         var load = copy.Load();
@@ -603,7 +604,7 @@ public sealed class DataCopyTests : IDisposable
         var load = copy.Load();
 
         Assert.Equal(new SkippedEntry(DataFolder.Records, null, SkipReason.Unreadable), Assert.Single(load.Skipped));
-        Assert.True(File.Exists(CopyPath(Record)), "The leftover went for a folder that was not taken.");
+        Assert.True(File.Exists(KeptPath(Record)), "The leftover went for a folder that was not taken.");
     }
 
     [Fact]
@@ -637,7 +638,7 @@ public sealed class DataCopyTests : IDisposable
         copy.Load();
         _clock.Advance(TimeSpan.FromDays(2));
         var changed = DocumentKey.InFolder(DataFolder.Records, "r0000");
-        File.WriteAllBytes(_share.DocumentPath(changed), DocumentFormat.Next(changed, 1, new JsonObject { ["name"] = "Демо запис 0000", ["notes"] = new string('y', 1000) }));
+        TestFolder.WriteAsKiler(_share.DocumentPath(changed), DocumentFormat.Next(changed, 1, new JsonObject { ["name"] = "Демо запис 0000", ["notes"] = new string('y', 1000) }));
         Assert.Equal(changed, Assert.Single(copy.Load().Changed).Key);
         _clock.Advance(TimeSpan.FromMinutes(1));
         DeleteRecords();
@@ -667,7 +668,7 @@ public sealed class DataCopyTests : IDisposable
 
         // Too large to fit even with the leftover gone, and listed before the one that fits (NTFS lists names in order).
         var large = DocumentKey.InFolder(DataFolder.Records, "r8999");
-        File.WriteAllBytes(_share.DocumentPath(large), DocumentFormat.New(large, Content(new string('x', (int)(3 * RecordSize)))));
+        TestFolder.WriteAsKiler(_share.DocumentPath(large), DocumentFormat.New(large, Content(new string('x', (int)(3 * RecordSize)))));
         _clock.Advance(TimeSpan.FromMinutes(1));
 
         var load = copy.Load();
@@ -719,7 +720,7 @@ public sealed class DataCopyTests : IDisposable
     [Fact]
     public void Load_TheBudgetOfBytesSpansTheFolders()
     {
-        File.WriteAllBytes(_share.DocumentPath(Settings), DocumentFormat.New(Settings, new JsonObject { ["notes"] = new string('x', 1000) }));
+        TestFolder.WriteAsKiler(_share.DocumentPath(Settings), DocumentFormat.New(Settings, new JsonObject { ["notes"] = new string('x', 1000) }));
         WriteRecords(2);
         var size = new FileInfo(_share.DocumentPath(DocumentKey.InFolder(DataFolder.Records, "r0000"))).Length;
         var settings = new FileInfo(_share.DocumentPath(Settings)).Length;
@@ -861,11 +862,11 @@ public sealed class DataCopyTests : IDisposable
         var load = copy.Load();
 
         Assert.Equal(DocumentDamage.NotJson, Assert.Single(load.Changed).Read.Damage);
-        Assert.Equal(good, File.ReadAllBytes(CopyPath(Record)));
+        Assert.Equal(good, File.ReadAllBytes(KeptPath(Record)));
 
         // A start gives the share as it is, and the last good bytes stay.
         Assert.Equal(DocumentDamage.NotJson, Assert.Single(Open().Documents()).Read.Damage);
-        Assert.Equal(good, File.ReadAllBytes(CopyPath(Record)));
+        Assert.Equal(good, File.ReadAllBytes(KeptPath(Record)));
     }
 
     [Fact]
@@ -883,7 +884,7 @@ public sealed class DataCopyTests : IDisposable
         Assert.Empty(load.Changed);
         Assert.Equal(OtherRecord, Assert.Single(Open().Documents()).Key);
         Assert.Empty(copy.Load().Gone);
-        Assert.True(File.Exists(CopyPath(Record)), "The last good copy of the gone document is not in the copy.");
+        Assert.True(File.Exists(KeptPath(Record)), "The last good copy of the gone document is not in the copy.");
     }
 
     [Fact]
@@ -1124,13 +1125,20 @@ public sealed class DataCopyTests : IDisposable
         Assert.Equal(Record, Assert.Single(copy.Load().Changed).Key);
     }
 
+    /// <summary>
+    /// An index with more than twice the entries of the budget is not what the copy wrote, and bounds the memory; one a
+    /// little over the budget, as a fault could leave it, is taken, as no index would cost the last good bytes (fourth
+    /// security review of M2.7a).
+    /// </summary>
     [Fact]
-    public void Open_AnIndexWithMoreEntriesThanTheBudget_IsNotTaken()
+    public void Open_AnIndexWithMoreThanTwiceTheEntriesOfTheBudget_IsNotTaken_AndOneALittleOverIs()
     {
         Write(Record, "record");
         Write(User, "user");
+        Write(Template, "template");
         Open().Load();
 
+        Assert.Equal(3, DataCopy.Open(_share, _copy, TimeProvider.System, Limits(documents: 2)).Documents().Count);
         Assert.Empty(DataCopy.Open(_share, _copy, TimeProvider.System, Limits(documents: 1)).Documents());
     }
 
@@ -1161,7 +1169,7 @@ public sealed class DataCopyTests : IDisposable
         Assert.All(strays, stray => Assert.False(File.Exists(stray), $"{Path.GetFileName(stray)} is still there."));
         Assert.True(File.Exists(young), "A young file is gone.");
         Assert.True(File.Exists(CopyPath(Record)), "The file of a document is gone.");
-        Assert.True(File.Exists(CopyPath(OtherRecord)), "The last good bytes of a gone document are gone.");
+        Assert.True(File.Exists(KeptPath(OtherRecord)), "The last good bytes of a gone document are gone.");
         Assert.True(File.Exists(Path.Combine(_copy, "index.json")), "The index is gone.");
     }
 
@@ -1174,7 +1182,7 @@ public sealed class DataCopyTests : IDisposable
         _clock.Advance(TimeSpan.FromDays(2));
         File.Delete(_share.DocumentPath(Record));
         copy.Load();
-        File.Delete(CopyPath(Record));
+        File.Delete(KeptPath(Record));
         Write(OtherRecord, "new");
 
         var load = OpenAt(Limits(documents: 1)).Load();
@@ -1261,7 +1269,7 @@ public sealed class DataCopyTests : IDisposable
         else
         {
             Assert.Equal(Record, Assert.Single(load.Gone));
-            Assert.True(File.Exists(CopyPath(Record)), "The last good bytes of the gone document are gone.");
+            Assert.True(File.Exists(KeptPath(Record)), "The last good bytes of the gone document are gone.");
         }
     }
 
@@ -1310,7 +1318,7 @@ public sealed class DataCopyTests : IDisposable
         copy.Load();
         File.WriteAllText(_share.DocumentPath(Record), "{", Encoding.UTF8);
         copy.Load();
-        File.WriteAllBytes(_share.DocumentPath(Record), sameBytes ? good : DocumentFormat.Next(Record, 1, Content("fixed")));
+        TestFolder.WriteAsKiler(_share.DocumentPath(Record), sameBytes ? good : DocumentFormat.Next(Record, 1, Content("fixed")));
 
         var load = copy.Load();
 
@@ -1344,7 +1352,7 @@ public sealed class DataCopyTests : IDisposable
     {
         Write(Record, "record");
         Open().Load();
-        ChangeIndex(index => index["format"] = 2);
+        ChangeIndex(index => index["format"] = 1);
 
         Assert.Empty(Open().Documents());
     }
@@ -1380,7 +1388,7 @@ public sealed class DataCopyTests : IDisposable
         Write(Record, "record");
         Open().Load();
         var other = DataFolder.Create(Path.Combine(_test.Root, "other"), _files);
-        File.WriteAllBytes(other.DocumentPath(Record), DocumentFormat.New(Record, Content("other")));
+        TestFolder.WriteAsKiler(other.DocumentPath(Record), DocumentFormat.New(Record, Content("other")));
 
         var copy = DataCopy.Open(other, _copy, TimeProvider.System);
 
@@ -1415,12 +1423,24 @@ public sealed class DataCopyTests : IDisposable
     private static string[] Keys(IEnumerable<LoadedDocument> documents) => Keys(documents.Select(document => document.Key));
 
     /// <summary>The budget of the copy, with the default of each part that a test does not give.</summary>
-    private static CopyLimits Limits(long? bytes = null, int? documents = null, int? listed = null, int? reports = null) =>
+    internal static CopyLimits Limits(
+        long? bytes = null,
+        int? documents = null,
+        int? listed = null,
+        int? reports = null,
+        long? historyBytes = null,
+        int? historySlots = null,
+        int? historyListings = null,
+        long? historyReads = null) =>
         new(
             bytes ?? CopyLimits.Default.Bytes,
             documents ?? CopyLimits.Default.Documents,
             listed ?? CopyLimits.Default.Listed,
-            reports ?? CopyLimits.Default.Reports);
+            reports ?? CopyLimits.Default.Reports,
+            historyBytes ?? CopyLimits.Default.HistoryBytes,
+            historySlots ?? CopyLimits.Default.HistorySlots,
+            historyListings ?? CopyLimits.Default.HistoryListings,
+            historyReads ?? CopyLimits.Default.HistoryReads);
 
     private DataCopy Open() => DataCopy.Open(_share, _copy, TimeProvider.System);
 
@@ -1454,7 +1474,7 @@ public sealed class DataCopyTests : IDisposable
     }
 
     /// <summary>A document file on the share, as a write of Kiler leaves it, at version 1.</summary>
-    private void Write(DocumentKey key, string name) => File.WriteAllBytes(_share.DocumentPath(key), DocumentFormat.New(key, Content(name)));
+    private void Write(DocumentKey key, string name) => TestFolder.WriteAsKiler(_share.DocumentPath(key), DocumentFormat.New(key, Content(name)));
 
     /// <summary>The bytes of the record <c>r</c> and the number in four digits, of about a kilobyte, the same size for every number.</summary>
     private static byte[] RecordBytes(int number)
@@ -1476,7 +1496,7 @@ public sealed class DataCopyTests : IDisposable
     }
 
     private void WriteRecord(int number) =>
-        File.WriteAllBytes(_share.DocumentPath(DocumentKey.InFolder(DataFolder.Records, $"r{number:D4}")), RecordBytes(number));
+        TestFolder.WriteAsKiler(_share.DocumentPath(DocumentKey.InFolder(DataFolder.Records, $"r{number:D4}")), RecordBytes(number));
 
     private void DeleteRecords()
     {
@@ -1486,13 +1506,20 @@ public sealed class DataCopyTests : IDisposable
         }
     }
 
-    /// <summary>The names of the files of the records in the copy, in order.</summary>
+    /// <summary>The names of the files of the records in the copy, those kept apart included, in order.</summary>
     private string[] CopyRecords() =>
-        [.. Directory.GetFiles(Path.GetDirectoryName(CopyPath(Record))!).Select(path => Path.GetFileName(path)).Order(StringComparer.Ordinal)];
+        [.. ((string[])[Path.GetDirectoryName(CopyPath(Record))!, Path.GetDirectoryName(KeptPath(Record))!])
+            .Where(Directory.Exists)
+            .SelectMany(Directory.GetFiles)
+            .Select(path => Path.GetFileName(path))
+            .Order(StringComparer.Ordinal)];
 
     /// <summary>Opens the copy on <see cref="_clock"/>, with the default budget or another one.</summary>
     private DataCopy OpenAt(CopyLimits? limits = null) => DataCopy.Open(_share, _copy, _clock, limits ?? CopyLimits.Default);
 
     /// <summary>Where the local copy keeps the file of a document: a mirror of the share in <c>data\</c> (decided in M2.7).</summary>
     private string CopyPath(DocumentKey key) => Path.Combine(_copy, "data", key.Folder ?? "", key.Id + ".json");
+
+    /// <summary>Where the local copy keeps the last good bytes of a document apart, in <c>kept\</c> (decided at the start of M2, M2.7a).</summary>
+    private string KeptPath(DocumentKey key) => Path.Combine(_copy, "kept", key.Folder ?? "", key.Id + ".json");
 }

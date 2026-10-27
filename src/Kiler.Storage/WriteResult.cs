@@ -58,13 +58,15 @@ public enum WriteOutcome
 /// <summary>The outcome of a write, with what the caller needs of it.</summary>
 public sealed class WriteResult
 {
-    private WriteResult(WriteOutcome outcome, int version, FileStamp? stamp, Document? onDisk, DocumentDamage? damage)
+    private WriteResult(WriteOutcome outcome, int version, FileStamp? stamp, Document? onDisk, DocumentDamage? damage, byte[]? bytes = null, byte[]? old = null)
     {
         Outcome = outcome;
         Version = version;
         Stamp = stamp;
         OnDisk = onDisk;
         Damage = damage;
+        Bytes = bytes;
+        Old = old;
     }
 
     public WriteOutcome Outcome { get; }
@@ -81,9 +83,19 @@ public sealed class WriteResult
     /// <summary>Why the file on disk is damaged, at <see cref="WriteOutcome.Damaged"/>.</summary>
     public DocumentDamage? Damage { get; }
 
-    internal static WriteResult Written(int version, FileStamp stamp) => new(WriteOutcome.Written, version, stamp, null, null);
+    /// <summary>
+    /// The bytes of the file that was written, or restored from the trash, for the local copy, which keeps the bytes that this
+    /// Kiler wrote and not the stamp of the share (M2.7a). They belong to the layer.
+    /// </summary>
+    internal byte[]? Bytes { get; }
 
-    internal static WriteResult Deleted(int version) => new(WriteOutcome.Deleted, version, null, null, null);
+    /// <summary>The bytes that a replace or a delete put into the history slot of the version it changed, for the local copy (M2.7a).</summary>
+    internal byte[]? Old { get; }
+
+    internal static WriteResult Written(int version, FileStamp stamp, byte[] bytes, byte[]? old = null) =>
+        new(WriteOutcome.Written, version, stamp, null, null, bytes, old);
+
+    internal static WriteResult Deleted(int version, byte[] old) => new(WriteOutcome.Deleted, version, null, null, null, old: old);
 
     internal static WriteResult Conflict(Document onDisk) => new(WriteOutcome.Conflict, 0, null, onDisk, null);
 

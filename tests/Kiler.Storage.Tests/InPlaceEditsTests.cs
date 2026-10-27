@@ -106,4 +106,18 @@ public sealed class InPlaceEditsTests
 
         Assert.False(_edits.ShouldReport(Record, Edited));
     }
+
+    /// <summary>A document that has gone would otherwise stay for good (security review of M2.7a).</summary>
+    [Fact]
+    public void KeepOnly_ForgetsTheOtherDocuments_AndKeepsTheWaitOfThoseGiven()
+    {
+        Assert.False(_edits.ShouldReport(Record, Edited));
+        Assert.False(_edits.ShouldReport(Other, Edited));
+        _time.Advance(InPlaceEdits.SettleTime);
+
+        _edits.KeepOnly(new HashSet<DocumentKey> { Record });
+
+        Assert.True(_edits.ShouldReport(Record, Edited));
+        Assert.False(_edits.ShouldReport(Other, Edited));
+    }
 }

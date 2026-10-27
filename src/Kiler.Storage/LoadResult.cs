@@ -3,10 +3,12 @@ namespace Kiler.Storage;
 /// <summary>What one load of the share gave (M2.7): the documents that changed, those that have gone, and what was skipped.</summary>
 public sealed class LoadResult
 {
-    internal LoadResult(IReadOnlyList<LoadedDocument> changed, IReadOnlyList<DocumentKey> gone, IReadOnlyList<SkippedEntry> skipped, int moreSkipped)
+    internal LoadResult(
+        IReadOnlyList<LoadedDocument> changed, IReadOnlyList<DocumentKey> gone, IReadOnlyList<OutsideChange> outside, IReadOnlyList<SkippedEntry> skipped, int moreSkipped)
     {
         Changed = changed;
         Gone = gone;
+        Outside = outside;
         Skipped = skipped;
         MoreSkipped = moreSkipped;
     }
@@ -14,12 +16,22 @@ public sealed class LoadResult
     /// <summary>
     /// The documents that are new or changed since the local copy last saw them, each read from the share now: a new
     /// <see cref="Document"/>, or why the file is damaged. A document whose bytes could not be written into the copy is here
-    /// too, as the share has it (<see cref="SkipReason.NotCopied"/>).
+    /// too, as the share has it (<see cref="SkipReason.NotCopied"/>), and so is one that turned out, once read, to need more
+    /// room than the budget has left (<see cref="SkipReason.OverBudget"/>). The documents of the trash are not here; the
+    /// copy gives them (<see cref="DataCopy.Trash"/>).
     /// </summary>
     public IReadOnlyList<LoadedDocument> Changed { get; }
 
-    /// <summary>The documents that the local copy had and the share no longer has.</summary>
+    /// <summary>The documents that the local copy had and the share no longer has in their folders, also those moved to the trash.</summary>
     public IReadOnlyList<DocumentKey> Gone { get; }
+
+    /// <summary>
+    /// The documents, in their folders or in the trash, that this load found changed outside Kiler, each once: gone otherwise
+    /// than to the trash or back, damaged, edited in place once the edit has settled (<see cref="InPlaceEdits"/>), or at a
+    /// version that is not after the last good one. The local copy keeps their last good bytes apart, when it has them, for a
+    /// restore (M2.9); the upper layers see the share as it is.
+    /// </summary>
+    public IReadOnlyList<OutsideChange> Outside { get; }
 
     /// <summary>
     /// What the load skipped, to be reported: links, names that fail the check, what could not be read, what is over the
@@ -40,7 +52,10 @@ public sealed record LoadedDocument(DocumentKey Key, DocumentRead Read);
 /// can write and which can hold control characters and bidi marks, but its escaped form (<see cref="StorageName.Escape"/>);
 /// it can still hold <c>&lt;</c>, <c>&amp;</c>, quotes and braces, so it is shown as text and logged as an argument.
 /// </summary>
-/// <param name="Folder">The document folder, or <c>null</c> for the root of the data folder.</param>
+/// <param name="Folder">
+/// The document folder, or <c>null</c> for the root of the data folder; for an entry of the trash or of the history, its
+/// folder there, such as <c>trash\records</c>, <c>trash</c> or <c>history\records\8f3a1c</c> (M2.7a).
+/// </param>
 /// <param name="Name">
 /// The escaped name of the file, or <c>null</c> for the whole folder: one that could not be listed, or one that lists too
 /// many entries. With <see cref="SkipReason.NotCopied"/> and no folder, the index of the local copy.
@@ -65,8 +80,11 @@ public enum SkipReason
 
     /// <summary>
     /// A document over the budget of the local copy (<see cref="DataCopy.MaxBytes"/>, <see cref="DataCopy.MaxDocuments"/>),
-    /// which is not read: a new one is not taken, and a changed one keeps the version the copy has. Or a folder that lists
-    /// more entries than a load takes, whose documents stay as the copy has them.
+    /// which is not read: a new one is not taken, and a changed one keeps the version the copy has. Or one that turned out,
+    /// once read, to need room for its last good bytes too (a version that is not after them), which is given all the same
+    /// and keeps the version the copy has (M2.7a). Or a history slot over the budget of the history
+    /// (<see cref="DataCopy.MaxHistoryBytes"/>, <see cref="DataCopy.MaxHistorySlots"/>). Or a folder that lists more entries
+    /// than a load takes, whose documents stay as the copy has them.
     /// </summary>
     OverBudget,
 
@@ -76,4 +94,34 @@ public enum SkipReason
     /// the copy, which the next load writes again.
     /// </summary>
     NotCopied,
+}
+
+/// <summary>
+/// A document that a load found changed outside Kiler (M2.7a), whose last good bytes the local copy keeps apart for a restore
+/// (M2.9).
+/// </summary>
+/// <param name="Key">The document.</param>
+/// <param name="InTrash">Whether it is the copy of the document in the trash.</param>
+/// <param name="Reason">What happened to it.</param>
+/// <param name="LastGood">The version of the last good bytes that the copy keeps, or <c>null</c> when it has none.</param>
+public readonly record struct OutsideChange(DocumentKey Key, bool InTrash, OutsideReason Reason, int? LastGood);
+
+/// <summary>How a document was changed outside Kiler (M2.7a, design 5.3).</summary>
+public enum OutsideReason
+{
+    /// <summary>The share no longer lists it, and it did not go to the trash or come back from there.</summary>
+    Gone,
+
+    /// <summary>Its file is damaged (<see cref="DocumentDamage"/>).</summary>
+    Damaged,
+
+    /// <summary>Its file was written after it was made (<see cref="FileStamp.LooksEditedInPlace"/>), as Notepad does.</summary>
+    EditedInPlace,
+
+    /// <summary>
+    /// Its version is lower than that of the last good bytes, or the same with other bytes, which Kiler never writes: a file
+    /// put back by hand, a slot moved in from the history, or another file put under its name after a write (decided in
+    /// M2.7a, by the user).
+    /// </summary>
+    OutOfOrder,
 }

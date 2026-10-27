@@ -83,7 +83,7 @@ public sealed partial class DataFolder
                 Files.KeepCreationTime(times);
             }
 
-            return WriteResult.Deleted(version);
+            return WriteResult.Deleted(version, old);
         }
         catch
         {
@@ -196,7 +196,7 @@ public sealed partial class DataFolder
             // is not followed.
         }
 
-        return WriteResult.Written(version, stamp);
+        return WriteResult.Written(version, stamp, bytes);
     }
 
     /// <summary>

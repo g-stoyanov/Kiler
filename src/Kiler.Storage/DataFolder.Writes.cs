@@ -76,7 +76,7 @@ public sealed partial class DataFolder
                 return WriteResult.Not(WriteOutcome.Exists);
             }
 
-            return WriteResult.Written(1, Files.SetCreationToWriteTime(file));
+            return WriteResult.Written(1, Files.SetCreationToWriteTime(file), bytes);
         }
         catch
         {
@@ -135,7 +135,7 @@ public sealed partial class DataFolder
                 return WriteResult.Not(WriteOutcome.Busy);
             }
 
-            return WriteResult.Written(version + 1, Files.SetCreationToWriteTime(file));
+            return WriteResult.Written(version + 1, Files.SetCreationToWriteTime(file), bytes, old);
         }
         catch
         {
@@ -568,7 +568,7 @@ public sealed partial class DataFolder
     }
 
     /// <summary>Folders held together, let go from the bottom up.</summary>
-    private sealed class Holds : IDisposable
+    internal sealed class Holds : IDisposable
     {
         private readonly Stack<PinnedFolder> _held = new();
 

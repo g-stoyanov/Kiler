@@ -36,5 +36,17 @@ internal sealed class InPlaceEdits(TimeProvider time)
     /// <summary>Forgets a document that is no longer listed.</summary>
     public void Forget(DocumentKey key) => _seen.Remove(key);
 
+    /// <summary>
+    /// Forgets every document but those given, such as those that are still edited in place: a document that has gone would
+    /// otherwise stay for good, and anyone can make documents come and go (security review of M2.7a).
+    /// </summary>
+    public void KeepOnly(IReadOnlySet<DocumentKey> keys)
+    {
+        foreach (var key in _seen.Keys.Where(key => !keys.Contains(key)).ToList())
+        {
+            _seen.Remove(key);
+        }
+    }
+
     private readonly record struct Seen(FileStamp Stamp, long Since);
 }

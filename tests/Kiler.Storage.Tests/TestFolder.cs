@@ -152,6 +152,27 @@ internal sealed class TestFolder : IDisposable
     public const long FarFuture = 0x7FFF_0000_0000_0000;
 
     /// <summary>
+    /// Writes a file with the times that a write of Kiler leaves, its creation time equal to its write time (M2.3). A new file
+    /// that <see cref="File.WriteAllBytes(string, byte[])"/> writes often gets a write time a moment after its creation time
+    /// (29 of 50 on the developer machine, M2.7a), so it would look edited in place.
+    /// </summary>
+    public static void WriteAsKiler(string path, byte[] bytes)
+    {
+        File.WriteAllBytes(path, bytes);
+        File.SetCreationTimeUtc(path, File.GetLastWriteTimeUtc(path));
+    }
+
+    /// <summary>
+    /// Writes a file in place, as Notepad does, so it looks edited in place: its write time a minute after its creation time,
+    /// which a file that is there keeps.
+    /// </summary>
+    public static void EditInPlace(string path, byte[] bytes)
+    {
+        File.WriteAllBytes(path, bytes);
+        File.SetLastWriteTimeUtc(path, File.GetCreationTimeUtc(path).AddMinutes(1));
+    }
+
+    /// <summary>
     /// Sets the creation and write times of a file as raw FILETIME values, also those after the year 9999 that a
     /// <see cref="DateTime"/> cannot hold, as anyone on the share can set them through Windows (third security review of M2.7).
     /// </summary>
