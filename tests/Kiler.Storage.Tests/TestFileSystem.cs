@@ -2,10 +2,18 @@ namespace Kiler.Storage.Tests;
 
 /// <summary>
 /// The real file operations with hooks for the tests: a count of the requests for attributes and of the bytes read, actions
-/// just before a step, which can throw to fail that step, a simulated crash, and the waits counted instead of waited.
+/// just before a step, which can throw to fail that step, a simulated crash, and the waits counted instead of waited. The
+/// owners come from a fake (<see cref="Owners"/>), through the handles of the real operations.
 /// </summary>
 internal sealed class TestFileSystem : IFileSystem
 {
+    private readonly FileSystem _real;
+
+    public TestFileSystem() => _real = new FileSystem(Owners);
+
+    /// <summary>The owners that the files and folders have, by default <see cref="TestOwners.Me"/>.</summary>
+    public TestOwners Owners { get; } = new();
+
     public int AttributeRequests { get; set; }
 
     public long BytesRead { get; set; }
@@ -17,7 +25,8 @@ internal sealed class TestFileSystem : IFileSystem
     /// <summary>
     /// Called before every operation with its name, such as <c>nameof(IFileSystem.MoveFile)</c>, and its path; it can throw
     /// to fail that step. <see cref="IFileSystem.SetCreationToWriteTime"/> and <see cref="IFileSystem.DeleteNewFile"/> give
-    /// the path where the file was made, <see cref="IFileSystem.Stamp"/> none.
+    /// the path where the file was made, the owner of a held folder the path where it was held, and
+    /// <see cref="IFileSystem.Stamp"/> and the owner of a file that was opened to read none.
     /// </summary>
     public Action<string, string>? Before { get; set; }
 
@@ -45,6 +54,12 @@ internal sealed class TestFileSystem : IFileSystem
     /// </summary>
     public bool MarkersKeepNothing { get; set; }
 
+    /// <summary>
+    /// Gives every folder the index 0, as a file system without a unique index may (M2.6), so a test sees that an id that tells
+    /// nothing is refused.
+    /// </summary>
+    public bool ZeroIds { get; set; }
+
     /// <summary>The waits between the tries of a step, in order. None is waited.</summary>
     public List<TimeSpan> Waits { get; } = [];
 
@@ -52,64 +67,91 @@ internal sealed class TestFileSystem : IFileSystem
     {
         Step(nameof(Attributes), path);
         AttributeRequests++;
-        return FileSystem.Instance.Attributes(path);
+        return _real.Attributes(path);
     }
 
     public IReadOnlyList<FileEntry> List(string folder)
     {
         Step(nameof(List), folder);
-        return FileSystem.Instance.List(folder);
+        return _real.List(folder);
     }
 
     public void CreateFolder(string path)
     {
         Step(nameof(CreateFolder), path);
         BeforeCreate?.Invoke(path);
-        FileSystem.Instance.CreateFolder(path);
+        _real.CreateFolder(path);
     }
 
     public void MoveFolder(string from, string to)
     {
         Step(nameof(MoveFolder), from);
         BeforeMove?.Invoke(from, to);
-        FileSystem.Instance.MoveFolder(from, to);
+        _real.MoveFolder(from, to);
     }
 
-    public PinnedFolder HoldFolder(string path)
+    public PinnedFolder HoldFolder(string path, bool readOwner = false)
     {
         Step(nameof(HoldFolder), path);
-        return FileSystem.Instance.HoldFolder(path);
+        return _real.HoldFolder(path, readOwner);
     }
 
-    public PinnedFolder HoldOrCreateFolder(string path)
+    public PinnedFolder HoldOrCreateFolder(string path, bool readOwner = false)
     {
         Step(nameof(HoldOrCreateFolder), path);
-        return FileSystem.Instance.HoldOrCreateFolder(path);
+        return _real.HoldOrCreateFolder(path, readOwner);
+    }
+
+    /// <summary><see cref="IFileSystem.HoldNewFolder"/>, after <see cref="BeforeCreate"/> too, as it makes a folder.</summary>
+    public PinnedFolder? HoldNewFolder(string path, bool readOwner = false)
+    {
+        Step(nameof(HoldNewFolder), path);
+        BeforeCreate?.Invoke(path);
+        return _real.HoldNewFolder(path, readOwner);
+    }
+
+    public FileId Id(PinnedFolder folder)
+    {
+        Step(nameof(Id), folder.HeldPath);
+        var id = _real.Id(folder);
+        return ZeroIds ? id with { Index = 0 } : id;
     }
 
     public Stream? OpenRead(string path)
     {
         Step(nameof(OpenRead), path);
-        return FileSystem.Instance.OpenRead(path) is { } stream ? new CountingStream(stream, read => BytesRead += read) : null;
+        return _real.OpenRead(path) is { } stream ? new CountingStream(stream, read => BytesRead += read) : null;
     }
 
     public FileStamp Stamp(Stream file)
     {
         Step(nameof(Stamp), "");
-        return FileSystem.Instance.Stamp(file is CountingStream counting ? counting.Inner : file);
+        return _real.Stamp(file is CountingStream counting ? counting.Inner : file);
+    }
+
+    public string? Owner(Stream file)
+    {
+        Step(nameof(Owner), "");
+        return _real.Owner(file is CountingStream counting ? counting.Inner : file);
+    }
+
+    public string? Owner(PinnedFolder folder)
+    {
+        Step(nameof(Owner), folder.HeldPath);
+        return _real.Owner(folder);
     }
 
     public FileTimes? OpenTimes(string path)
     {
         Step(nameof(OpenTimes), path);
-        return FileSystem.Instance.OpenTimes(path);
+        return _real.OpenTimes(path);
     }
 
     /// <summary><see cref="IFileSystem.KeepCreationTime"/>; the step gives the path where the file was opened.</summary>
     public void KeepCreationTime(FileTimes file)
     {
         Step(nameof(KeepCreationTime), file.Path);
-        FileSystem.Instance.KeepCreationTime(file);
+        _real.KeepCreationTime(file);
     }
 
     public NewFile? CreateFile(string path, ReadOnlySpan<byte> bytes)
@@ -117,7 +159,7 @@ internal sealed class TestFileSystem : IFileSystem
         if (!Crashed && CrashAt?.Invoke(nameof(CreateFile), path) == true)
         {
             Crashed = true;
-            FileSystem.Instance.CreateFile(path, bytes[..(bytes.Length / 2)])?.Dispose();
+            _real.CreateFile(path, bytes[..(bytes.Length / 2)])?.Dispose();
             throw new SimulatedCrash();
         }
 
@@ -130,7 +172,7 @@ internal sealed class TestFileSystem : IFileSystem
             return new NewFile(path, stream);
         }
 
-        var file = FileSystem.Instance.CreateFile(path, bytes);
+        var file = _real.CreateFile(path, bytes);
         if (file is not null && WriteTakes > TimeSpan.Zero)
         {
             File.SetLastWriteTimeUtc(file.Handle, File.GetLastWriteTimeUtc(file.Handle) + WriteTakes);
@@ -142,44 +184,44 @@ internal sealed class TestFileSystem : IFileSystem
     public FileStamp SetCreationToWriteTime(NewFile file)
     {
         Step(nameof(SetCreationToWriteTime), file.Path);
-        return FileSystem.Instance.SetCreationToWriteTime(file);
+        return _real.SetCreationToWriteTime(file);
     }
 
     public bool MoveFile(string from, string to, bool replace)
     {
         Step(nameof(MoveFile), from);
-        return FileSystem.Instance.MoveFile(from, to, replace);
+        return _real.MoveFile(from, to, replace);
     }
 
     public void DeleteFile(string path)
     {
         Step(nameof(DeleteFile), path);
-        FileSystem.Instance.DeleteFile(path);
+        _real.DeleteFile(path);
     }
 
     /// <summary><see cref="IFileSystem.DeleteNewFile"/>; the step gives the path where the file was made.</summary>
     public void DeleteNewFile(NewFile file)
     {
         Step(nameof(DeleteNewFile), file.Path);
-        FileSystem.Instance.DeleteNewFile(file);
+        _real.DeleteNewFile(file);
     }
 
     public HeldFile? HoldFile(string path)
     {
         Step(nameof(HoldFile), path);
-        return FileSystem.Instance.HoldFile(path);
+        return _real.HoldFile(path);
     }
 
     public void DeleteHeldFile(HeldFile file)
     {
         Step(nameof(DeleteHeldFile), file.Path);
-        FileSystem.Instance.DeleteHeldFile(file);
+        _real.DeleteHeldFile(file);
     }
 
     public IDisposable? CreateMarker(string path)
     {
         Step(nameof(CreateMarker), path);
-        return MarkersKeepNothing ? new NoMarker() : FileSystem.Instance.CreateMarker(path);
+        return MarkersKeepNothing ? new NoMarker() : _real.CreateMarker(path);
     }
 
     public void Wait(TimeSpan time)

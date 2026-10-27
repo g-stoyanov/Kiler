@@ -55,12 +55,24 @@ public sealed partial class DataFolder
     /// <summary>
     /// Makes an empty data folder with its folders, for the wizard of M4, the demo data and the tests. The folder above it
     /// must exist, so a wrong path does not become a chain of new folders. A folder that exists is taken when it holds
-    /// nothing but empty folders of the layout, so a create that stopped halfway can be run again.
+    /// nothing but empty folders of the layout, so a create that stopped halfway can be run again. The owners of its files
+    /// come from <paramref name="owners"/> (M2.6).
     /// </summary>
-    public static DataFolder Create(string path) => Create(path, FileSystem.Instance);
+    public static DataFolder Create(string path, IFileOwner owners)
+    {
+        ArgumentNullException.ThrowIfNull(owners);
+        return Create(path, new FileSystem(owners));
+    }
 
-    /// <summary>Opens a data folder that exists. It creates nothing, so a wrong path never becomes a new data folder.</summary>
-    public static DataFolder Open(string path) => Open(path, FileSystem.Instance);
+    /// <summary>
+    /// Opens a data folder that exists. It creates nothing, so a wrong path never becomes a new data folder. The owners of its
+    /// files come from <paramref name="owners"/> (M2.6).
+    /// </summary>
+    public static DataFolder Open(string path, IFileOwner owners)
+    {
+        ArgumentNullException.ThrowIfNull(owners);
+        return Open(path, new FileSystem(owners));
+    }
 
     internal static DataFolder Create(string path, IFileSystem files)
     {
@@ -92,7 +104,13 @@ public sealed partial class DataFolder
     /// Makes the private folder of an account (design 7.10). A folder that exists, even an empty one, is refused: anyone
     /// can make it on the share before the first private record, and would then be its owner (design 7.8). It is made
     /// under a temporary name and renamed without replacing, so a create that stops halfway leaves only the temporary
-    /// folder. <c>private\</c> is made too when it is missing. How an account maps to a folder name is decided in M4.
+    /// folder. The temporary folder and its folders are made new, never taken when someone made them first, and the temporary
+    /// folder is held from its create until just before the rename, which the hold would refuse, so someone could rename it
+    /// away in between and put another folder under its name: the new private folder must be the folder that was made, by
+    /// its id, and have the owner it had then, both read through the handles of the folders, else it is refused after the
+    /// rename, and the folder at the name is left as it is (decided in M2.6). An owner that cannot be read, and an id that
+    /// tells nothing (index 0), are refused before the rename. The data folder and <c>private\</c> are held for the whole create, and <c>private\</c>
+    /// is made too when it is missing. How an account maps to a folder name is decided in M4.
     /// </summary>
     public DataFolder CreatePrivate(string account)
     {
@@ -102,16 +120,41 @@ public sealed partial class DataFolder
             Files.CreateFolder(privateFolders);
         }
 
+        using var folders = Hold(create: false, Private);
         var root = Path.Combine(privateFolders, account);
         if (Files.Attributes(root) is not null)
         {
             throw new IOException($"The private folder exists already: {root}");
         }
 
+        // A new folder, with its id and its owner read through the handle of the call that made it, so no other folder can be
+        // taken for it before they are read.
         var temporary = Path.Combine(privateFolders, TemporaryName(account));
-        Files.CreateFolder(temporary);
-        MakeFolders(temporary, PrivateLayout, Files);
+        FileId made;
+        string owner;
+        using (var held = Files.HoldNewFolder(temporary, readOwner: true) ?? throw new IOException($"The name of the temporary folder is taken: {temporary}"))
+        {
+            made = Files.Id(held);
+            if (made.Index == 0)
+            {
+                throw new IOException($"The file system gives the folder no id, which Kiler checks: {temporary}");
+            }
+
+            owner = Files.Owner(held) ?? throw new IOException($"Kiler cannot read the owner of the folder it made, which it checks: {temporary}");
+            MakeNewFolders(temporary, PrivateLayout, Files);
+        }
+
+        folders.ThrowIfLink();
         Files.MoveFolder(temporary, root);
+        using (var renamed = Files.HoldFolder(root, readOwner: true))
+        {
+            folders.ThrowIfLink();
+            if (Files.Id(renamed) != made || Files.Owner(renamed) != owner)
+            {
+                throw new IOException($"The private folder is not the one Kiler made: another folder, or another owner: {root}");
+            }
+        }
+
         return new DataFolder(root, PrivateLayout, Files);
     }
 
@@ -139,9 +182,10 @@ public sealed partial class DataFolder
     public string TrashPath(DocumentKey key) => Path.Combine(Root, Trash, Known(key).Folder ?? "", key.Id + Extension);
 
     /// <summary>
-    /// Reads a document (M2.2): <c>null</c> when its file is not there, else the document or why the file is damaged. Its
-    /// folders are held and the file is opened as itself, so a link in place of any of them is an <see cref="IOException"/>
-    /// (M2.3). A file that cannot be opened throws, as <see cref="IFileSystem.OpenRead"/> says.
+    /// Reads a document (M2.2): <c>null</c> when its file is not there, else the document or why the file is damaged, with the
+    /// owner of the file, read through the same handle (M2.6). Its folders are held and the file is opened as itself, so a
+    /// link in place of any of them is an <see cref="IOException"/> (M2.3). A file that cannot be opened throws, as
+    /// <see cref="IFileSystem.OpenRead"/> says.
     /// </summary>
     internal DocumentRead? Read(DocumentKey key)
     {
@@ -150,7 +194,7 @@ public sealed partial class DataFolder
 
         // An empty folder made a mount point in place would have given the file of that name elsewhere.
         folders.ThrowIfLink();
-        return stream is null ? null : DocumentFormat.Read(key, stream);
+        return stream is null ? null : DocumentFormat.Read(key, stream).WithOwner(Files.Owner(stream));
     }
 
     /// <summary>
@@ -254,6 +298,19 @@ public sealed partial class DataFolder
         foreach (var folder in layout.Folders)
         {
             files.CreateFolder(Path.Combine(root, folder));
+        }
+    }
+
+    /// <summary>
+    /// Makes the folders of the layout in a new root, each a new folder: one that someone made there first, while the root was
+    /// held, would be theirs, and is refused (M2.6).
+    /// </summary>
+    private static void MakeNewFolders(string root, Layout layout, IFileSystem files)
+    {
+        foreach (var folder in layout.Folders)
+        {
+            var path = Path.Combine(root, folder);
+            (files.HoldNewFolder(path) ?? throw new IOException($"Someone else made the folder first: {path}")).Dispose();
         }
     }
 

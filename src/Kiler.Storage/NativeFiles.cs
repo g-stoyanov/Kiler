@@ -39,6 +39,9 @@ internal static partial class NativeFiles
     /// <summary><c>FILE_OPEN_IF</c> of NtCreateFile: open what is there, else make it.</summary>
     private const uint OpenIf = 3;
 
+    /// <summary><c>FILE_CREATE</c>: only a new folder; a name that is taken, a link too, is refused.</summary>
+    private const uint CreateOnly = 2;
+
     /// <summary>
     /// <c>FILE_DIRECTORY_FILE</c>, <c>FILE_SYNCHRONOUS_IO_NONALERT</c> and <c>FILE_OPEN_REPARSE_POINT</c>: a folder, opened
     /// as itself, so a link at the name is opened as the link and never followed, also when it is made.
@@ -58,6 +61,7 @@ internal static partial class NativeFiles
     private const int StatusObjectPathNotFound = unchecked((int)0xC000003A);
     private const int StatusAccessDenied = unchecked((int)0xC0000022);
     private const int StatusNotADirectory = unchecked((int)0xC0000103);
+    private const int StatusObjectNameCollision = unchecked((int)0xC0000035);
 
     /// <summary><c>DELETE</c>, which a delete through the handle needs.</summary>
     private const uint Delete = 0x00010000;
@@ -75,6 +79,14 @@ internal static partial class NativeFiles
     private const uint ListDirectory = 0x1;
 
     private const uint ReadAttributes = 0x80;
+
+    /// <summary>
+    /// <c>READ_CONTROL</c>, which reading the owner through the handle needs (M2.6). <c>GENERIC_READ</c> has it, so a file opened
+    /// to read has it too; a folder is held with it only where its owner is read, as a share may refuse it where it lets a
+    /// folder be listed (code and security reviews of M2.6). No sharing check counts it.
+    /// </summary>
+    private const uint ReadControl = 0x00020000;
+
     private const uint OpenExisting = 3;
 
     /// <summary><c>FILE_FLAG_BACKUP_SEMANTICS</c>, which a folder needs to be opened.</summary>
@@ -107,19 +119,20 @@ internal static partial class NativeFiles
     /// Opens a folder to hold it: shared to read and write, so others can still list it and work in it, but not to delete,
     /// which a rename needs. While the handle is open, Windows refuses to rename or delete the folder or a folder above it,
     /// also over SMB (M1.11). It does not stop anyone who can write the folder from making an empty one a mount point in
-    /// place (measured in M2.3), which <see cref="IsLink"/> sees through the handle. A missing folder is a
-    /// <see cref="DirectoryNotFoundException"/>; a link or a file in its place, or a folder that cannot be opened, an
-    /// <see cref="IOException"/>.
+    /// place (measured in M2.3), which <see cref="IsLink"/> sees through the handle. With <paramref name="readOwner"/>, the
+    /// handle can read the owner of the folder too (M2.6). A missing folder is a <see cref="DirectoryNotFoundException"/>; a
+    /// link or a file in its place, or a folder that cannot be opened, an <see cref="IOException"/>.
     /// </summary>
-    public static SafeFileHandle OpenFolder(string path)
+    public static SafeFileHandle OpenFolder(string path, bool readOwner = false)
     {
         if (!OperatingSystem.IsWindows())
         {
             throw NotWindows();
         }
 
+        var access = ListDirectory | ReadAttributes | (readOwner ? ReadControl : 0);
         var handle = CreateFile(
-            Extended(path), ListDirectory | ReadAttributes, (uint)(FileShare.Read | FileShare.Write), 0, OpenExisting, BackupSemantics | OpenReparsePoint | AnonymousToPipes, 0);
+            Extended(path), access, (uint)(FileShare.Read | FileShare.Write), 0, OpenExisting, BackupSemantics | OpenReparsePoint | AnonymousToPipes, 0);
         if (handle.IsInvalid)
         {
             var error = Marshal.GetLastPInvokeError();
@@ -139,9 +152,19 @@ internal static partial class NativeFiles
     /// create-new of a file (M2.3). No one can put a link at the name between the create and the hold, as they are one call.
     /// Only the last folder is made, never a chain: a missing folder above is a <see cref="DirectoryNotFoundException"/>. A
     /// link or a file in its place is an <see cref="IOException"/>; a folder that may not be made or opened an
-    /// <see cref="UnauthorizedAccessException"/>.
+    /// <see cref="UnauthorizedAccessException"/>. With <paramref name="readOwner"/>, the handle can read the owner too (M2.6).
     /// </summary>
-    public static unsafe SafeFileHandle OpenOrCreateFolder(string path)
+    public static SafeFileHandle OpenOrCreateFolder(string path, bool readOwner = false) => MakeFolder(path, readOwner, OpenIf)!;
+
+    /// <summary>
+    /// Makes a new folder and holds it, as <see cref="OpenOrCreateFolder"/> does, but never opens one that is there
+    /// (<c>FILE_CREATE</c>, M2.6): <c>null</c> when the name is taken, by a folder, a file or a link, so a folder that someone
+    /// else made first is never taken for one that Kiler made.
+    /// </summary>
+    public static SafeFileHandle? CreateNewFolder(string path, bool readOwner = false) => MakeFolder(path, readOwner, CreateOnly);
+
+    /// <summary>The call of <see cref="OpenOrCreateFolder"/> and <see cref="CreateNewFolder"/>; <c>null</c> when a new folder's name is taken.</summary>
+    private static unsafe SafeFileHandle? MakeFolder(string path, bool readOwner, uint disposition)
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -171,8 +194,15 @@ internal static partial class NativeFiles
                 SecurityQualityOfService = &quality,
             };
             IoStatusBlock io;
+            var access = ListDirectory | ReadAttributes | (readOwner ? ReadControl : 0) | Synchronize;
             status = NtCreateFile(
-                out handle, ListDirectory | ReadAttributes | Synchronize, &attributes, &io, null, NormalAttributes, (uint)(FileShare.Read | FileShare.Write), OpenIf, FolderAsItself, null, 0);
+                out handle, access, &attributes, &io, null, NormalAttributes, (uint)(FileShare.Read | FileShare.Write), disposition, FolderAsItself, null, 0);
+        }
+
+        if (status == StatusObjectNameCollision && disposition == CreateOnly)
+        {
+            handle.Dispose();
+            return null;
         }
 
         if (status < 0)

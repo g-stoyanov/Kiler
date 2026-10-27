@@ -2,6 +2,8 @@ namespace Kiler.Storage.Tests;
 
 public sealed class FileSystemTests : IDisposable
 {
+    private static readonly FileSystem Files = new(new TestOwners());
+
     private readonly TestFolder _test = new();
 
     public void Dispose() => _test.Dispose();
@@ -9,8 +11,8 @@ public sealed class FileSystemTests : IDisposable
     [Fact]
     public void OpenRead_AMissingFile_GivesNothing()
     {
-        Assert.Null(FileSystem.Instance.OpenRead(Path.Combine(_test.Root, "8f3a1c.json")));
-        Assert.Null(FileSystem.Instance.OpenRead(Path.Combine(_test.Root, "records", "8f3a1c.json")));
+        Assert.Null(Files.OpenRead(Path.Combine(_test.Root, "8f3a1c.json")));
+        Assert.Null(Files.OpenRead(Path.Combine(_test.Root, "records", "8f3a1c.json")));
     }
 
     [Fact]
@@ -19,7 +21,7 @@ public sealed class FileSystemTests : IDisposable
         var path = Path.Combine(_test.Root, "8f3a1c.json");
         Directory.CreateDirectory(path);
 
-        Assert.Throws<UnauthorizedAccessException>(() => FileSystem.Instance.OpenRead(path));
+        Assert.Throws<UnauthorizedAccessException>(() => Files.OpenRead(path));
     }
 
     [Fact]
@@ -28,7 +30,7 @@ public sealed class FileSystemTests : IDisposable
         var path = Path.Combine(_test.Root, "8f3a1c.json");
         File.WriteAllText(path, "{}");
 
-        using var stream = FileSystem.Instance.OpenRead(path);
+        using var stream = Files.OpenRead(path);
 
         Assert.NotNull(stream);
         File.WriteAllText(path, "[]");
@@ -43,7 +45,7 @@ public sealed class FileSystemTests : IDisposable
         File.WriteAllText(target, "{}");
         TestFolder.CreateFileLink(link, target);
 
-        var refused = Assert.Throws<IOException>(() => FileSystem.Instance.OpenRead(link));
+        var refused = Assert.Throws<IOException>(() => Files.OpenRead(link));
 
         Assert.Equal($"The file is a link, which Kiler does not follow: {link}", refused.Message);
     }
@@ -53,11 +55,11 @@ public sealed class FileSystemTests : IDisposable
     {
         var path = Path.Combine(_test.Root, "8f3a1c.1a2b3c4d.tmp");
 
-        using (var file = FileSystem.Instance.CreateFile(path, "{}\n"u8))
+        using (var file = Files.CreateFile(path, "{}\n"u8))
         {
             Assert.NotNull(file);
             Assert.Equal(path, file.Path);
-            using (var reader = FileSystem.Instance.OpenRead(path))
+            using (var reader = Files.OpenRead(path))
             {
                 Assert.Equal(3, reader?.Length);
             }
@@ -75,7 +77,7 @@ public sealed class FileSystemTests : IDisposable
         var link = Path.Combine(_test.Root, "v6.json");
         TestFolder.CreateFileLink(link, target);
 
-        Assert.Null(FileSystem.Instance.CreateFile(link, "new"u8));
+        Assert.Null(Files.CreateFile(link, "new"u8));
 
         Assert.False(File.Exists(target));
     }
@@ -89,7 +91,7 @@ public sealed class FileSystemTests : IDisposable
         File.WriteAllText(from, "new");
         TestFolder.CreateFileLink(link, target);
 
-        Assert.False(FileSystem.Instance.MoveFile(from, link, replace: false));
+        Assert.False(Files.MoveFile(from, link, replace: false));
 
         Assert.False(File.Exists(target));
         Assert.True(File.Exists(from));
@@ -101,11 +103,11 @@ public sealed class FileSystemTests : IDisposable
         var path = Path.Combine(_test.Root, "8f3a1c.1a2b3c4d.tmp");
         var other = Path.Combine(_test.Root, "b72e09.1a2b3c4d.tmp");
 
-        using var file = FileSystem.Instance.CreateFile(path, "{}"u8);
-        using var second = FileSystem.Instance.CreateFile(other, "{}"u8);
+        using var file = Files.CreateFile(path, "{}"u8);
+        using var second = Files.CreateFile(other, "{}"u8);
 
-        Assert.True(FileSystem.Instance.MoveFile(path, Path.Combine(_test.Root, "8f3a1c.json"), replace: false));
-        FileSystem.Instance.DeleteFile(other);
+        Assert.True(Files.MoveFile(path, Path.Combine(_test.Root, "8f3a1c.json"), replace: false));
+        Files.DeleteFile(other);
         Assert.False(File.Exists(other));
     }
 
@@ -115,7 +117,7 @@ public sealed class FileSystemTests : IDisposable
         var path = Path.Combine(_test.Root, "v6.json");
         File.WriteAllText(path, "old");
 
-        Assert.Null(FileSystem.Instance.CreateFile(path, "new"u8));
+        Assert.Null(Files.CreateFile(path, "new"u8));
 
         Assert.Equal("old", File.ReadAllText(path));
     }
@@ -128,7 +130,7 @@ public sealed class FileSystemTests : IDisposable
         File.WriteAllText(target, "old");
         TestFolder.CreateFileLink(link, target);
 
-        Assert.Null(FileSystem.Instance.CreateFile(link, "new"u8));
+        Assert.Null(Files.CreateFile(link, "new"u8));
 
         Assert.Equal("old", File.ReadAllText(target));
     }
@@ -139,12 +141,12 @@ public sealed class FileSystemTests : IDisposable
         var path = Path.Combine(_test.Root, "8f3a1c.json");
         var written = new DateTime(2026, 10, 26, 8, 0, 0, DateTimeKind.Utc);
         FileStamp stamp;
-        using (var file = FileSystem.Instance.CreateFile(path, "{}\n"u8)!)
+        using (var file = Files.CreateFile(path, "{}\n"u8)!)
         {
             File.SetCreationTimeUtc(file.Handle, written.AddDays(-30));
             File.SetLastWriteTimeUtc(file.Handle, written);
 
-            stamp = FileSystem.Instance.SetCreationToWriteTime(file);
+            stamp = Files.SetCreationToWriteTime(file);
         }
 
         Assert.Equal(new FileStamp(3, written, written), stamp);
@@ -160,7 +162,7 @@ public sealed class FileSystemTests : IDisposable
         File.WriteAllText(from, "new");
         File.WriteAllText(to, "old");
 
-        Assert.False(FileSystem.Instance.MoveFile(from, to, replace: false));
+        Assert.False(Files.MoveFile(from, to, replace: false));
 
         Assert.Equal("new", File.ReadAllText(from));
         Assert.Equal("old", File.ReadAllText(to));
@@ -174,7 +176,7 @@ public sealed class FileSystemTests : IDisposable
         File.WriteAllText(from, "new");
         File.WriteAllText(to, "old");
 
-        Assert.True(FileSystem.Instance.MoveFile(from, to, replace: true));
+        Assert.True(Files.MoveFile(from, to, replace: true));
 
         Assert.False(File.Exists(from));
         Assert.Equal("new", File.ReadAllText(to));
@@ -188,23 +190,23 @@ public sealed class FileSystemTests : IDisposable
         File.WriteAllText(from, "new");
         File.WriteAllText(to, "old");
 
-        using (FileSystem.Instance.OpenRead(to))
+        using (Files.OpenRead(to))
         {
-            Assert.Throws<UnauthorizedAccessException>(() => FileSystem.Instance.MoveFile(from, to, replace: true));
+            Assert.Throws<UnauthorizedAccessException>(() => Files.MoveFile(from, to, replace: true));
         }
 
         Assert.Equal("old", File.ReadAllText(to));
     }
 
     [Fact]
-    public void DeleteFile_AFileThatIsNotThere_DoesNothing() => FileSystem.Instance.DeleteFile(Path.Combine(_test.Root, "8f3a1c.json"));
+    public void DeleteFile_AFileThatIsNotThere_DoesNothing() => Files.DeleteFile(Path.Combine(_test.Root, "8f3a1c.json"));
 
     [Fact]
     public void CreateFolder_WhenTheFolderAboveIsMissing_IsRefusedAndMakesNothing()
     {
         var above = Path.Combine(_test.Root, "data");
 
-        Assert.Throws<DirectoryNotFoundException>(() => FileSystem.Instance.CreateFolder(Path.Combine(above, "private")));
+        Assert.Throws<DirectoryNotFoundException>(() => Files.CreateFolder(Path.Combine(above, "private")));
 
         Assert.False(Directory.Exists(above));
     }
@@ -215,7 +217,7 @@ public sealed class FileSystemTests : IDisposable
         var folder = Directory.CreateDirectory(Path.Combine(_test.Root, "records")).FullName;
         File.WriteAllText(Path.Combine(folder, "8f3a1c.json"), "{}");
 
-        FileSystem.Instance.CreateFolder(folder);
+        Files.CreateFolder(folder);
 
         Assert.True(File.Exists(Path.Combine(folder, "8f3a1c.json")));
     }
@@ -226,7 +228,7 @@ public sealed class FileSystemTests : IDisposable
         var link = Path.Combine(_test.Root, "records");
         TestFolder.CreateJunction(link, Directory.CreateDirectory(Path.Combine(_test.Root, "elsewhere")).FullName);
 
-        Assert.Throws<IOException>(() => FileSystem.Instance.CreateFolder(link));
+        Assert.Throws<IOException>(() => Files.CreateFolder(link));
     }
 
     [Fact]
@@ -235,7 +237,7 @@ public sealed class FileSystemTests : IDisposable
         var file = Path.Combine(_test.Root, "records");
         File.WriteAllText(file, "made up");
 
-        Assert.Throws<IOException>(() => FileSystem.Instance.CreateFolder(file));
+        Assert.Throws<IOException>(() => Files.CreateFolder(file));
     }
 
     [Fact]
@@ -243,7 +245,7 @@ public sealed class FileSystemTests : IDisposable
     {
         var folder = Path.Combine(_test.Root, "records");
 
-        using (FileSystem.Instance.HoldOrCreateFolder(folder))
+        using (Files.HoldOrCreateFolder(folder))
         {
             Assert.True(Directory.Exists(folder));
             Assert.Throws<IOException>(() => Directory.Move(folder, folder + "-moved"));
@@ -258,7 +260,7 @@ public sealed class FileSystemTests : IDisposable
         var folder = Directory.CreateDirectory(Path.Combine(_test.Root, "records")).FullName;
         File.WriteAllText(Path.Combine(folder, "8f3a1c.json"), "{}");
 
-        using (FileSystem.Instance.HoldOrCreateFolder(folder))
+        using (Files.HoldOrCreateFolder(folder))
         {
             Assert.Throws<IOException>(() => Directory.Move(folder, folder + "-moved"));
         }
@@ -271,7 +273,7 @@ public sealed class FileSystemTests : IDisposable
     {
         var above = Path.Combine(_test.Root, "history");
 
-        Assert.Throws<DirectoryNotFoundException>(() => FileSystem.Instance.HoldOrCreateFolder(Path.Combine(above, "records")));
+        Assert.Throws<DirectoryNotFoundException>(() => Files.HoldOrCreateFolder(Path.Combine(above, "records")));
 
         Assert.False(Directory.Exists(above));
     }
@@ -292,7 +294,7 @@ public sealed class FileSystemTests : IDisposable
             File.WriteAllText(path, "made up");
         }
 
-        Assert.Throws<IOException>(() => FileSystem.Instance.HoldOrCreateFolder(path));
+        Assert.Throws<IOException>(() => Files.HoldOrCreateFolder(path));
 
         Assert.Empty(Directory.GetFileSystemEntries(elsewhere));
     }
@@ -324,11 +326,11 @@ public sealed class FileSystemTests : IDisposable
         {
             if (hold)
             {
-                FileSystem.Instance.HoldOrCreateFolder(link).Dispose();
+                Files.HoldOrCreateFolder(link).Dispose();
             }
             else
             {
-                FileSystem.Instance.CreateFolder(link);
+                Files.CreateFolder(link);
             }
         });
 
@@ -343,7 +345,7 @@ public sealed class FileSystemTests : IDisposable
         while (folder.Length < 300)
         {
             folder = Path.Combine(folder, new string('d', 40));
-            FileSystem.Instance.HoldOrCreateFolder(folder).Dispose();
+            Files.HoldOrCreateFolder(folder).Dispose();
         }
 
         Assert.True(Directory.Exists(folder));
@@ -359,9 +361,50 @@ public sealed class FileSystemTests : IDisposable
         File.SetCreationTimeUtc(path, created);
         File.SetLastWriteTimeUtc(path, written);
 
-        using var stream = FileSystem.Instance.OpenRead(path)!;
+        using var stream = Files.OpenRead(path)!;
 
-        Assert.Equal(new FileStamp(3, created, written), FileSystem.Instance.Stamp(stream));
+        Assert.Equal(new FileStamp(3, created, written), Files.Stamp(stream));
+    }
+
+    [Fact]
+    public void Owner_OfAFileOpenToReadAndOfAFolderHeldForIt_IsTheirsThroughTheirHandles()
+    {
+        var owners = new TestOwners();
+        var files = new FileSystem(owners);
+        var folder = Directory.CreateDirectory(Path.Combine(_test.Root, "records")).FullName;
+        var path = Path.Combine(folder, "8f3a1c.json");
+        File.WriteAllText(path, "{}\n");
+        owners.Set(path, TestOwners.Other);
+
+        using var stream = files.OpenRead(path)!;
+        using var held = files.HoldFolder(folder, readOwner: true);
+        using var made = files.HoldOrCreateFolder(Path.Combine(folder, "new"), readOwner: true);
+
+        Assert.Equal(TestOwners.Other, files.Owner(stream));
+        Assert.Equal(TestOwners.Me, files.Owner(held));
+        Assert.Equal(TestOwners.Me, files.Owner(made));
+    }
+
+    [Fact]
+    public void Owner_OfAFolderHeldWithoutAskingForIt_IsNothing()
+    {
+        var files = new FileSystem(new TestOwners());
+        var folder = Directory.CreateDirectory(Path.Combine(_test.Root, "records")).FullName;
+
+        // Only the holds that read the owner ask for READ_CONTROL, which a share may refuse (M2.6).
+        using var held = files.HoldFolder(folder);
+        using var made = files.HoldOrCreateFolder(Path.Combine(folder, "new"));
+
+        Assert.Null(files.Owner(held));
+        Assert.Null(files.Owner(made));
+    }
+
+    [Fact]
+    public void Owner_OfAStreamThatOpenReadDidNotOpen_IsRefused()
+    {
+        using var stream = new MemoryStream();
+
+        Assert.Throws<ArgumentException>(() => Files.Owner(stream));
     }
 
     /// <summary>
@@ -380,13 +423,13 @@ public sealed class FileSystemTests : IDisposable
         File.SetCreationTimeUtc(path, created);
         File.SetLastWriteTimeUtc(path, written);
 
-        using (var times = FileSystem.Instance.OpenTimes(path)!)
+        using (var times = Files.OpenTimes(path)!)
         {
             new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None).Dispose();
             File.Move(path, moved);
             File.SetCreationTimeUtc(moved, created.AddYears(-6));
 
-            FileSystem.Instance.KeepCreationTime(times);
+            Files.KeepCreationTime(times);
 
             Assert.Equal(new FileStamp(3, created, written), times.Stamp);
         }
@@ -407,12 +450,12 @@ public sealed class FileSystemTests : IDisposable
         File.WriteAllText(path, "old");
         File.WriteAllText(from, "new");
 
-        using (FileSystem.Instance.OpenTimes(path))
+        using (Files.OpenTimes(path))
         {
-            Assert.Throws<UnauthorizedAccessException>(() => FileSystem.Instance.MoveFile(from, path, replace: true));
+            Assert.Throws<UnauthorizedAccessException>(() => Files.MoveFile(from, path, replace: true));
         }
 
-        Assert.True(FileSystem.Instance.MoveFile(from, path, replace: true));
+        Assert.True(Files.MoveFile(from, path, replace: true));
         Assert.Equal("new", File.ReadAllText(path));
     }
 
@@ -432,13 +475,13 @@ public sealed class FileSystemTests : IDisposable
         File.SetLastWriteTimeUtc(path, written);
         TestFolder.DenyWriteAttributes(path);
 
-        using (var times = FileSystem.Instance.OpenTimes(path)!)
+        using (var times = Files.OpenTimes(path)!)
         {
             Assert.False(times.CanSet);
             Assert.Equal(new FileStamp(3, created, written), times.Stamp);
             File.Move(path, moved);
 
-            FileSystem.Instance.KeepCreationTime(times);
+            Files.KeepCreationTime(times);
         }
 
         Assert.Equal(created, File.GetCreationTimeUtc(moved));
@@ -464,7 +507,7 @@ public sealed class FileSystemTests : IDisposable
         {
             var to = Path.Combine(other, "8f3a1c.json");
 
-            var refused = Assert.Throws<IOException>(() => FileSystem.Instance.MoveFile(from, to, replace: true));
+            var refused = Assert.Throws<IOException>(() => Files.MoveFile(from, to, replace: true));
 
             Assert.Equal(unchecked((int)0x80070011), refused.HResult);
             Assert.False(File.Exists(to), "The file was copied to the other volume.");
@@ -486,13 +529,13 @@ public sealed class FileSystemTests : IDisposable
         var shared = TestFolder.ThroughLoopbackShare(_test.Root);
         var folder = Path.Combine(shared, "records");
 
-        using (FileSystem.Instance.HoldOrCreateFolder(folder))
+        using (Files.HoldOrCreateFolder(folder))
         {
             Assert.True(Directory.Exists(Path.Combine(_test.Root, "records")));
             Assert.Throws<IOException>(() => Directory.Move(folder, folder + "-moved"));
         }
 
-        Assert.Throws<DirectoryNotFoundException>(() => FileSystem.Instance.HoldOrCreateFolder(Path.Combine(shared, "missing", "records")));
+        Assert.Throws<DirectoryNotFoundException>(() => Files.HoldOrCreateFolder(Path.Combine(shared, "missing", "records")));
     }
 
     [Fact]
@@ -501,10 +544,10 @@ public sealed class FileSystemTests : IDisposable
         var target = Path.Combine(_test.Root, "target.json");
         var link = Path.Combine(_test.Root, "8f3a1c.json");
         File.WriteAllText(target, "{}");
-        Assert.Null(FileSystem.Instance.OpenTimes(Path.Combine(_test.Root, "b72e09.json")));
+        Assert.Null(Files.OpenTimes(Path.Combine(_test.Root, "b72e09.json")));
         TestFolder.CreateFileLink(link, target);
 
-        Assert.Throws<IOException>(() => FileSystem.Instance.OpenTimes(link));
+        Assert.Throws<IOException>(() => Files.OpenTimes(link));
     }
 
     /// <summary>
@@ -521,13 +564,13 @@ public sealed class FileSystemTests : IDisposable
         var document = Path.Combine(_test.Root, "8f3a1c.json");
         File.WriteAllText(document, "{}");
 
-        using (var marker = FileSystem.Instance.CreateMarker(path))
+        using (var marker = Files.CreateMarker(path))
         {
             Assert.NotNull(marker);
             Assert.Equal(145, TestFolder.TryMakeMountPoint(folder, elsewhere));
             Assert.Throws<IOException>(() => File.Delete(path));
             Assert.Throws<IOException>(() => File.Move(path, path + ".away"));
-            Assert.True(FileSystem.Instance.MoveFile(document, Path.Combine(folder, "8f3a1c.json"), replace: false));
+            Assert.True(Files.MoveFile(document, Path.Combine(folder, "8f3a1c.json"), replace: false));
         }
 
         Assert.Equal(["8f3a1c.json"], Directory.GetFileSystemEntries(folder).Select(entry => Path.GetFileName(entry)));
@@ -544,8 +587,8 @@ public sealed class FileSystemTests : IDisposable
         File.WriteAllText(path, "made up");
         TestFolder.CreateFileLink(link, target);
 
-        Assert.Null(FileSystem.Instance.CreateMarker(path));
-        Assert.Null(FileSystem.Instance.CreateMarker(link));
+        Assert.Null(Files.CreateMarker(path));
+        Assert.Null(Files.CreateMarker(link));
 
         Assert.Equal("made up", File.ReadAllText(path));
         Assert.False(File.Exists(target));
@@ -558,12 +601,12 @@ public sealed class FileSystemTests : IDisposable
         var path = Path.Combine(_test.Root, "8f3a1c.json");
         var moved = Path.Combine(Directory.CreateDirectory(Path.Combine(_test.Root, "trash")).FullName, "8f3a1c.json");
         File.WriteAllText(path, "{}");
-        using var before = FileSystem.Instance.OpenTimes(path)!;
+        using var before = Files.OpenTimes(path)!;
         File.Move(path, moved);
         File.WriteAllText(path, "{}");
 
-        using var after = FileSystem.Instance.OpenTimes(moved)!;
-        using var other = FileSystem.Instance.OpenTimes(path)!;
+        using var after = Files.OpenTimes(moved)!;
+        using var other = Files.OpenTimes(path)!;
 
         Assert.Equal(before.Id, after.Id);
         Assert.NotEqual(before.Id, other.Id);
@@ -577,12 +620,12 @@ public sealed class FileSystemTests : IDisposable
         var path = Path.Combine(_test.Root, "v1.1a2b3c4d.tmp");
         var slot = Path.Combine(_test.Root, "v1.json");
 
-        using (var file = FileSystem.Instance.CreateFile(path, "{}\n"u8)!)
+        using (var file = Files.CreateFile(path, "{}\n"u8)!)
         {
-            Assert.True(FileSystem.Instance.MoveFile(path, slot, replace: false));
+            Assert.True(Files.MoveFile(path, slot, replace: false));
             File.WriteAllText(path, "another");
 
-            FileSystem.Instance.DeleteNewFile(file);
+            Files.DeleteNewFile(file);
         }
 
         Assert.False(File.Exists(slot));
@@ -596,7 +639,7 @@ public sealed class FileSystemTests : IDisposable
         var to = Directory.CreateDirectory(Path.Combine(_test.Root, "demo.user")).FullName;
         File.WriteAllText(Path.Combine(to, "key.json"), "{}");
 
-        Assert.Throws<IOException>(() => FileSystem.Instance.MoveFolder(from, to));
+        Assert.Throws<IOException>(() => Files.MoveFolder(from, to));
 
         Assert.True(Directory.Exists(from));
         Assert.Equal([Path.Combine(to, "key.json")], Directory.GetFileSystemEntries(to));
@@ -605,8 +648,8 @@ public sealed class FileSystemTests : IDisposable
     [Fact]
     public void Attributes_OfAPathThatIsNotThere_AreNull()
     {
-        Assert.Null(FileSystem.Instance.Attributes(Path.Combine(_test.Root, "missing")));
-        Assert.Null(FileSystem.Instance.Attributes(Path.Combine(_test.Root, "missing", "records")));
+        Assert.Null(Files.Attributes(Path.Combine(_test.Root, "missing")));
+        Assert.Null(Files.Attributes(Path.Combine(_test.Root, "missing", "records")));
     }
 
     [Fact]
@@ -615,6 +658,6 @@ public sealed class FileSystemTests : IDisposable
         var link = Path.Combine(_test.Root, "link");
         TestFolder.CreateJunction(link, Directory.CreateDirectory(Path.Combine(_test.Root, "elsewhere")).FullName);
 
-        Assert.True(FileSystem.Instance.Attributes(link)?.HasFlag(FileAttributes.ReparsePoint));
+        Assert.True(Files.Attributes(link)?.HasFlag(FileAttributes.ReparsePoint));
     }
 }

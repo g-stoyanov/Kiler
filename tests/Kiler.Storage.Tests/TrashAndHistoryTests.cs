@@ -131,7 +131,7 @@ public sealed class TrashAndHistoryTests : IDisposable
     [Fact]
     public void DeleteAndRestore_AtTheLastVersion_Work()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         var last = DocumentFormat.Next(Record, int.MaxValue - 1, Content("last"));
         File.WriteAllBytes(data.DocumentPath(Record), last);
 
@@ -152,7 +152,7 @@ public sealed class TrashAndHistoryTests : IDisposable
     [Fact]
     public void DeleteAndRestore_ADocumentWhoseTimesMayNotBeSet_Work()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
         var before = File.ReadAllBytes(data.DocumentPath(Record));
         TestFolder.DenyWriteAttributes(data.DocumentPath(Record));
@@ -167,7 +167,7 @@ public sealed class TrashAndHistoryTests : IDisposable
     [Fact]
     public void TrashAndHistory_ThroughANetworkPath_Work()
     {
-        var data = DataFolder.Create(Path.Combine(TestFolder.ThroughLoopbackShare(_test.Root), "data"));
+        var data = DataFolder.Create(Path.Combine(TestFolder.ThroughLoopbackShare(_test.Root), "data"), new TestOwners());
         data.CreateDocument(Record, Content("first"));
         data.ReplaceDocument(Record, 1, Content("second"));
 
@@ -182,7 +182,7 @@ public sealed class TrashAndHistoryTests : IDisposable
     [Fact]
     public void DeleteDocument_WhenItsHistorySlotExists_GivesConflict_AndChangesNothing()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
         var before = File.ReadAllBytes(data.DocumentPath(Record));
         var slot = MakeSlot(data, Record, before);
@@ -198,7 +198,7 @@ public sealed class TrashAndHistoryTests : IDisposable
     [Fact]
     public void DeleteDocument_AnOldLeftoverSlotWithTheBytesOfTheDocument_IsTakenOver()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
         var before = File.ReadAllBytes(data.DocumentPath(Record));
         var slot = MakeSlot(data, Record, before, Old);
@@ -213,7 +213,7 @@ public sealed class TrashAndHistoryTests : IDisposable
     [Fact]
     public void DeleteDocument_AMissingOrADamagedDocument_DeletesNothing()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         Assert.Equal(WriteOutcome.Missing, data.DeleteDocument(Record, 1).Outcome);
         File.WriteAllText(data.DocumentPath(Record), """{"id": "8f3a1c", "version": """);
 
@@ -232,7 +232,7 @@ public sealed class TrashAndHistoryTests : IDisposable
     [Fact]
     public void DeleteDocument_ReplacesAnOlderCopyInTheTrash()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
         var first = File.ReadAllBytes(data.DocumentPath(Record));
         data.ReplaceDocument(Record, 1, Content("second"));
@@ -332,7 +332,7 @@ public sealed class TrashAndHistoryTests : IDisposable
         Assert.ThrowsAny<IOException>(() => data.DeleteDocument(Record, 1));
 
         Assert.True(files.Crashed, "The delete did not reach the step.");
-        var next = DataFolder.Open(_data);
+        var next = DataFolder.Open(_data, new TestOwners());
         var document = next.DocumentPath(Record);
         var trash = next.TrashPath(Record);
         Assert.True(File.Exists(document) != File.Exists(trash), "The document is in both places or in none.");
@@ -362,8 +362,8 @@ public sealed class TrashAndHistoryTests : IDisposable
     [Fact]
     public async Task ReplaceAndDeleteOfOneVersionAtOnce_OneWinsEveryRound()
     {
-        var data = DataFolder.Create(_data);
-        DataFolder[] writers = [DataFolder.Open(_data), DataFolder.Open(_data)];
+        var data = DataFolder.Create(_data, new TestOwners());
+        DataFolder[] writers = [DataFolder.Open(_data, new TestOwners()), DataFolder.Open(_data, new TestOwners())];
 
         for (var round = 1; round <= Rounds; round++)
         {
@@ -800,7 +800,7 @@ public sealed class TrashAndHistoryTests : IDisposable
         {
             if (step == nameof(IFileSystem.MoveFile) && at.EndsWith(InTrash, StringComparison.Ordinal) && first is null)
             {
-                first = DataFolder.Open(_data).RestoreFromTrash(Record);
+                first = DataFolder.Open(_data, new TestOwners()).RestoreFromTrash(Record);
             }
         };
 
@@ -872,7 +872,7 @@ public sealed class TrashAndHistoryTests : IDisposable
     [Fact]
     public void DeleteAndRestore_WithinTheTunnelingOfAnotherFile_KeepTheTimesOfTheDocument()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
         File.SetCreationTimeUtc(data.DocumentPath(Record), Old);
         File.SetLastWriteTimeUtc(data.DocumentPath(Record), Old);
@@ -910,7 +910,7 @@ public sealed class TrashAndHistoryTests : IDisposable
     [Fact]
     public void RestoreFromTrash_WithNothingInTheTrash_GivesMissing()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         Assert.Equal(WriteOutcome.Missing, data.RestoreFromTrash(Record).Outcome);
         Assert.Equal(WriteOutcome.Missing, data.RestoreFromTrash(DocumentKey.AtRoot(DataFolder.Settings)).Outcome);
 
@@ -925,7 +925,7 @@ public sealed class TrashAndHistoryTests : IDisposable
     [Fact]
     public void RestoreFromTrash_ADamagedCopy_GivesDamaged_AndLeavesItInTheTrash()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         var trash = data.TrashPath(Record);
         Directory.CreateDirectory(Path.GetDirectoryName(trash)!);
         File.WriteAllText(trash, """{"id": "b72e09", "version": 1}""");
@@ -941,7 +941,7 @@ public sealed class TrashAndHistoryTests : IDisposable
     [Fact]
     public void RestoreFromTrash_LeavesASlotWithOtherBytes()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
         data.DeleteDocument(Record, 1);
         var slot = data.HistoryPath(Record, 1);
@@ -974,7 +974,7 @@ public sealed class TrashAndHistoryTests : IDisposable
         {
             if (step == nameof(IFileSystem.HoldFile) && at.EndsWith(Slot, StringComparison.Ordinal) && theirs is null)
             {
-                theirs = DataFolder.Open(_data).ReplaceDocument(Record, 1, Content("theirs"));
+                theirs = DataFolder.Open(_data, new TestOwners()).ReplaceDocument(Record, 1, Content("theirs"));
             }
         };
 
@@ -1012,7 +1012,7 @@ public sealed class TrashAndHistoryTests : IDisposable
             Assert.Equal((WriteOutcome.Written, 1), Outcome(result!));
         }
 
-        var next = DataFolder.Open(_data);
+        var next = DataFolder.Open(_data, new TestOwners());
         Assert.Equal(before, File.ReadAllBytes(back ? next.DocumentPath(Record) : next.TrashPath(Record)));
         Assert.False(File.Exists(back ? next.TrashPath(Record) : next.DocumentPath(Record)));
         if (!back)
@@ -1045,9 +1045,9 @@ public sealed class TrashAndHistoryTests : IDisposable
 
         Assert.Equal(
             [
-                new DocumentVersion(1, StampOf(data.HistoryPath(key, 1)), false),
-                new DocumentVersion(2, StampOf(data.HistoryPath(key, 2)), false),
-                new DocumentVersion(3, StampOf(data.DocumentPath(key)), true),
+                new DocumentVersion(1, StampOf(data.HistoryPath(key, 1)), false, TestOwners.Me),
+                new DocumentVersion(2, StampOf(data.HistoryPath(key, 2)), false, TestOwners.Me),
+                new DocumentVersion(3, StampOf(data.DocumentPath(key)), true, TestOwners.Me),
             ],
             versions);
     }
@@ -1055,7 +1055,7 @@ public sealed class TrashAndHistoryTests : IDisposable
     [Fact]
     public void Versions_OfADeletedDocument_AreItsHistorySlots_AndOfANewOneItsCurrentVersion()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         var other = DocumentKey.InFolder(DataFolder.Records, "b72e09");
         data.CreateDocument(Record, Content("first"));
         data.ReplaceDocument(Record, 1, Content("second"));
@@ -1064,7 +1064,7 @@ public sealed class TrashAndHistoryTests : IDisposable
 
         Assert.Equal([1, 2], data.Versions(Record, DateTimeOffset.UtcNow).Select(version => version.Version));
         Assert.DoesNotContain(data.Versions(Record, DateTimeOffset.UtcNow), version => version.IsCurrent);
-        Assert.Equal([new DocumentVersion(1, StampOf(data.DocumentPath(other)), true)], data.Versions(other, DateTimeOffset.UtcNow));
+        Assert.Equal([new DocumentVersion(1, StampOf(data.DocumentPath(other)), true, TestOwners.Me)], data.Versions(other, DateTimeOffset.UtcNow));
         Assert.Empty(data.Versions(DocumentKey.InFolder(DataFolder.Records, "c4d5e6"), DateTimeOffset.UtcNow));
     }
 
@@ -1085,7 +1085,7 @@ public sealed class TrashAndHistoryTests : IDisposable
             if (step == nameof(IFileSystem.OpenRead) && at.EndsWith(Document, StringComparison.Ordinal) && !saved)
             {
                 saved = true;
-                Assert.Equal(WriteOutcome.Written, DataFolder.Open(_data).ReplaceDocument(Record, 2, Content("third")).Outcome);
+                Assert.Equal(WriteOutcome.Written, DataFolder.Open(_data, new TestOwners()).ReplaceDocument(Record, 2, Content("third")).Outcome);
             }
         };
 
@@ -1102,7 +1102,7 @@ public sealed class TrashAndHistoryTests : IDisposable
     [Fact]
     public void Versions_SkipOtherNamesAndLinks_AndDeleteTheOldTemporaryFilesOfTheHistory()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
         data.ReplaceDocument(Record, 1, Content("second"));
         data.ReplaceDocument(Record, 2, Content("third"));
@@ -1145,13 +1145,13 @@ public sealed class TrashAndHistoryTests : IDisposable
         Assert.Equal((1, "first"), (read?.Document?.Version, (string?)read?.Document?.Content["name"]));
         Assert.Null(data.ReadVersion(key, 2));
         Assert.Null(data.ReadVersion(DocumentKey.InFolder(DataFolder.Records, "b72e09"), 1));
-        Assert.Null(DataFolder.Open(_data).CreatePrivate("other.user").ReadVersion(Record, 1));
+        Assert.Null(DataFolder.Open(_data, new TestOwners()).CreatePrivate("other.user").ReadVersion(Record, 1));
     }
 
     [Fact]
     public void ReadVersion_ASlotWithAnotherVersionOrDamaged_IsDamaged()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
         data.ReplaceDocument(Record, 1, Content("second"));
         data.ReplaceDocument(Record, 2, Content("third"));
@@ -1165,7 +1165,7 @@ public sealed class TrashAndHistoryTests : IDisposable
     [Fact]
     public void ReadVersion_ASlotThatIsASymbolicLink_IsRefused()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
         data.ReplaceDocument(Record, 1, Content("second"));
         var target = Path.Combine(_test.Root, "v2.json");
@@ -1270,7 +1270,7 @@ public sealed class TrashAndHistoryTests : IDisposable
     /// <summary>The data folder, or the private folder of a made-up account in it.</summary>
     private DataFolder Root(bool inPrivate)
     {
-        var shared = DataFolder.Create(_data);
+        var shared = DataFolder.Create(_data, new TestOwners());
         return inPrivate ? shared.CreatePrivate("demo.user") : shared;
     }
 }

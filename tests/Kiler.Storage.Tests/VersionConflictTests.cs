@@ -53,7 +53,7 @@ public sealed class VersionConflictTests : IDisposable
     [Fact]
     public void ReplaceDocument_AfterAConflict_KeepingOnesOwnContentWritesOverTheVersionOnDisk()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
         data.ReplaceDocument(Record, 1, Content("theirs"));
         var theirs = File.ReadAllBytes(data.DocumentPath(Record));
@@ -72,7 +72,7 @@ public sealed class VersionConflictTests : IDisposable
     [Fact]
     public void ReplaceDocument_KeepingOnesOwnContentOverTheLastVersion_GivesNoNextVersionAndLeavesNoSlot()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         File.WriteAllBytes(data.DocumentPath(Record), DocumentFormat.Next(Record, int.MaxValue - 1, Content("theirs")));
 
         var conflict = data.ReplaceDocument(Record, 1, Content("mine"));
@@ -88,9 +88,9 @@ public sealed class VersionConflictTests : IDisposable
     [Fact]
     public async Task ReplaceDocument_TwoWritersOfOneVersionAtOnce_OneWinsEveryRoundAndEachVersionHasOneSlot()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
-        DataFolder[] writers = [DataFolder.Open(_data), DataFolder.Open(_data)];
+        DataFolder[] writers = [DataFolder.Open(_data, new TestOwners()), DataFolder.Open(_data, new TestOwners())];
 
         for (var version = 1; version <= Rounds; version++)
         {
@@ -106,7 +106,7 @@ public sealed class VersionConflictTests : IDisposable
     [Fact]
     public void ReplaceDocument_AYoungLeftoverSlotWithTheBytesOfTheDocument_GivesConflictAndChangesNothing()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
         var before = File.ReadAllBytes(data.DocumentPath(Record));
         var slot = MakeSlot(data, Record, before);
@@ -127,7 +127,7 @@ public sealed class VersionConflictTests : IDisposable
     [InlineData(true, null, DataFolder.Key)]
     public void ReplaceDocument_AnOldLeftoverSlotWithTheBytesOfTheDocument_IsTakenOver(bool inPrivate, string? folder, string id)
     {
-        var shared = DataFolder.Create(_data);
+        var shared = DataFolder.Create(_data, new TestOwners());
         var data = inPrivate ? shared.CreatePrivate("demo.user") : shared;
         var key = folder is null ? DocumentKey.AtRoot(id) : DocumentKey.InFolder(folder, id);
         data.CreateDocument(key, Content("first"));
@@ -179,7 +179,7 @@ public sealed class VersionConflictTests : IDisposable
     [InlineData("over the limit")]
     public void ReplaceDocument_AnOldSlotWithOtherBytes_IsNeverTakenOver(string kind)
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
         var before = File.ReadAllBytes(data.DocumentPath(Record));
         byte[] other = kind switch
@@ -219,7 +219,7 @@ public sealed class VersionConflictTests : IDisposable
             if (step == nameof(IFileSystem.CreateFile) && at.Contains(DocumentTemporary, StringComparison.Ordinal) && !stopped)
             {
                 stopped = true;
-                Assert.Equal(WriteOutcome.Written, DataFolder.Open(_data).ReplaceDocument(Record, 1, Content("theirs")).Outcome);
+                Assert.Equal(WriteOutcome.Written, DataFolder.Open(_data, new TestOwners()).ReplaceDocument(Record, 1, Content("theirs")).Outcome);
                 File.SetLastWriteTimeUtc(slot, Old);
             }
         };
@@ -252,7 +252,7 @@ public sealed class VersionConflictTests : IDisposable
             if (step == nameof(IFileSystem.MoveFile) && at.Contains(DocumentTemporary, StringComparison.Ordinal) && other is null)
             {
                 File.SetLastWriteTimeUtc(slot, Old);
-                other = DataFolder.Open(_data).ReplaceDocument(Record, 1, Content("theirs"));
+                other = DataFolder.Open(_data, new TestOwners()).ReplaceDocument(Record, 1, Content("theirs"));
             }
         };
 
@@ -305,7 +305,7 @@ public sealed class VersionConflictTests : IDisposable
     [Fact]
     public void ReplaceDocument_ASymbolicLinkAtTheSlotNameToAnOldCopy_IsNotTakenOver()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
         var before = File.ReadAllBytes(data.DocumentPath(Record));
         var target = Path.Combine(Directory.CreateDirectory(Path.Combine(_test.Root, "outside")).FullName, "v1.json");
@@ -347,7 +347,7 @@ public sealed class VersionConflictTests : IDisposable
     [Fact]
     public void ReplaceDocument_AnOldFolderAtTheSlotName_IsNotTakenOver()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
         var slot = data.HistoryPath(Record, 1);
         Directory.CreateDirectory(slot);
@@ -362,7 +362,7 @@ public sealed class VersionConflictTests : IDisposable
     [Fact]
     public void ReplaceDocument_AnOldReadOnlySlot_IsNotTakenOver()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
         var before = File.ReadAllBytes(data.DocumentPath(Record));
         var slot = MakeSlot(data, Record, before, Old);
@@ -385,7 +385,7 @@ public sealed class VersionConflictTests : IDisposable
     [Fact]
     public void ReplaceDocument_AnOldSlotOpenWithoutDeleteSharing_GivesConflictUntilItIsClosed()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
         var before = File.ReadAllBytes(data.DocumentPath(Record));
         var slot = MakeSlot(data, Record, before, Old);
@@ -410,7 +410,7 @@ public sealed class VersionConflictTests : IDisposable
     [Fact]
     public void ReplaceDocument_AnOldSlotThatSomeoneReads_IsTakenOver()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
         var before = File.ReadAllBytes(data.DocumentPath(Record));
         var slot = MakeSlot(data, Record, before, Old);
@@ -475,9 +475,9 @@ public sealed class VersionConflictTests : IDisposable
     [Fact]
     public async Task ReplaceDocument_TwoWritersTakeOverOneOldSlotAtOnce_OneWinsEveryRound()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
-        DataFolder[] writers = [DataFolder.Open(_data), DataFolder.Open(_data)];
+        DataFolder[] writers = [DataFolder.Open(_data, new TestOwners()), DataFolder.Open(_data, new TestOwners())];
 
         for (var version = 1; version <= Rounds; version++)
         {
@@ -506,7 +506,7 @@ public sealed class VersionConflictTests : IDisposable
         Assert.ThrowsAny<IOException>(() => data.ReplaceDocument(Record, 1, Content("second")));
 
         Assert.True(files.Crashed, "The write did not reach the step.");
-        var next = DataFolder.Open(_data);
+        var next = DataFolder.Open(_data, new TestOwners());
         Assert.Equal(version == 1 ? old : DocumentFormat.Next(Record, 1, Content("second")), File.ReadAllBytes(next.DocumentPath(Record)));
         var slot = next.HistoryPath(Record, version);
         Assert.True(!File.Exists(slot) || File.ReadAllBytes(slot).SequenceEqual(old), "The slot is not the old version.");

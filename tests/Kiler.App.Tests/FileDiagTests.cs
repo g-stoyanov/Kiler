@@ -235,24 +235,6 @@ public sealed class FileDiagTests : IDisposable
     }
 
     [Fact]
-    public void FileOwner_OfANewFileAndFolder_IsTheOwnerThatTheProcessGivesThem()
-    {
-        var file = Path.Combine(_folder.Path, "new.json");
-        File.WriteAllText(file, "{}");
-        var folder = Directory.CreateDirectory(Path.Combine(_folder.Path, "new")).FullName;
-        using var identity = WindowsIdentity.GetCurrent();
-
-        Assert.Equal(identity.Owner, FileOwner.Of(new FileInfo(file)));
-        Assert.Equal(identity.Owner, FileOwner.Of(new DirectoryInfo(folder)));
-    }
-
-    [Fact]
-    public void FileOwner_OfAFileThatIsNotThere_Throws()
-    {
-        Assert.ThrowsAny<IOException>(() => FileOwner.Of(new FileInfo(Path.Combine(_folder.Path, "missing.json"))));
-    }
-
-    [Fact]
     public void DescribeOwner_TheCurrentUser_IsOk()
     {
         var user = new SecurityIdentifier("S-1-5-21-1000-2000-3000-1001");

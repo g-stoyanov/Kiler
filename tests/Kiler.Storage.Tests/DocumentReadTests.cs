@@ -18,7 +18,7 @@ public sealed class DocumentReadTests : IDisposable
     [Fact]
     public void Read_ADocumentFile_GivesTheDocument()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         var content = new JsonObject { ["template"] = "db", ["name"] = "Демо база" };
         File.WriteAllBytes(data.DocumentPath(Record), DocumentFormat.Next(Record, 6, content));
 
@@ -34,7 +34,7 @@ public sealed class DocumentReadTests : IDisposable
     [Fact]
     public void Read_ARootDocument_GivesTheDocument()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         var levels = DocumentKey.AtRoot(DataFolder.Levels);
         File.WriteAllBytes(data.DocumentPath(levels), DocumentFormat.New(levels, new JsonObject { ["count"] = 4 }));
 
@@ -47,7 +47,7 @@ public sealed class DocumentReadTests : IDisposable
     [Fact]
     public void Read_ADocumentInAPrivateFolder_GivesTheDocument()
     {
-        var mine = DataFolder.Create(_data).CreatePrivate("demo.user");
+        var mine = DataFolder.Create(_data, new TestOwners()).CreatePrivate("demo.user");
         var key = DocumentKey.AtRoot(DataFolder.Key);
         File.WriteAllBytes(mine.DocumentPath(key), DocumentFormat.New(key, new JsonObject { ["wrapped"] = "a2V5" }));
         File.WriteAllBytes(mine.DocumentPath(Record), DocumentFormat.New(Record, new JsonObject { ["name"] = "лично" }));
@@ -59,7 +59,7 @@ public sealed class DocumentReadTests : IDisposable
     [Fact]
     public void Read_AMissingDocument_GivesNothing()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
 
         Assert.Null(data.Read(Record));
     }
@@ -67,7 +67,7 @@ public sealed class DocumentReadTests : IDisposable
     [Fact]
     public void Read_ADamagedFile_GivesTheReasonAndThrowsNothing()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         File.WriteAllText(data.DocumentPath(Record), "{\"id\": \"8f3a1c\", \"version\": ", Encoding.UTF8);
 
         Assert.Equal(DocumentDamage.NotJson, data.Read(Record)?.Damage);
@@ -79,7 +79,7 @@ public sealed class DocumentReadTests : IDisposable
     [InlineData(4096)]
     public void Read_AnEmptyOrZeroedFile_IsNotJson(int size)
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         File.WriteAllBytes(data.DocumentPath(Record), new byte[size]);
 
         Assert.Equal(DocumentDamage.NotJson, data.Read(Record)?.Damage);
@@ -88,7 +88,7 @@ public sealed class DocumentReadTests : IDisposable
     [Fact]
     public void Read_AFolderInPlaceOfTheFile_Throws()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         Directory.CreateDirectory(data.DocumentPath(Record));
 
         Assert.Throws<UnauthorizedAccessException>(() => data.Read(Record));
@@ -97,7 +97,7 @@ public sealed class DocumentReadTests : IDisposable
     [Fact]
     public void Read_AFileWithTheIdOfAnotherFile_IsWrongId()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         var other = DocumentKey.InFolder(DataFolder.Records, "b72e09");
         File.WriteAllBytes(data.DocumentPath(other), DocumentFormat.New(Record, new JsonObject()));
 

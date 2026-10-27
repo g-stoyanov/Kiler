@@ -2,7 +2,9 @@
 
   <!--
     Templates, records, search, users, permissions, audit. It connects Crypto and Storage.
-    The Windows parts are interfaces here; Kiler.App implements them.
+    The Windows parts are interfaces here; Kiler.App implements them. The exception is the file
+    owner, IFileOwner in Kiler.Storage, which the data layer reads through the handle it reads a
+    file with (decided at the start of M2, M2.6).
   -->
   <ItemGroup>
     <ProjectReference Include="..\Kiler.Crypto\Kiler.Crypto.csproj" />

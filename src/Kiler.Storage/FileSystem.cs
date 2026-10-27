@@ -3,17 +3,14 @@ using Microsoft.Win32.SafeHandles;
 
 namespace Kiler.Storage;
 
-/// <summary>The file operations of the data layer on System.IO.</summary>
-internal sealed class FileSystem : IFileSystem
+/// <summary>
+/// The file operations of the data layer on System.IO, with the owners from <paramref name="owners"/>, read through the
+/// handles (M2.6): Kiler.exe gives the owners of Windows, the tests a fake.
+/// </summary>
+internal sealed class FileSystem(IFileOwner owners) : IFileSystem
 {
     /// <summary>Every entry: the defaults skip hidden and system ones, and anyone can set those on a file in the shared folder.</summary>
     private static readonly EnumerationOptions AllEntries = new() { AttributesToSkip = 0, IgnoreInaccessible = false };
-
-    private FileSystem()
-    {
-    }
-
-    public static FileSystem Instance { get; } = new();
 
     public FileAttributes? Attributes(string path)
     {
@@ -43,9 +40,13 @@ internal sealed class FileSystem : IFileSystem
     // MoveFile without MOVEFILE_REPLACE_EXISTING, a rename that SMB does in one step.
     public void MoveFolder(string from, string to) => Directory.Move(from, to);
 
-    public PinnedFolder HoldFolder(string path) => PinnedFolder.Open(path);
+    public PinnedFolder HoldFolder(string path, bool readOwner = false) => PinnedFolder.Open(path, readOwner);
 
-    public PinnedFolder HoldOrCreateFolder(string path) => PinnedFolder.OpenOrCreate(path);
+    public PinnedFolder HoldOrCreateFolder(string path, bool readOwner = false) => PinnedFolder.OpenOrCreate(path, readOwner);
+
+    public PinnedFolder? HoldNewFolder(string path, bool readOwner = false) => PinnedFolder.CreateNew(path, readOwner);
+
+    public FileId Id(PinnedFolder folder) => NativeFiles.Id(folder.Handle);
 
     public Stream? OpenRead(string path)
     {
@@ -68,6 +69,11 @@ internal sealed class FileSystem : IFileSystem
 
     public FileStamp Stamp(Stream file) =>
         file is FileStream { SafeFileHandle: var handle } ? StampOf(handle) : throw new ArgumentException("Not a file that OpenRead opened.", nameof(file));
+
+    public string? Owner(Stream file) =>
+        file is FileStream { SafeFileHandle: var handle } ? owners.Of(handle) : throw new ArgumentException("Not a file that OpenRead opened.", nameof(file));
+
+    public string? Owner(PinnedFolder folder) => owners.Of(folder.Handle);
 
     public FileTimes? OpenTimes(string path)
     {

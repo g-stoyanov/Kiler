@@ -55,7 +55,7 @@ public sealed class DocumentWriteTests : IDisposable
     [Fact]
     public void CreateDocument_ANewId_WritesVersion1()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         var content = new JsonObject { ["name"] = "Демо база", ["version"] = 7, ["more"] = new JsonObject { ["port"] = 1521 } };
 
         var result = data.CreateDocument(Record, content);
@@ -74,7 +74,7 @@ public sealed class DocumentWriteTests : IDisposable
     [Fact]
     public void CreateDocument_AnIdThatExists_GivesExistsAndLeavesTheFile()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
         var before = File.ReadAllBytes(data.DocumentPath(Record));
 
@@ -89,7 +89,7 @@ public sealed class DocumentWriteTests : IDisposable
     [Fact]
     public void CreateDocument_ARootDocumentAndInAPrivateFolder_WritesVersion1()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         var settings = DocumentKey.AtRoot(DataFolder.Settings);
         var mine = data.CreatePrivate("demo.user");
         var key = DocumentKey.AtRoot(DataFolder.Key);
@@ -108,7 +108,7 @@ public sealed class DocumentWriteTests : IDisposable
     [Fact]
     public void ReplaceDocument_WritesTheNextVersionWhateverTheContentSays()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
 
         var second = data.ReplaceDocument(Record, 1, new JsonObject { ["id"] = "b72e09", ["version"] = 99, ["name"] = "второ" });
@@ -125,7 +125,7 @@ public sealed class DocumentWriteTests : IDisposable
     [Fact]
     public void ReplaceDocument_PutsEachOldVersionIntoItsHistorySlot()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
         var first = File.ReadAllBytes(data.DocumentPath(Record));
         data.ReplaceDocument(Record, 1, Content("second"));
@@ -141,7 +141,7 @@ public sealed class DocumentWriteTests : IDisposable
     [Fact]
     public void ReplaceDocument_ARootDocumentAndInAPrivateFolder_KeepTheirHistoryInTheirRoot()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         var settings = DocumentKey.AtRoot(DataFolder.Settings);
         var mine = data.CreatePrivate("demo.user");
         data.CreateDocument(settings, new JsonObject { ["theme"] = "dark" });
@@ -158,7 +158,7 @@ public sealed class DocumentWriteTests : IDisposable
     [Fact]
     public void ReplaceDocument_AMissingDocument_GivesMissingAndWritesNothing()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
 
         Assert.Equal(WriteOutcome.Missing, data.ReplaceDocument(Record, 1, Content("x")).Outcome);
 
@@ -169,7 +169,7 @@ public sealed class DocumentWriteTests : IDisposable
     [Fact]
     public void ReplaceDocument_ADamagedFile_GivesDamagedAndWritesNothing()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         File.WriteAllText(data.DocumentPath(Record), """{"id": "8f3a1c", "version": """);
 
         var result = data.ReplaceDocument(Record, 1, Content("x"));
@@ -184,7 +184,7 @@ public sealed class DocumentWriteTests : IDisposable
     [Fact]
     public void ReplaceDocument_AnotherVersionOnDisk_GivesConflictWithTheDocumentOnDisk()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
         data.ReplaceDocument(Record, 1, Content("second"));
         var before = File.ReadAllBytes(data.DocumentPath(Record));
@@ -203,7 +203,7 @@ public sealed class DocumentWriteTests : IDisposable
     [Fact]
     public void ReplaceDocument_WhenItsHistorySlotExists_GivesConflictAndWritesNothing()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
         var before = File.ReadAllBytes(data.DocumentPath(Record));
         var slot = data.HistoryPath(Record, 1);
@@ -222,7 +222,7 @@ public sealed class DocumentWriteTests : IDisposable
     [Fact]
     public void ReplaceDocument_AtTheLastVersion_GivesNoNextVersionAndLeavesNoSlot()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         File.WriteAllBytes(data.DocumentPath(Record), DocumentFormat.Next(Record, int.MaxValue - 1, Content("last")));
 
         var result = data.ReplaceDocument(Record, int.MaxValue, Content("after"));
@@ -236,7 +236,7 @@ public sealed class DocumentWriteTests : IDisposable
     [Fact]
     public void Write_ContentOverTheLimit_IsRefusedBeforeAnythingIsWritten()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
         var large = new JsonObject { ["text"] = new string('a', DocumentFormat.MaxSize) };
 
@@ -405,7 +405,7 @@ public sealed class DocumentWriteTests : IDisposable
             // Another Kiler reads the document right after the rename, while the write still holds the file.
             if (step == nameof(IFileSystem.SetCreationToWriteTime) && ++calls == 2)
             {
-                read = DataFolder.Open(_data).Read(Record);
+                read = DataFolder.Open(_data, new TestOwners()).Read(Record);
             }
         };
 
@@ -417,7 +417,7 @@ public sealed class DocumentWriteTests : IDisposable
     [Fact]
     public void ReplaceDocument_WhenASymbolicLinkWithoutTargetIsAtTheSlotName_GivesConflictAndDoesNotFollowIt()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
         var before = File.ReadAllBytes(data.DocumentPath(Record));
         var target = Path.Combine(Directory.CreateDirectory(Path.Combine(_test.Root, "outside")).FullName, "v1.json");
@@ -435,7 +435,7 @@ public sealed class DocumentWriteTests : IDisposable
     [Fact]
     public void ReplaceDocument_WhenAJunctionWithoutTargetIsAtTheSlotName_GivesConflictAndDoesNotFollowIt()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
         var before = File.ReadAllBytes(data.DocumentPath(Record));
         var target = Directory.CreateDirectory(Path.Combine(_test.Root, "outside", "gone")).FullName;
@@ -577,7 +577,7 @@ public sealed class DocumentWriteTests : IDisposable
         }
 
         Directory.CreateDirectory(above);
-        var data = DataFolder.Create(Path.Combine(above, "data"));
+        var data = DataFolder.Create(Path.Combine(above, "data"), new TestOwners());
 
         Assert.Equal(WriteOutcome.Written, data.CreateDocument(Record, Content("first")).Outcome);
         Assert.Equal(WriteOutcome.Written, data.ReplaceDocument(Record, 1, Content("second")).Outcome);
@@ -613,7 +613,7 @@ public sealed class DocumentWriteTests : IDisposable
     [Fact]
     public void ReplaceDocument_WithinTheTunnelingOfAnOldFile_HasTheCreationTimeOfItsWriteTime()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         var path = data.DocumentPath(Record);
         data.CreateDocument(Record, Content("first"));
         File.SetCreationTimeUtc(path, Old);
@@ -632,7 +632,7 @@ public sealed class DocumentWriteTests : IDisposable
     [Fact]
     public void CreateDocument_WithinTheTunnelingOfADeletedFile_HasTheCreationTimeOfItsWriteTime()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         var path = data.DocumentPath(Record);
         File.WriteAllText(path, "made up");
         File.SetCreationTimeUtc(path, Old);
@@ -648,7 +648,7 @@ public sealed class DocumentWriteTests : IDisposable
     [Fact]
     public void List_AFileEditedInPlace_LooksEditedInPlace_AndAFileOfTheLayerDoesNot()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         var other = DocumentKey.InFolder(DataFolder.Records, "b72e09");
         data.CreateDocument(Record, Content("first"));
         data.CreateDocument(other, Content("other"));
@@ -670,7 +670,7 @@ public sealed class DocumentWriteTests : IDisposable
     [Fact]
     public void List_GivesTheTemporaryFilesApart_AndNeverAsDocuments()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
         // A whole document under a temporary name, as a crash before the rename leaves it.
         File.Copy(data.DocumentPath(Record), Path.Combine(_records, "8f3a1c.1a2b3c4d.tmp"));
@@ -691,7 +691,7 @@ public sealed class DocumentWriteTests : IDisposable
     [Fact]
     public void DeleteOldTemporaryFiles_DeletesOnlyTheTemporaryFilesOverTheAge()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
         var now = DateTimeOffset.UtcNow;
         var old = Path.Combine(_records, "8f3a1c.1a2b3c4d.tmp");
@@ -712,7 +712,7 @@ public sealed class DocumentWriteTests : IDisposable
     [Fact]
     public void Write_WhenTheDocumentFolderIsAJunction_IsRefusedAndWritesNothingThere()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         var elsewhere = Directory.CreateDirectory(Path.Combine(_test.Root, "elsewhere")).FullName;
         File.WriteAllBytes(Path.Combine(elsewhere, "8f3a1c.json"), DocumentFormat.New(Record, Content("elsewhere")));
         var before = File.ReadAllBytes(Path.Combine(elsewhere, "8f3a1c.json"));
@@ -734,7 +734,7 @@ public sealed class DocumentWriteTests : IDisposable
     [InlineData(@"history\records\8f3a1c")]
     public void ReplaceDocument_WhenAHistoryFolderIsAJunction_IsRefusedAndChangesNothing(string folder)
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreateDocument(Record, Content("first"));
         var before = File.ReadAllBytes(data.DocumentPath(Record));
         var link = Path.Combine(_data, folder);
@@ -790,7 +790,7 @@ public sealed class DocumentWriteTests : IDisposable
     [Fact]
     public void Read_ADocumentThatIsASymbolicLink_IsRefused()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         var target = Path.Combine(_test.Root, "8f3a1c.json");
         File.WriteAllBytes(target, DocumentFormat.New(Record, Content("elsewhere")));
         TestFolder.CreateFileLink(data.DocumentPath(Record), target);
@@ -818,7 +818,7 @@ public sealed class DocumentWriteTests : IDisposable
     private void AssertWholeDocuments(byte[]? expected, int version)
     {
         AssertWholeDocuments(expected);
-        var data = DataFolder.Open(_data);
+        var data = DataFolder.Open(_data, new TestOwners());
         if (version == 0)
         {
             Assert.Equal(WriteOutcome.Written, data.CreateDocument(Record, Content("again")).Outcome);
@@ -837,7 +837,7 @@ public sealed class DocumentWriteTests : IDisposable
 
     private void AssertWholeDocuments(byte[]? expected)
     {
-        var data = DataFolder.Open(_data);
+        var data = DataFolder.Open(_data, new TestOwners());
         var path = data.DocumentPath(Record);
         if (expected is null)
         {

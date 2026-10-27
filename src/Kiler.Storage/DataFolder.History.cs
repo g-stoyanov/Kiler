@@ -9,6 +9,13 @@ namespace Kiler.Storage;
 public sealed partial class DataFolder
 {
     /// <summary>
+    /// How many of the newest history slots <see cref="Versions"/> opens for their owners (decided in M2.6): about a second
+    /// over SMB, estimated from the reads of M1.0b (about 12 ms a file), not measured. Anyone can put any number of slot names
+    /// in a history folder, and a long history is slow to open whole.
+    /// </summary>
+    internal const int SlotsWithOwners = 100;
+
+    /// <summary>
     /// Deletes the version <paramref name="version"/> of a document: the version into its history slot, as a write puts it
     /// there, then a move to the trash, over an older copy there, whose version is in history. Nothing is deleted when the
     /// document is missing, damaged or at another version, or when its slot is in the way (<see cref="WriteOutcome.Conflict"/>).
@@ -199,11 +206,18 @@ public sealed partial class DataFolder
     /// <see cref="TemporaryFileAge"/> at <paramref name="now"/> deleted, as a crash leaves them (M2.3). A deleted document has
     /// only its slots. The current version is read first, so a write in between gives a slot with the number of the current
     /// version, or after it, never a gap; a slot of a write under way, or a leftover, can have that number too. What the times
-    /// of a slot say is in <see cref="DocumentVersion"/>.
+    /// and the owner of a slot say is in <see cref="DocumentVersion"/>. The owner of the current version is read through the
+    /// handle it is read with, and each of the newest <see cref="SlotsWithOwners"/> slots is opened as itself for its owner,
+    /// one open per slot (decided in M2.6); the older ones have none, and <see cref="ReadVersion"/> gives the owner of any.
+    /// When there is a current version, the newest are chosen up to the version after it, as a slot far above it is none
+    /// that a write made, and names such as <c>v2000000000.json</c> would push the real ones out.
+    /// The stamp of a slot comes from the listing and its owner from that open, so a slot replaced in between gives the two
+    /// of two files.
     /// </summary>
     internal IReadOnlyList<DocumentVersion> Versions(DocumentKey key, DateTimeOffset now)
     {
         var versions = new List<DocumentVersion>();
+        int? current = null;
         using var folders = HoldDocumentFolders(key);
         using (var stream = Files.OpenRead(DocumentPath(key)))
         {
@@ -214,7 +228,8 @@ public sealed partial class DataFolder
                 var read = DocumentFormat.Read(key, stream);
                 if (!read.IsDamaged)
                 {
-                    versions.Add(new DocumentVersion(read.Document.Version, stamp, IsCurrent: true));
+                    current = read.Document.Version;
+                    versions.Add(new DocumentVersion(read.Document.Version, stamp, IsCurrent: true, Files.Owner(stream)));
                 }
             }
         }
@@ -225,6 +240,7 @@ public sealed partial class DataFolder
             {
                 var path = HistoryFolderPath(key);
                 var temporary = new List<FileEntry>();
+                var slots = new List<(int Version, FileStamp Stamp)>();
                 foreach (var entry in Files.List(path))
                 {
                     if (entry.IsLink || entry.IsFolder)
@@ -238,17 +254,47 @@ public sealed partial class DataFolder
                     }
                     else if (SlotVersion(entry.Name) is { } version)
                     {
-                        versions.Add(new DocumentVersion(version, entry.Stamp, IsCurrent: false));
+                        slots.Add((version, entry.Stamp));
                     }
                 }
 
-                // An empty folder made a mount point in place would have given the listing of another folder.
+                // Anyone can put names in the folder, and each owner is a request of its own.
+                var owned = slots
+                    .Select(slot => slot.Version)
+                    .Where(version => current is not { } last || version <= (long)last + 1)
+                    .OrderDescending()
+                    .Take(SlotsWithOwners)
+                    .ToHashSet();
+                foreach (var (version, stamp) in slots)
+                {
+                    versions.Add(new DocumentVersion(version, stamp, IsCurrent: false, owned.Contains(version) ? SlotOwner(key, version) : null));
+                }
+
+                // An empty folder made a mount point in place would have given the listing of another folder, and its slots.
                 historyFolders.ThrowIfLink();
                 DeleteOldTemporaryFiles(path, temporary, now);
             }
         }
 
         return [.. versions.OrderBy(version => version.Version).ThenBy(version => version.IsCurrent)];
+    }
+
+    /// <summary>
+    /// The owner of a history slot, opened as itself for it, through its held folders (M2.6). <c>null</c> when it cannot be
+    /// read, also when the slot cannot be opened: someone holds it without sharing, it has gone since the listing, or a link
+    /// has been put at its name. The slot stays in the list all the same.
+    /// </summary>
+    private string? SlotOwner(DocumentKey key, int version)
+    {
+        try
+        {
+            using var slot = Files.OpenRead(HistoryPath(key, version));
+            return slot is null ? null : Files.Owner(slot);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -312,9 +358,10 @@ public sealed partial class DataFolder
 
     /// <summary>
     /// Reads an old version of a document from its history slot: <c>null</c> when there is no slot of that version, else the
-    /// document as it was, or why the slot is damaged. A slot with another version inside than its name is damaged
-    /// (<see cref="DocumentDamage.WrongVersion"/>). The folders are held and the slot is opened as itself, so a link is an
-    /// <see cref="IOException"/>, as for <see cref="Read"/>.
+    /// document as it was, or why the slot is damaged, with the owner of the slot, read through the same handle (M2.6), which
+    /// is who wrote the version after it or deleted it (<see cref="DocumentVersion"/>). A slot with another version inside
+    /// than its name is damaged (<see cref="DocumentDamage.WrongVersion"/>). The folders are held and the slot is opened as
+    /// itself, so a link is an <see cref="IOException"/>, as for <see cref="Read"/>.
     /// </summary>
     internal DocumentRead? ReadVersion(DocumentKey key, int version)
     {
@@ -333,6 +380,6 @@ public sealed partial class DataFolder
         }
 
         var read = DocumentFormat.Read(key, stream);
-        return read.IsDamaged || read.Document.Version == version ? read : DocumentRead.Damaged(DocumentDamage.WrongVersion);
+        return (read.IsDamaged || read.Document.Version == version ? read : DocumentRead.Damaged(DocumentDamage.WrongVersion)).WithOwner(Files.Owner(stream));
     }
 }

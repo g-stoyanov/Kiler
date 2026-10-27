@@ -27,16 +27,31 @@ internal interface IFileSystem
     /// Holds a folder, opened as itself, until the result is disposed (<see cref="PinnedFolder"/>): no one can rename or
     /// delete it or a folder above it, so it cannot be swapped for a link; an empty one can still be made a link in place,
     /// which <see cref="PinnedFolder.ThrowIfLink"/> sees. A missing folder is a <see cref="DirectoryNotFoundException"/>; a
-    /// link or a file in its place an <see cref="IOException"/>.
+    /// link or a file in its place an <see cref="IOException"/>. With <paramref name="readOwner"/>, <see cref="Owner(PinnedFolder)"/>
+    /// can read its owner (M2.6); without it, the owner is <c>null</c>.
     /// </summary>
-    PinnedFolder HoldFolder(string path);
+    PinnedFolder HoldFolder(string path, bool readOwner = false);
 
     /// <summary>
     /// Holds a folder as <see cref="HoldFolder"/> does, and makes it first when it is missing, in one call that never follows
     /// a link at its name (M2.5). The folder above must exist: it never makes a chain. A link or a file in its place is an
-    /// <see cref="IOException"/>, a missing folder above a <see cref="DirectoryNotFoundException"/>.
+    /// <see cref="IOException"/>, a missing folder above a <see cref="DirectoryNotFoundException"/>. With
+    /// <paramref name="readOwner"/>, as for <see cref="HoldFolder"/>.
     /// </summary>
-    PinnedFolder HoldOrCreateFolder(string path);
+    PinnedFolder HoldOrCreateFolder(string path, bool readOwner = false);
+
+    /// <summary>
+    /// Makes a new folder and holds it, as <see cref="HoldOrCreateFolder"/> does, but never takes one that is there (M2.6):
+    /// <c>null</c> when the name is taken, by a folder, a file or a link, so a folder that someone made first is never taken
+    /// for one that the layer made.
+    /// </summary>
+    PinnedFolder? HoldNewFolder(string path, bool readOwner = false);
+
+    /// <summary>
+    /// The id of a held folder, through its handle: the serial number of its volume and its index there, which a rename keeps
+    /// on NTFS (M2.6), as for a file (<see cref="FileId"/>).
+    /// </summary>
+    FileId Id(PinnedFolder folder);
 
     /// <summary>
     /// Opens a file to read, as itself, shared with writes and deletes; <c>null</c> when no file is there. A link in its place
@@ -48,6 +63,18 @@ internal interface IFileSystem
 
     /// <summary>The size and the times of a file that <see cref="OpenRead"/> opened, through its handle.</summary>
     FileStamp Stamp(Stream file);
+
+    /// <summary>
+    /// The owner of a file that <see cref="OpenRead"/> opened, through its handle, so it is that of the file that is read,
+    /// whatever is at its name by then (M2.6); <c>null</c> when it cannot be read (<see cref="IFileOwner.Of"/>).
+    /// </summary>
+    string? Owner(Stream file);
+
+    /// <summary>
+    /// The owner of a held folder, through its handle; <c>null</c> when it cannot be read (<see cref="IFileOwner.Of"/>), as when
+    /// it was not held for it (<see cref="HoldFolder"/>).
+    /// </summary>
+    string? Owner(PinnedFolder folder);
 
     /// <summary>
     /// Opens a file as itself only to read and set its times (<see cref="FileTimes"/>), which stops no one from opening,

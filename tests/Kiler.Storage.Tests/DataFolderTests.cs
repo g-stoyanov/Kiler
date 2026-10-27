@@ -12,7 +12,7 @@ public sealed class DataFolderTests : IDisposable
     [Fact]
     public void Create_MakesTheFoldersOfADataFolder()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
 
         Assert.Equal(_data, data.Root);
         Assert.False(data.IsPrivate);
@@ -24,7 +24,7 @@ public sealed class DataFolderTests : IDisposable
     {
         Directory.CreateDirectory(_data);
 
-        DataFolder.Create(_data);
+        DataFolder.Create(_data, new TestOwners());
 
         Assert.Equal(["audit", "history", "private", "records", "stashes", "templates", "trash", "users"], EmptyFolders(_data));
     }
@@ -35,7 +35,7 @@ public sealed class DataFolderTests : IDisposable
         Directory.CreateDirectory(_data);
         File.WriteAllText(Path.Combine(_data, "notes.txt"), "made up");
 
-        Assert.Throws<IOException>(() => DataFolder.Create(_data));
+        Assert.Throws<IOException>(() => DataFolder.Create(_data, new TestOwners()));
 
         Assert.Equal(["notes.txt"], Names(_data));
     }
@@ -46,7 +46,7 @@ public sealed class DataFolderTests : IDisposable
         Directory.CreateDirectory(Path.Combine(_data, "records"));
         Directory.CreateDirectory(Path.Combine(_data, "users"));
 
-        DataFolder.Create(_data);
+        DataFolder.Create(_data, new TestOwners());
 
         Assert.Equal(["audit", "history", "private", "records", "stashes", "templates", "trash", "users"], EmptyFolders(_data));
     }
@@ -60,7 +60,7 @@ public sealed class DataFolderTests : IDisposable
         Assert.Throws<IOException>(() => DataFolder.Create(_data, files));
         Assert.Equal(2, Names(_data).Length);
 
-        DataFolder.Create(_data);
+        DataFolder.Create(_data, new TestOwners());
 
         Assert.Equal(["audit", "history", "private", "records", "stashes", "templates", "trash", "users"], EmptyFolders(_data));
     }
@@ -71,7 +71,7 @@ public sealed class DataFolderTests : IDisposable
         Directory.CreateDirectory(Path.Combine(_data, "records"));
         File.WriteAllText(Path.Combine(_data, "records", "8f3a1c.json"), "{}");
 
-        Assert.Throws<IOException>(() => DataFolder.Create(_data));
+        Assert.Throws<IOException>(() => DataFolder.Create(_data, new TestOwners()));
 
         Assert.Equal(["records"], Names(_data));
         Assert.Equal(["8f3a1c.json"], Names(Path.Combine(_data, "records")));
@@ -82,7 +82,7 @@ public sealed class DataFolderTests : IDisposable
     {
         Directory.CreateDirectory(Path.Combine(_data, "other"));
 
-        Assert.Throws<IOException>(() => DataFolder.Create(_data));
+        Assert.Throws<IOException>(() => DataFolder.Create(_data, new TestOwners()));
 
         Assert.Equal(["other"], Names(_data));
     }
@@ -93,7 +93,7 @@ public sealed class DataFolderTests : IDisposable
         Directory.CreateDirectory(_data);
         File.WriteAllText(Path.Combine(_data, "records"), "made up");
 
-        Assert.Throws<IOException>(() => DataFolder.Create(_data));
+        Assert.Throws<IOException>(() => DataFolder.Create(_data, new TestOwners()));
 
         Assert.Equal(["records"], Names(_data));
     }
@@ -105,7 +105,7 @@ public sealed class DataFolderTests : IDisposable
         Directory.CreateDirectory(_data);
         TestFolder.CreateJunction(Path.Combine(_data, "records"), elsewhere);
 
-        Assert.Throws<IOException>(() => DataFolder.Create(_data));
+        Assert.Throws<IOException>(() => DataFolder.Create(_data, new TestOwners()));
 
         Assert.Equal(["records"], Names(_data));
         Assert.Empty(Names(elsewhere));
@@ -138,7 +138,7 @@ public sealed class DataFolderTests : IDisposable
     {
         var above = Path.Combine(_test.Root, "missing");
 
-        Assert.Throws<DirectoryNotFoundException>(() => DataFolder.Create(Path.Combine(above, "data")));
+        Assert.Throws<DirectoryNotFoundException>(() => DataFolder.Create(Path.Combine(above, "data"), new TestOwners()));
 
         Assert.False(Directory.Exists(above));
     }
@@ -149,7 +149,7 @@ public sealed class DataFolderTests : IDisposable
         var above = Path.Combine(_test.Root, "file");
         File.WriteAllText(above, "made up");
 
-        Assert.Throws<DirectoryNotFoundException>(() => DataFolder.Create(Path.Combine(above, "data")));
+        Assert.Throws<DirectoryNotFoundException>(() => DataFolder.Create(Path.Combine(above, "data"), new TestOwners()));
     }
 
     [Fact]
@@ -158,18 +158,18 @@ public sealed class DataFolderTests : IDisposable
         var elsewhere = Directory.CreateDirectory(Path.Combine(_test.Root, "elsewhere")).FullName;
         TestFolder.CreateJunction(_data, elsewhere);
 
-        Assert.Throws<IOException>(() => DataFolder.Create(_data));
+        Assert.Throws<IOException>(() => DataFolder.Create(_data, new TestOwners()));
 
         Assert.Empty(Names(elsewhere));
     }
 
     [Fact]
-    public void Create_ARelativePath_IsRefused() => Assert.Throws<ArgumentException>(() => DataFolder.Create("data"));
+    public void Create_ARelativePath_IsRefused() => Assert.Throws<ArgumentException>(() => DataFolder.Create("data", new TestOwners()));
 
     [Fact]
     public void Open_AFolderThatDoesNotExist_FailsAndCreatesNothing()
     {
-        Assert.Throws<DirectoryNotFoundException>(() => DataFolder.Open(_data));
+        Assert.Throws<DirectoryNotFoundException>(() => DataFolder.Open(_data, new TestOwners()));
 
         Assert.False(Directory.Exists(_data));
     }
@@ -179,7 +179,7 @@ public sealed class DataFolderTests : IDisposable
     {
         Directory.CreateDirectory(_data);
 
-        var data = DataFolder.Open(_data);
+        var data = DataFolder.Open(_data, new TestOwners());
 
         Assert.Equal(_data, data.Root);
         Assert.False(data.IsPrivate);
@@ -191,7 +191,7 @@ public sealed class DataFolderTests : IDisposable
     {
         Directory.CreateDirectory(_data);
 
-        Assert.Equal(_data, DataFolder.Open(Path.Combine(_data, "..", "data") + Path.DirectorySeparatorChar).Root);
+        Assert.Equal(_data, DataFolder.Open(Path.Combine(_data, "..", "data") + Path.DirectorySeparatorChar, new TestOwners()).Root);
     }
 
     [Fact]
@@ -199,7 +199,7 @@ public sealed class DataFolderTests : IDisposable
     {
         File.WriteAllText(_data, "made up");
 
-        Assert.Throws<IOException>(() => DataFolder.Open(_data));
+        Assert.Throws<IOException>(() => DataFolder.Open(_data, new TestOwners()));
     }
 
     [Fact]
@@ -208,16 +208,16 @@ public sealed class DataFolderTests : IDisposable
         var elsewhere = Directory.CreateDirectory(Path.Combine(_test.Root, "elsewhere")).FullName;
         TestFolder.CreateJunction(_data, elsewhere);
 
-        Assert.Throws<IOException>(() => DataFolder.Open(_data));
+        Assert.Throws<IOException>(() => DataFolder.Open(_data, new TestOwners()));
     }
 
     [Fact]
-    public void Open_ARelativePath_IsRefused() => Assert.Throws<ArgumentException>(() => DataFolder.Open("data"));
+    public void Open_ARelativePath_IsRefused() => Assert.Throws<ArgumentException>(() => DataFolder.Open("data", new TestOwners()));
 
     [Fact]
     public void CreatePrivate_MakesTheFoldersOfAPrivateFolder()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
 
         var mine = data.CreatePrivate("demo.user");
 
@@ -232,7 +232,7 @@ public sealed class DataFolderTests : IDisposable
     {
         Directory.CreateDirectory(_data);
 
-        var mine = DataFolder.Open(_data).CreatePrivate("demo.user");
+        var mine = DataFolder.Open(_data, new TestOwners()).CreatePrivate("demo.user");
 
         Assert.Equal(["history", "records", "trash"], EmptyFolders(mine.Root));
     }
@@ -244,7 +244,7 @@ public sealed class DataFolderTests : IDisposable
     [InlineData("Demo.User")]
     public void CreatePrivate_ARefusedName_CreatesNothing(string account)
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
 
         Assert.Throws<ArgumentException>(() => data.CreatePrivate(account));
 
@@ -255,7 +255,7 @@ public sealed class DataFolderTests : IDisposable
     [Fact]
     public void CreatePrivate_AFolderWithSomethingInIt_IsRefused()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         var key = Path.Combine(_data, "private", "demo.user", "key.json");
         Directory.CreateDirectory(Path.GetDirectoryName(key)!);
         File.WriteAllText(key, "{}");
@@ -269,7 +269,7 @@ public sealed class DataFolderTests : IDisposable
     public void CreatePrivate_AnEmptyFolderThatExists_IsRefused()
     {
         // Anyone can make it on the share before the user's first private record, and would then be its owner.
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         var mine = Directory.CreateDirectory(Path.Combine(_data, "private", "demo.user")).FullName;
 
         Assert.Throws<IOException>(() => data.CreatePrivate("demo.user"));
@@ -313,7 +313,7 @@ public sealed class DataFolderTests : IDisposable
     [Fact]
     public void CreatePrivate_WhenTheDataFolderIsGone_FailsAndCreatesNothing()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         Directory.Delete(_data, recursive: true);
 
         Assert.Throws<DirectoryNotFoundException>(() => data.CreatePrivate("demo.user"));
@@ -324,7 +324,7 @@ public sealed class DataFolderTests : IDisposable
     [Fact]
     public void CreatePrivate_WhenTheFolderOfThePrivateFoldersIsAJunction_IsRefusedAndDoesNotFollowIt()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         var elsewhere = Directory.CreateDirectory(Path.Combine(_test.Root, "elsewhere")).FullName;
         Directory.Delete(Path.Combine(_data, "private"));
         TestFolder.CreateJunction(Path.Combine(_data, "private"), elsewhere);
@@ -337,7 +337,7 @@ public sealed class DataFolderTests : IDisposable
     [Fact]
     public void CreatePrivate_InAPrivateFolder_IsRefused()
     {
-        var mine = DataFolder.Create(_data).CreatePrivate("demo.user");
+        var mine = DataFolder.Create(_data, new TestOwners()).CreatePrivate("demo.user");
 
         Assert.Throws<InvalidOperationException>(() => mine.CreatePrivate("other.user"));
     }
@@ -345,7 +345,7 @@ public sealed class DataFolderTests : IDisposable
     [Fact]
     public void OpenPrivate_AnExistingFolder_IsAPrivateFolder()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         data.CreatePrivate("demo.user");
 
         var mine = data.OpenPrivate("demo.user");
@@ -357,7 +357,7 @@ public sealed class DataFolderTests : IDisposable
     [Fact]
     public void OpenPrivate_AFolderThatDoesNotExist_FailsAndCreatesNothing()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
 
         Assert.Throws<DirectoryNotFoundException>(() => data.OpenPrivate("demo.user"));
 
@@ -369,7 +369,7 @@ public sealed class DataFolderTests : IDisposable
     {
         Directory.CreateDirectory(_data);
 
-        Assert.Throws<DirectoryNotFoundException>(() => DataFolder.Open(_data).OpenPrivate("demo.user"));
+        Assert.Throws<DirectoryNotFoundException>(() => DataFolder.Open(_data, new TestOwners()).OpenPrivate("demo.user"));
 
         Assert.Empty(Names(_data));
     }
@@ -380,7 +380,7 @@ public sealed class DataFolderTests : IDisposable
         Directory.CreateDirectory(_data);
         File.WriteAllText(Path.Combine(_data, "private"), "made up");
 
-        Assert.Throws<IOException>(() => DataFolder.Open(_data).OpenPrivate("demo.user"));
+        Assert.Throws<IOException>(() => DataFolder.Open(_data, new TestOwners()).OpenPrivate("demo.user"));
     }
 
     [Theory]
@@ -389,7 +389,7 @@ public sealed class DataFolderTests : IDisposable
     [InlineData("nul")]
     public void OpenPrivate_ARefusedName_IsRefused(string account)
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
 
         Assert.Throws<ArgumentException>(() => data.OpenPrivate(account));
     }
@@ -397,7 +397,7 @@ public sealed class DataFolderTests : IDisposable
     [Fact]
     public void OpenPrivate_AJunction_IsRefusedAndNotFollowed()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         var elsewhere = Directory.CreateDirectory(Path.Combine(_test.Root, "elsewhere")).FullName;
         TestFolder.CreateJunction(Path.Combine(_data, "private", "demo.user"), elsewhere);
 
@@ -407,7 +407,7 @@ public sealed class DataFolderTests : IDisposable
     [Fact]
     public void OpenPrivate_WhenTheFolderOfThePrivateFoldersIsAJunction_IsRefusedAndNotFollowed()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         var elsewhere = Directory.CreateDirectory(Path.Combine(_test.Root, "elsewhere")).FullName;
         Directory.CreateDirectory(Path.Combine(elsewhere, "demo.user"));
         Directory.Delete(Path.Combine(_data, "private"));
@@ -419,7 +419,7 @@ public sealed class DataFolderTests : IDisposable
     [Fact]
     public void Paths_OfADocumentInAFolder()
     {
-        var data = DataFolder.Open(Directory.CreateDirectory(_data).FullName);
+        var data = DataFolder.Open(Directory.CreateDirectory(_data).FullName, new TestOwners());
         var record = DocumentKey.InFolder("records", "8f3a1c");
 
         Assert.Equal(Path.Combine(_data, "records", "8f3a1c.json"), data.DocumentPath(record));
@@ -430,7 +430,7 @@ public sealed class DataFolderTests : IDisposable
     [Fact]
     public void Paths_OfADocumentAtTheRoot()
     {
-        var data = DataFolder.Open(Directory.CreateDirectory(_data).FullName);
+        var data = DataFolder.Open(Directory.CreateDirectory(_data).FullName, new TestOwners());
         var settings = DocumentKey.AtRoot("settings");
 
         Assert.Equal(Path.Combine(_data, "settings.json"), data.DocumentPath(settings));
@@ -441,7 +441,7 @@ public sealed class DataFolderTests : IDisposable
     [Fact]
     public void Paths_InAPrivateFolder()
     {
-        var mine = DataFolder.Create(_data).CreatePrivate("demo.user");
+        var mine = DataFolder.Create(_data, new TestOwners()).CreatePrivate("demo.user");
         var record = DocumentKey.InFolder("records", "4c1d9e");
         var key = DocumentKey.AtRoot("key");
 
@@ -463,7 +463,7 @@ public sealed class DataFolderTests : IDisposable
     [InlineData(null, "share")]
     public void Paths_OfADocumentOutsideTheDataFolder_AreRefused(string? folder, string id)
     {
-        var data = DataFolder.Open(Directory.CreateDirectory(_data).FullName);
+        var data = DataFolder.Open(Directory.CreateDirectory(_data).FullName, new TestOwners());
         var key = folder is null ? DocumentKey.AtRoot(id) : DocumentKey.InFolder(folder, id);
 
         Assert.Throws<ArgumentException>(() => data.DocumentPath(key));
@@ -478,7 +478,7 @@ public sealed class DataFolderTests : IDisposable
     [InlineData(null, "levels")]
     public void Paths_OfADocumentOutsideAPrivateFolder_AreRefused(string? folder, string id)
     {
-        var mine = DataFolder.Create(_data).CreatePrivate("demo.user");
+        var mine = DataFolder.Create(_data, new TestOwners()).CreatePrivate("demo.user");
         var key = folder is null ? DocumentKey.AtRoot(id) : DocumentKey.InFolder(folder, id);
 
         Assert.Throws<ArgumentException>(() => mine.DocumentPath(key));
@@ -487,7 +487,7 @@ public sealed class DataFolderTests : IDisposable
     [Fact]
     public void HistoryPath_AVersionBelowOne_IsRefused()
     {
-        var data = DataFolder.Open(Directory.CreateDirectory(_data).FullName);
+        var data = DataFolder.Open(Directory.CreateDirectory(_data).FullName, new TestOwners());
 
         Assert.Throws<ArgumentOutOfRangeException>(() => data.HistoryPath(DocumentKey.InFolder("records", "8f3a1c"), 0));
     }
@@ -511,7 +511,7 @@ public sealed class DataFolderTests : IDisposable
     [Fact]
     public void List_GivesTheDocumentsOfAFolderWithTheInfoFromTheListing()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         var file = Path.Combine(_data, "records", "8f3a1c.json");
         File.WriteAllText(file, """{"id":"8f3a1c","version":1}""");
         File.WriteAllText(Path.Combine(_data, "records", "b72e09.json"), "{}");
@@ -534,7 +534,7 @@ public sealed class DataFolderTests : IDisposable
     [Fact]
     public void List_SkipsAndGivesApartLinksAndBadNames_AndLeavesOutWhatIsNotADocument()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         var records = Path.Combine(_data, "records");
         var elsewhere = Directory.CreateDirectory(Path.Combine(_test.Root, "elsewhere")).FullName;
         File.WriteAllText(Path.Combine(elsewhere, "b72e09.json"), "{}");
@@ -560,7 +560,7 @@ public sealed class DataFolderTests : IDisposable
     [Fact]
     public void List_TheRoot_GivesItsDocumentsAndTheFoldersThatAreLinks()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         var elsewhere = Directory.CreateDirectory(Path.Combine(_test.Root, "elsewhere")).FullName;
         File.WriteAllText(Path.Combine(_data, "settings.json"), "{}");
         File.WriteAllText(Path.Combine(_data, "levels.json"), "{}");
@@ -581,7 +581,7 @@ public sealed class DataFolderTests : IDisposable
     [Fact]
     public void List_AFolderThatIsAJunction_IsRefusedAndNotFollowed()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         var elsewhere = Directory.CreateDirectory(Path.Combine(_test.Root, "elsewhere")).FullName;
         File.WriteAllText(Path.Combine(elsewhere, "8f3a1c.json"), "{}");
         Directory.Delete(Path.Combine(_data, "records"));
@@ -593,7 +593,7 @@ public sealed class DataFolderTests : IDisposable
     [Fact]
     public void List_TheRootWhenItHasBecomeAJunction_IsRefusedAndNotFollowed()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         var moved = _data + "-moved";
         Directory.Move(_data, moved);
         File.WriteAllText(Path.Combine(moved, "settings.json"), "{}");
@@ -605,7 +605,7 @@ public sealed class DataFolderTests : IDisposable
     [Fact]
     public void List_InAPrivateFolder_AFolderOfTheDataFolder_IsRefused()
     {
-        var mine = DataFolder.Create(_data).CreatePrivate("demo.user");
+        var mine = DataFolder.Create(_data, new TestOwners()).CreatePrivate("demo.user");
 
         Assert.Throws<ArgumentException>(() => mine.List("users"));
     }
@@ -613,7 +613,7 @@ public sealed class DataFolderTests : IDisposable
     [Fact]
     public void List_AFolderThatIsMissing_Fails()
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
         Directory.Delete(Path.Combine(_data, "records"));
 
         Assert.Throws<DirectoryNotFoundException>(() => data.List("records"));
@@ -626,7 +626,7 @@ public sealed class DataFolderTests : IDisposable
     [InlineData("..")]
     public void List_AFolderThatHoldsNoDocuments_IsRefused(string folder)
     {
-        var data = DataFolder.Create(_data);
+        var data = DataFolder.Create(_data, new TestOwners());
 
         Assert.Throws<ArgumentException>(() => data.List(folder));
     }

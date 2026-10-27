@@ -24,13 +24,33 @@ public sealed class PinnedFolder : IDisposable
     /// Opens the folder as itself and holds it. A missing folder is a <see cref="DirectoryNotFoundException"/>; a link or a
     /// file in its place, or a folder that cannot be opened, an <see cref="IOException"/>.
     /// </summary>
-    public static PinnedFolder Open(string path) => new(NativeFiles.OpenFolder(path), path);
+    public static PinnedFolder Open(string path) => Open(path, readOwner: false);
 
     /// <summary>
-    /// Holds the folder as <see cref="Open"/> does, and makes it first when it is missing, in one call that never follows a
-    /// link at its name (M2.5). The folder above must exist.
+    /// Holds the folder as <see cref="Open(string)"/> does; with <paramref name="readOwner"/> the handle can read its owner too
+    /// (<c>READ_CONTROL</c>, M2.6), which only the holds that read it ask.
     /// </summary>
-    internal static PinnedFolder OpenOrCreate(string path) => new(NativeFiles.OpenOrCreateFolder(path), path);
+    internal static PinnedFolder Open(string path, bool readOwner) => new(NativeFiles.OpenFolder(path, readOwner), path);
+
+    /// <summary>
+    /// Holds the folder as <see cref="Open(string)"/> does, and makes it first when it is missing, in one call that never
+    /// follows a link at its name (M2.5). The folder above must exist. With <paramref name="readOwner"/> the handle can read
+    /// its owner too (M2.6).
+    /// </summary>
+    internal static PinnedFolder OpenOrCreate(string path, bool readOwner = false) => new(NativeFiles.OpenOrCreateFolder(path, readOwner), path);
+
+    /// <summary>
+    /// Makes a new folder and holds it, as <see cref="OpenOrCreate"/> does, but never takes one that is there (M2.6): <c>null</c>
+    /// when the name is taken, by a folder, a file or a link.
+    /// </summary>
+    internal static PinnedFolder? CreateNew(string path, bool readOwner = false) =>
+        NativeFiles.CreateNewFolder(path, readOwner) is { } handle ? new(handle, path) : null;
+
+    /// <summary>Where the folder was held.</summary>
+    internal string HeldPath => _path;
+
+    /// <summary>The handle, which reads the owner of the folder when it was held for it (M2.6).</summary>
+    internal SafeFileHandle Handle => _handle;
 
     /// <summary>An <see cref="IOException"/> when the held folder has become a link, read through the handle.</summary>
     public void ThrowIfLink()
