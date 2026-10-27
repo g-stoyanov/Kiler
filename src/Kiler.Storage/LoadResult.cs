@@ -54,7 +54,9 @@ public sealed record LoadedDocument(DocumentKey Key, DocumentRead Read);
 /// </summary>
 /// <param name="Folder">
 /// The document folder, or <c>null</c> for the root of the data folder; for an entry of the trash or of the history, its
-/// folder there, such as <c>trash\records</c>, <c>trash</c> or <c>history\records\8f3a1c</c> (M2.7a).
+/// folder there, such as <c>trash\records</c>, <c>trash</c> or <c>history\records\8f3a1c</c> (M2.7a); in the private folder of
+/// the current user, the same after <c>private\&lt;account&gt;</c>, such as <c>private\demo.user\records</c>, and
+/// <c>private\demo.user</c> alone for its root, or for the whole private folder when it cannot be opened (M2.7b).
 /// </param>
 /// <param name="Name">
 /// The escaped name of the file, or <c>null</c> for the whole folder: one that could not be listed, or one that lists too

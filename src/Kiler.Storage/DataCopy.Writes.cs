@@ -5,7 +5,8 @@ namespace Kiler.Storage;
 /// <summary>
 /// The writes of this Kiler through the local copy (decided in M2.7a, by the user): each writes through the share
 /// (<see cref="DataFolder"/>) and then takes into the copy what it wrote, within the budget of the copy. The stamp and the
-/// owner of the file on the share stay unknown until a load reads it back (M2.3 and M2.6 notes).
+/// owner of the file on the share stay unknown until a load reads it back (M2.3 and M2.6 notes). A write goes to the root
+/// of its key, the data folder or the private folder of the current user, and to no other (<see cref="RootOf"/>, M2.7b).
 /// </summary>
 public sealed partial class DataCopy
 {
@@ -18,7 +19,7 @@ public sealed partial class DataCopy
     /// </summary>
     public WriteResult Create(DocumentKey key, JsonObject content)
     {
-        var result = _share.CreateDocument(key, content);
+        var result = RootOf(key).CreateDocument(key, content);
         if (result is { Outcome: WriteOutcome.Written, Bytes: { } bytes })
         {
             Wrote(new Spot(key, InTrash: false), bytes, result.Version, historyFrom: null, slotTaken: false);
@@ -38,7 +39,7 @@ public sealed partial class DataCopy
     /// </summary>
     public WriteResult Replace(DocumentKey key, int version, JsonObject content)
     {
-        var result = _share.ReplaceDocument(key, version, content);
+        var result = RootOf(key).ReplaceDocument(key, version, content);
         if (result is { Outcome: WriteOutcome.Written, Bytes: { } bytes, Old: { } old })
         {
             var spot = new Spot(key, InTrash: false);
@@ -59,7 +60,7 @@ public sealed partial class DataCopy
     /// </summary>
     public WriteResult Delete(DocumentKey key, int version)
     {
-        var result = _share.DeleteDocument(key, version);
+        var result = RootOf(key).DeleteDocument(key, version);
         if (result is { Outcome: WriteOutcome.Deleted, Old: { } old })
         {
             var spot = new Spot(key, InTrash: false);
@@ -78,7 +79,7 @@ public sealed partial class DataCopy
     /// </summary>
     public WriteResult RestoreFromTrash(DocumentKey key)
     {
-        var result = _share.RestoreFromTrash(key);
+        var result = RootOf(key).RestoreFromTrash(key);
         if (result is { Outcome: WriteOutcome.Written, Bytes: { } bytes })
         {
             Moved(new Spot(key, InTrash: true), new Spot(key, InTrash: false), bytes, result.Version);
@@ -86,6 +87,26 @@ public sealed partial class DataCopy
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// The root that a write of a document goes to (M2.7b): the data folder, or the private folder of the current user,
+    /// opened for the write; one that is not there is a <see cref="DirectoryNotFoundException"/>, and one that is a link an
+    /// <see cref="IOException"/>, before anything is written. A key of another private folder, or of any private folder in a
+    /// copy without an account, is an <see cref="ArgumentException"/>: the copy takes no other private folder, and its user
+    /// writes no other.
+    /// </summary>
+    private DataFolder RootOf(DocumentKey key)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        if (key.Account is null)
+        {
+            return _share;
+        }
+
+        return key.Account == _account
+            ? _share.OpenPrivate(key.Account)
+            : throw new ArgumentException("A write through the local copy goes only to the data folder or to the private folder of its user.", nameof(key));
     }
 
     /// <summary>Writes the index when it is behind the one in memory; one that cannot be written now is written by the next load.</summary>
@@ -140,6 +161,7 @@ public sealed partial class DataCopy
         _index.TryGetValue(spot, out var old);
         var next = new CopyEntry
         {
+            Account = spot.Key.Account,
             Folder = spot.Key.Folder,
             Id = spot.Key.Id,
             InTrash = spot.InTrash,

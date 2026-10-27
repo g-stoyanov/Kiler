@@ -483,8 +483,7 @@ public sealed partial class DataFolder
         var holds = new Holds();
         try
         {
-            var path = Root;
-            holds.Add(Files.HoldFolder(path));
+            var path = HoldRoot(holds);
             foreach (var folder in folders)
             {
                 path = Path.Combine(path, folder);
@@ -521,8 +520,7 @@ public sealed partial class DataFolder
         var holds = new Holds();
         try
         {
-            var path = Root;
-            holds.Add(Files.HoldFolder(path));
+            var path = HoldRoot(holds);
             foreach (var folder in folders)
             {
                 path = Path.Combine(path, folder);
@@ -536,6 +534,25 @@ public sealed partial class DataFolder
             holds.Dispose();
             throw;
         }
+    }
+
+    /// <summary>
+    /// Holds the root, the first of <paramref name="holds"/>, and gives its path. A private folder is held from the data
+    /// folder down, through <c>private\</c>, each opened as itself, as <see cref="CreatePrivate"/> holds them: opened by its
+    /// path alone, its root would be reached through a <c>private\</c> that anyone could swap for a link to another folder
+    /// between the check of <see cref="OpenPrivate"/> and the hold (security review of M2.7b).
+    /// </summary>
+    private string HoldRoot(Holds holds)
+    {
+        if (Account is not null)
+        {
+            var privateFolders = Path.GetDirectoryName(Root)!;
+            holds.Add(Files.HoldFolder(Path.GetDirectoryName(privateFolders)!));
+            holds.Add(Files.HoldFolder(privateFolders));
+        }
+
+        holds.Add(Files.HoldFolder(Root));
+        return Root;
     }
 
     /// <summary>

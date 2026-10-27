@@ -18,9 +18,26 @@ public sealed partial class DataFolder
     /// <summary>The documents at the root of this root, in the order of its layout.</summary>
     internal IReadOnlyList<string> RootDocuments => _layout.RootDocuments;
 
-    /// <summary>Whether a key is of a document of this root: in one of its document folders, or one of its root documents.</summary>
-    internal bool IsDocumentOf(DocumentKey key) =>
-        key.Folder is null ? _layout.RootDocuments.Contains(key.Id) : _layout.DocumentFolders.Contains(key.Folder);
+    /// <summary>
+    /// Whether a key is of a document of this root: in one of its document folders, or one of its root documents. A key
+    /// without an account is of the root it is given to; one with an account only of the private folder of that account,
+    /// never of the data folder (M2.7b).
+    /// </summary>
+    internal bool IsDocumentOf(DocumentKey key) => (key.Account is null || key.Account == Account) && _layout.Has(key);
+
+    /// <summary>
+    /// Whether a key is of a document of its root by the layout alone: of the data folder, or of a private folder when it
+    /// has an account (M2.7b). The local copy checks the entries of its index so, as a private folder may not be there.
+    /// </summary>
+    internal static bool IsDocument(DocumentKey key) => LayoutOf(key.Account).Has(key);
+
+    /// <summary>The document folders of the data folder, or of a private folder when <paramref name="account"/> is given (M2.7b).</summary>
+    internal static IReadOnlyList<string> DocumentFoldersOf(string? account) => LayoutOf(account).DocumentFolders;
+
+    /// <summary>The documents at the root of the data folder, or of a private folder when <paramref name="account"/> is given (M2.7b).</summary>
+    internal static IReadOnlyList<string> RootDocumentsOf(string? account) => LayoutOf(account).RootDocuments;
+
+    private static Layout LayoutOf(string? account) => account is null ? SharedLayout : PrivateLayout;
 
     /// <summary>
     /// Holds and lists a folder of a load: a document folder, or the root when <paramref name="folder"/> is <c>null</c>, or,
@@ -41,7 +58,7 @@ public sealed partial class DataFolder
         var held = below.Length == 0 ? Hold(create: false) : HoldIfThere(below);
         if (held is null)
         {
-            return new ListedFolder(folder, inTrash, path, null, FolderListing.Empty, tooMany: false, untold: 0);
+            return new ListedFolder(this, folder, inTrash, path, null, FolderListing.Empty, tooMany: false, untold: 0);
         }
 
         try
@@ -50,7 +67,7 @@ public sealed partial class DataFolder
             if (entries.Count > maxEntries)
             {
                 held.ThrowIfLink();
-                return new ListedFolder(folder, inTrash, path, held, FolderListing.Empty, tooMany: true, untold: 0);
+                return new ListedFolder(this, folder, inTrash, path, held, FolderListing.Empty, tooMany: true, untold: 0);
             }
 
             var listing = Sort(folder, entries);
@@ -60,7 +77,7 @@ public sealed partial class DataFolder
                 listing = listing with { Links = [.. listing.Links.Take(maxReported)], BadNames = [.. listing.BadNames.Take(maxReported)] };
             }
 
-            return new ListedFolder(folder, inTrash, path, held, listing, tooMany: false, untold);
+            return new ListedFolder(this, folder, inTrash, path, held, listing, tooMany: false, untold);
         }
         catch
         {
@@ -224,14 +241,15 @@ public sealed partial class DataFolder
     }
 
     /// <summary>
-    /// A folder of a load, held from its listing until it is let go, and its listing (M2.7, M2.7a). No hold for a document
-    /// folder or a folder of the trash that is not there. <see cref="TooMany"/>: the folder listed more entries than the load
-    /// takes, so it gives none.
+    /// A folder of a load, held from its listing until it is let go, and its listing (M2.7, M2.7a), of the root that listed
+    /// it (<see cref="Source"/>, M2.7b), which reads it. No hold for a document folder or a folder of the trash that is not
+    /// there. <see cref="TooMany"/>: the folder listed more entries than the load takes, so it gives none.
     /// </summary>
     internal sealed class ListedFolder : IDisposable
     {
-        internal ListedFolder(string? folder, bool inTrash, string path, Holds? held, FolderListing listing, bool tooMany, int untold)
+        internal ListedFolder(DataFolder source, string? folder, bool inTrash, string path, Holds? held, FolderListing listing, bool tooMany, int untold)
         {
+            Source = source;
             Folder = folder;
             InTrash = inTrash;
             Path = path;
@@ -240,6 +258,12 @@ public sealed partial class DataFolder
             TooMany = tooMany;
             Untold = untold;
         }
+
+        /// <summary>The data folder, or the private folder, that listed it, and reads it (<see cref="ReadFolder"/>).</summary>
+        public DataFolder Source { get; }
+
+        /// <summary>The account of a private folder, or <c>null</c> for the data folder.</summary>
+        public string? Account => Source.Account;
 
         /// <summary>The document folder, or <c>null</c> for the documents at the root.</summary>
         public string? Folder { get; }

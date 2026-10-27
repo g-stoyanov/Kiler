@@ -28,8 +28,11 @@ public sealed partial class DataCopy
 
     private HistoryBudget Budget => _budget ??= new HistoryBudget(_history, _limits);
 
-    /// <summary>The name of the history folder of a document in a report: <c>history\records\8f3a1c</c>, <c>history\settings</c>.</summary>
-    private static string HistoryName(DocumentKey key) => Path.Join(DataFolder.History, key.ToString());
+    /// <summary>
+    /// The name of the history folder of a document in a report: <c>history\records\8f3a1c</c>, <c>history\settings</c>,
+    /// <c>private\demo.user\history\records\8f3a1c</c> (M2.7b).
+    /// </summary>
+    private static string HistoryName(DocumentKey key) => Path.Join(RootName(key.Account), DataFolder.History, key.Folder, key.Id);
 
     /// <summary>The name of a slot in a report, as the layer names it: <c>v6.json</c>.</summary>
     private static string SlotName(int version) => "v" + version.ToString(CultureInfo.InvariantCulture) + DataFolder.Extension;
@@ -46,10 +49,11 @@ public sealed partial class DataCopy
     /// damaged one is skipped. A history folder that cannot be listed, or a slot that cannot be read or written, is reported,
     /// and the next load lists the folder again, after those that have not failed. One load lists at most
     /// <see cref="CopyLimits.HistoryListings"/> history folders and reads at most <see cref="CopyLimits.HistoryReads"/> of
-    /// slots, as anyone can make every document change and every slot unreadable; the others wait for the next load. Gives
-    /// whether the index has changed.
+    /// slots, as anyone can make every document change and every slot unreadable; the others wait for the next load. The
+    /// history of a document of the private folder waits too when this load did not list that folder (<paramref name="privateFolder"/>,
+    /// M2.7b). Gives whether the index has changed.
     /// </summary>
-    private bool TakeHistory(DateTimeOffset now, Report report)
+    private bool TakeHistory(DataFolder? privateFolder, DateTimeOffset now, Report report)
     {
         var keys = _index
             .Where(entry => entry.Value.HistoryFrom is not null)
@@ -68,6 +72,11 @@ public sealed partial class DataCopy
             if (listings == _limits.HistoryListings || read >= _limits.HistoryReads)
             {
                 break;
+            }
+
+            if ((key.Account is null ? _share : privateFolder) is not { } root)
+            {
+                continue;
             }
 
             // Two documents of one id, in their folder and in the trash, share a history folder, and which slot is whose
@@ -95,7 +104,7 @@ public sealed partial class DataCopy
             HistoryLoad load;
             try
             {
-                load = _share.LoadHistory(
+                load = root.LoadHistory(
                     key,
                     slots =>
                     {
@@ -150,7 +159,7 @@ public sealed partial class DataCopy
                 var slot = fit[i];
                 if (written[i])
                 {
-                    _history[new SlotKey(key, inTrash, slot.Slot.Version)] = new SlotEntry(key.Folder, key.Id, inTrash, slot.Slot.Version, Hash(slot.Bytes), slot.Bytes.Length, now, Own: false, FromShare: true);
+                    _history[new SlotKey(key, inTrash, slot.Slot.Version)] = new SlotEntry(key.Account, key.Folder, key.Id, inTrash, slot.Slot.Version, Hash(slot.Bytes), slot.Bytes.Length, now, Own: false, FromShare: true);
                 }
                 else
                 {
@@ -240,7 +249,7 @@ public sealed partial class DataCopy
         }
 
         Forget(plan.Evicted);
-        _history[slot] = new SlotEntry(key.Folder, key.Id, InTrash: false, version, Hash(bytes), bytes.Length, now, Own: true, FromShare: false);
+        _history[slot] = new SlotEntry(key.Account, key.Folder, key.Id, InTrash: false, version, Hash(bytes), bytes.Length, now, Own: true, FromShare: false);
         _indexBehind = true;
         return true;
     }

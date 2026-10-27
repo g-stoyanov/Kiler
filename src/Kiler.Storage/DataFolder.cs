@@ -35,11 +35,12 @@ public sealed partial class DataFolder
 
     private readonly Layout _layout;
 
-    private DataFolder(string root, Layout layout, IFileSystem files)
+    private DataFolder(string root, Layout layout, IFileSystem files, string? account)
     {
         Root = root;
         _layout = layout;
         Files = files;
+        Account = account;
     }
 
     /// <summary>The full path of the root, without a trailing separator.</summary>
@@ -49,6 +50,9 @@ public sealed partial class DataFolder
     public bool IsPrivate => ReferenceEquals(_layout, PrivateLayout);
 
     internal IFileSystem Files { get; }
+
+    /// <summary>The account of a private folder, or <c>null</c> for the data folder: the keys of its listings carry it (M2.7b).</summary>
+    internal string? Account { get; }
 
     private string Kind => IsPrivate ? "private folder" : "data folder";
 
@@ -95,10 +99,10 @@ public sealed partial class DataFolder
         }
 
         MakeFolders(root, SharedLayout, files);
-        return new DataFolder(root, SharedLayout, files);
+        return new DataFolder(root, SharedLayout, files, account: null);
     }
 
-    internal static DataFolder Open(string path, IFileSystem files) => OpenRoot(FullPath(path), SharedLayout, files);
+    internal static DataFolder Open(string path, IFileSystem files) => OpenRoot(FullPath(path), SharedLayout, files, account: null);
 
     /// <summary>
     /// Makes the private folder of an account (design 7.10). A folder that exists, even an empty one, is refused: anyone
@@ -155,7 +159,7 @@ public sealed partial class DataFolder
             }
         }
 
-        return new DataFolder(root, PrivateLayout, Files);
+        return new DataFolder(root, PrivateLayout, Files, account);
     }
 
     /// <summary>Opens the private folder of an account that exists. It creates nothing.</summary>
@@ -167,7 +171,7 @@ public sealed partial class DataFolder
             throw new DirectoryNotFoundException($"The folder of the private folders does not exist: {privateFolders}");
         }
 
-        return OpenRoot(Path.Combine(privateFolders, account), PrivateLayout, Files);
+        return OpenRoot(Path.Combine(privateFolders, account), PrivateLayout, Files, account);
     }
 
     public string DocumentPath(DocumentKey key) => Path.Combine(Root, Known(key).Folder ?? "", key.Id + Extension);
@@ -252,11 +256,11 @@ public sealed partial class DataFolder
             }
             else if (folder is not null)
             {
-                (entry.TimesUnread ? unread : documents).Add(new ListedDocument(DocumentKey.InFolder(folder, id), entry));
+                (entry.TimesUnread ? unread : documents).Add(new ListedDocument(OfThisRoot(DocumentKey.InFolder(folder, id)), entry));
             }
             else if (_layout.RootDocuments.Contains(id))
             {
-                (entry.TimesUnread ? unread : documents).Add(new ListedDocument(DocumentKey.AtRoot(id), entry));
+                (entry.TimesUnread ? unread : documents).Add(new ListedDocument(OfThisRoot(DocumentKey.AtRoot(id)), entry));
             }
         }
 
@@ -274,8 +278,8 @@ public sealed partial class DataFolder
         return Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
     }
 
-    private static DataFolder OpenRoot(string root, Layout layout, IFileSystem files) =>
-        FolderExists(files, root) ? new DataFolder(root, layout, files) : throw new DirectoryNotFoundException($"The folder does not exist: {root}");
+    private static DataFolder OpenRoot(string root, Layout layout, IFileSystem files, string? account) =>
+        FolderExists(files, root) ? new DataFolder(root, layout, files, account) : throw new DirectoryNotFoundException($"The folder does not exist: {root}");
 
     /// <summary>Whether a folder is there. A link or a file in its place is an <see cref="IOException"/>.</summary>
     private static bool FolderExists(IFileSystem files, string path)
@@ -374,6 +378,9 @@ public sealed partial class DataFolder
     /// <summary>The folder of the history slots of a document: <c>history\records\8f3a1c</c>, <c>history\settings</c>.</summary>
     private string HistoryFolderPath(DocumentKey key) => Path.Combine(Root, History, Known(key).Folder ?? "", key.Id);
 
+    /// <summary>A key that a listing of this root makes, with the account of a private folder (M2.7b).</summary>
+    private DocumentKey OfThisRoot(DocumentKey key) => Account is null ? key : key.InPrivate(Account);
+
     /// <summary>The key, when its folder or its root document belongs to this root.</summary>
     private DocumentKey Known(DocumentKey key)
     {
@@ -389,5 +396,8 @@ public sealed partial class DataFolder
         /// <c>history\records\</c>, come with the first write or delete that needs them (M2.4, M2.5).
         /// </summary>
         public string[] Folders { get; } = [.. DocumentFolders, History, Trash, .. OtherFolders];
+
+        /// <summary>Whether a key is in one of the document folders, or is one of the root documents.</summary>
+        public bool Has(DocumentKey key) => key.Folder is null ? RootDocuments.Contains(key.Id) : DocumentFolders.Contains(key.Folder);
     }
 }

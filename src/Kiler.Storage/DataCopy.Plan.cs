@@ -8,11 +8,11 @@ public sealed partial class DataCopy
     {
         private readonly Dictionary<DataFolder.ListedFolder, FolderPlan> _folders = [];
 
-        /// <summary>The folders that were listed whole, as their folder and whether in the trash.</summary>
-        public HashSet<(string? Folder, bool InTrash)> Whole { get; } = [];
+        /// <summary>The folders that were listed whole, and those of a private folder that is not there, as listed empty.</summary>
+        public HashSet<FolderKey> Whole { get; } = [];
 
         /// <summary>The folders that were also read and taken.</summary>
-        public HashSet<(string? Folder, bool InTrash)> Loaded { get; } = [];
+        public HashSet<FolderKey> Loaded { get; } = [];
 
         /// <summary>What the whole listings list.</summary>
         public HashSet<Spot> Listed { get; } = [];
@@ -35,7 +35,7 @@ public sealed partial class DataCopy
         }
 
         /// <summary>Whether a document of the copy is no longer listed in its folder, which was listed whole.</summary>
-        public bool IsLeaving(Spot spot, CopyEntry entry) => !entry.Gone && Whole.Contains((spot.Key.Folder, spot.InTrash)) && !Listed.Contains(spot);
+        public bool IsLeaving(Spot spot, CopyEntry entry) => !entry.Gone && Whole.Contains(FolderOf(spot)) && !Listed.Contains(spot);
     }
 
     /// <summary>What <see cref="Choose"/> decided for one folder.</summary>

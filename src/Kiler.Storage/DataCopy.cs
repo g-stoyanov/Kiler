@@ -4,8 +4,9 @@ using System.Text.Json;
 namespace Kiler.Storage;
 
 /// <summary>
-/// The local copy of a data folder (M2.7, design 5.3), in a folder of the user's own that Kiler.App gives (M2.10). Its
-/// <c>data\</c> repeats the folders of the share, the trash and the history among them (M2.7a), with the bytes of the files
+/// The local copy of a data folder (M2.7, design 5.3), in a folder of the user's own that Kiler.App gives (M2.10), with the
+/// private folder of the current user, and no other (M2.7b). Its <c>data\</c> repeats the folders of the share, the trash
+/// and the history among them (M2.7a), and the private folder in <c>private\&lt;account&gt;\</c>, with the bytes of the files
 /// as the share has them, and its <c>index.json</c> keeps for each document the size and the times of its listing, its owner,
 /// its damage, and the version and the hash of its bytes in the copy (decided in M2.7). A start gives the documents from the
 /// copy at once, without the share (<see cref="Documents"/>, <see cref="Trash"/>); a load lists each folder of the share once
@@ -60,6 +61,9 @@ public sealed partial class DataCopy
     private const string IndexName = "index.json";
 
     private readonly DataFolder _share;
+
+    /// <summary>The account of the current user, whose private folder goes into the copy, or <c>null</c> for none (M2.7b).</summary>
+    private readonly string? _account;
     private readonly string _folder;
     private readonly TimeProvider _time;
     private readonly CopyLimits _limits;
@@ -79,9 +83,10 @@ public sealed partial class DataCopy
     /// <summary>Whether the index on the disk is older than the one in memory, as its last write failed or it was corrected at the open.</summary>
     private bool _indexBehind;
 
-    private DataCopy(DataFolder share, string folder, TimeProvider time, CopyLimits limits, Dictionary<Spot, CopyEntry> index, Dictionary<SlotKey, SlotEntry> history)
+    private DataCopy(DataFolder share, string? account, string folder, TimeProvider time, CopyLimits limits, Dictionary<Spot, CopyEntry> index, Dictionary<SlotKey, SlotEntry> history)
     {
         _share = share;
+        _account = account;
         _folder = folder;
         _time = time;
         _limits = limits;
@@ -110,16 +115,25 @@ public sealed partial class DataCopy
     /// names, and the temporary files of a write that stopped, are deleted once they are older than
     /// <see cref="DataFolder.TemporaryFileAge"/>, as the budget counts only what the index names; younger, they can be the
     /// writes of another Kiler of the same user, in another session. An entry whose bytes have gone from the copy loses them.
+    /// With <paramref name="account"/>, the private folder of that account, the current user's, goes into the copy too, in
+    /// the same budget (decided in M2.7b, by the user); <c>null</c> takes none. The entries of another private folder are
+    /// left out of the index, and their files go as those that no entry names. An account that fails the name check of
+    /// <see cref="StorageName"/> is an <see cref="ArgumentException"/>.
     /// </summary>
-    public static DataCopy Open(DataFolder share, string folder, TimeProvider time) => Open(share, folder, time, CopyLimits.Default);
+    public static DataCopy Open(DataFolder share, string folder, TimeProvider time, string? account = null) => Open(share, folder, time, CopyLimits.Default, account);
 
-    /// <summary>Opens a local copy as <see cref="Open(DataFolder, string, TimeProvider)"/> does, with another budget, for the tests.</summary>
-    internal static DataCopy Open(DataFolder share, string folder, TimeProvider time, CopyLimits limits)
+    /// <summary>Opens a local copy as <see cref="Open(DataFolder, string, TimeProvider, string?)"/> does, with another budget, for the tests.</summary>
+    internal static DataCopy Open(DataFolder share, string folder, TimeProvider time, CopyLimits limits, string? account = null)
     {
         ArgumentNullException.ThrowIfNull(share);
         ArgumentNullException.ThrowIfNull(folder);
         ArgumentNullException.ThrowIfNull(time);
         ArgumentNullException.ThrowIfNull(limits);
+        if (account is not null)
+        {
+            StorageName.Check(account);
+        }
+
         if (share.IsPrivate)
         {
             throw new ArgumentException("A local copy is of a data folder; its private folders go into it (M2.7b).", nameof(share));
@@ -137,8 +151,8 @@ public sealed partial class DataCopy
             throw new DirectoryNotFoundException($"The folder of the local copy does not exist: {root}");
         }
 
-        var (index, history) = ReadIndex(share, root, limits);
-        var copy = new DataCopy(share, root, time, limits, index, history);
+        var (index, history) = ReadIndex(share, root, limits, account);
+        var copy = new DataCopy(share, account, root, time, limits, index, history);
         copy.DeleteFilesNotNamed();
         return copy;
     }
@@ -157,10 +171,10 @@ public sealed partial class DataCopy
     public IReadOnlyList<LoadedDocument> Trash() => Give(inTrash: true);
 
     /// <summary>
-    /// The index of the copy, or an empty one when there is none that can be taken (<see cref="Open(DataFolder, string, TimeProvider)"/>).
+    /// The index of the copy, or an empty one when there is none that can be taken (<see cref="Open(DataFolder, string, TimeProvider, string?)"/>).
     /// An index that is there and cannot be read now throws.
     /// </summary>
-    private static (Dictionary<Spot, CopyEntry> Index, Dictionary<SlotKey, SlotEntry> History) ReadIndex(DataFolder share, string folder, CopyLimits limits)
+    private static (Dictionary<Spot, CopyEntry> Index, Dictionary<SlotKey, SlotEntry> History) ReadIndex(DataFolder share, string folder, CopyLimits limits, string? account)
     {
         var index = new Dictionary<Spot, CopyEntry>();
         var history = new Dictionary<SlotKey, SlotEntry>();
@@ -188,7 +202,7 @@ public sealed partial class DataCopy
 
         foreach (var entry in files)
         {
-            if (entry is not null && KeyOf(share, entry.Folder, entry.Id) is { } key && IsWhole(entry))
+            if (entry is not null && KeyOf(entry.Account, entry.Folder, entry.Id, account) is { } key && IsWhole(entry))
             {
                 index[new Spot(key, entry.InTrash)] = entry;
             }
@@ -196,7 +210,7 @@ public sealed partial class DataCopy
 
         foreach (var slot in read.History ?? [])
         {
-            if (slot is { Version: >= 1, Hash: not null, Length: > 0 and <= DocumentFormat.MaxSize } && KeyOf(share, slot.Folder, slot.Id) is { } key)
+            if (slot is { Version: >= 1, Hash: not null, Length: > 0 and <= DocumentFormat.MaxSize } && KeyOf(slot.Account, slot.Folder, slot.Id, account) is { } key)
             {
                 history[new SlotKey(key, slot.InTrash, slot.Version)] = slot;
             }
@@ -205,16 +219,21 @@ public sealed partial class DataCopy
         return (index, history);
     }
 
-    /// <summary>The key of an entry of the index, when its names pass the check and it is a document of the data folder.</summary>
-    private static DocumentKey? KeyOf(DataFolder share, string? folder, string? id)
+    /// <summary>
+    /// The key of an entry of the index, when its names pass the check and it is a document of the data folder, or of the
+    /// private folder of the current user (<paramref name="current"/>); an entry of another private folder is left out, and
+    /// its files go as those that no entry names (M2.7b).
+    /// </summary>
+    private static DocumentKey? KeyOf(string? account, string? folder, string? id, string? current)
     {
-        if (!StorageName.IsValid(id) || (folder is not null && !StorageName.IsValid(folder)))
+        if (!StorageName.IsValid(id) || (folder is not null && !StorageName.IsValid(folder)) || (account is not null && account != current))
         {
             return null;
         }
 
         var key = folder is null ? DocumentKey.AtRoot(id) : DocumentKey.InFolder(folder, id);
-        return share.IsDocumentOf(key) ? key : null;
+        key = account is null ? key : key.InPrivate(account);
+        return DataFolder.IsDocument(key) ? key : null;
     }
 
     /// <summary>
@@ -517,7 +536,9 @@ public sealed partial class DataCopy
     /// <see cref="DataFolder.TemporaryFileAge"/>: younger, they can be the writes of another Kiler of the same user, in
     /// another session (M2.10). The folders are <c>data\</c>, <c>kept\</c>, their <c>trash\</c>, the document folders in each
     /// of them, and the history folders of the documents in <c>data\history\</c> and <c>data\trash\history\</c>, of which an empty one that old goes too, as
-    /// ids that come and go would leave them without a bound (security review of M2.7a). When every folder could be listed,
+    /// ids that come and go would leave them without a bound (security review of M2.7a); and the same of each private folder
+    /// in <c>data\private\</c> and <c>kept\private\</c>, that of the current user and those of the other accounts, whose
+    /// entries the index left out (M2.7b). When every folder could be listed,
     /// an entry whose bytes are no longer there loses them, as the budget would count them: the bytes of a version that Kiler
     /// made, and its entry, so the next load reads it again; the bytes of a change outside Kiler, and the last good bytes kept
     /// apart; a slot.
@@ -544,36 +565,39 @@ public sealed partial class DataCopy
             named[SlotPath(slot)] = (null, false, slot);
         }
 
-        var listedAll = true;
-        var data = Path.Combine(_folder, DataName);
-        var history = Path.Combine(data, DataFolder.History);
         var folders = new List<string> { _folder };
-        foreach (var top in (string[])[data, Path.Combine(_folder, KeptName)])
-        {
-            foreach (var place in (string[])[top, Path.Combine(top, DataFolder.Trash)])
-            {
-                folders.Add(place);
-                folders.AddRange(_share.DocumentFolders.Select(folder => Path.Combine(place, folder)));
-            }
-        }
-
         var historyFolders = new List<string>();
-        foreach (var place in (string[])[history, Path.Combine(data, DataFolder.Trash, DataFolder.History)])
+        var roots = CopyRoots(out var listedAll);
+        foreach (var account in roots)
         {
-            historyFolders.AddRange(_share.RootDocuments.Select(id => Path.Combine(place, id)));
-            foreach (var folder in _share.DocumentFolders)
+            var documentFolders = DataFolder.DocumentFoldersOf(account);
+            foreach (var top in (string[])[RootPath(DataName, account), RootPath(KeptName, account)])
             {
-                try
+                foreach (var place in (string[])[top, Path.Combine(top, DataFolder.Trash)])
                 {
-                    historyFolders.AddRange(Directory.GetDirectories(Path.Combine(place, folder)).Where(path => StorageName.IsValid(Path.GetFileName(path))));
+                    folders.Add(place);
+                    folders.AddRange(documentFolders.Select(folder => Path.Combine(place, folder)));
                 }
-                catch (DirectoryNotFoundException)
+            }
+
+            var data = RootPath(DataName, account);
+            foreach (var place in (string[])[Path.Combine(data, DataFolder.History), Path.Combine(data, DataFolder.Trash, DataFolder.History)])
+            {
+                historyFolders.AddRange(DataFolder.RootDocumentsOf(account).Select(id => Path.Combine(place, id)));
+                foreach (var folder in documentFolders)
                 {
-                    // Not made yet.
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    listedAll = false;
+                    try
+                    {
+                        historyFolders.AddRange(Directory.GetDirectories(Path.Combine(place, folder)).Where(path => StorageName.IsValid(Path.GetFileName(path))));
+                    }
+                    catch (DirectoryNotFoundException)
+                    {
+                        // Not made yet.
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        listedAll = false;
+                    }
                 }
             }
         }
@@ -642,6 +666,40 @@ public sealed partial class DataCopy
         }
     }
 
+    /// <summary>
+    /// The roots that the copy has folders of: the data folder, as <c>null</c>, and each private folder in
+    /// <c>data\private\</c> or <c>kept\private\</c> whose name passes the check, the current user's and those of other
+    /// accounts, whose files no entry names (M2.7b). <paramref name="listedAll"/>: whether both could be listed.
+    /// </summary>
+    private List<string?> CopyRoots(out bool listedAll)
+    {
+        listedAll = true;
+        var accounts = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var top in (string[])[DataName, KeptName])
+        {
+            try
+            {
+                foreach (var path in Directory.GetDirectories(Path.Combine(_folder, top, DataFolder.Private)))
+                {
+                    if (Path.GetFileName(path) is var name && StorageName.IsValid(name))
+                    {
+                        accounts.Add(name);
+                    }
+                }
+            }
+            catch (DirectoryNotFoundException)
+            {
+                // No private folder in this place.
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                listedAll = false;
+            }
+        }
+
+        return [null, .. accounts];
+    }
+
     /// <summary>The files that an entry names in the copy: its bytes in <c>data\</c> and its last good bytes kept apart.</summary>
     private IEnumerable<string> FilesOf(Spot spot, CopyEntry? entry)
     {
@@ -659,18 +717,33 @@ public sealed partial class DataCopy
     /// <summary>Where the copy has the last good bytes of an entry: in <c>data\</c> for a version that Kiler made, else kept apart.</summary>
     private string LastGoodPath(Spot spot, CopyEntry entry) => entry.Outside is null ? CopyPath(spot) : KeptPath(spot);
 
-    /// <summary>The file of a document in the copy: <c>data\records\8f3a1c.json</c>, <c>data\settings.json</c>, <c>data\trash\records\8f3a1c.json</c>.</summary>
-    private string CopyPath(Spot spot) => Path.Combine(_folder, DataName, spot.InTrash ? DataFolder.Trash : "", spot.Key.Folder ?? "", spot.Key.Id + DataFolder.Extension);
+    /// <summary>
+    /// The folder of a root in a place of the copy, <c>data\</c> or <c>kept\</c>: the place itself for the data folder, and
+    /// <c>private\&lt;account&gt;\</c> in it for a private folder, as the share has it (M2.7b).
+    /// </summary>
+    private string RootPath(string place, string? account) =>
+        account is null ? Path.Combine(_folder, place) : Path.Combine(_folder, place, DataFolder.Private, account);
+
+    /// <summary>
+    /// The file of a document in the copy: <c>data\records\8f3a1c.json</c>, <c>data\settings.json</c>,
+    /// <c>data\trash\records\8f3a1c.json</c>, <c>data\private\demo.user\records\8f3a1c.json</c>.
+    /// </summary>
+    private string CopyPath(Spot spot) =>
+        Path.Combine(RootPath(DataName, spot.Key.Account), spot.InTrash ? DataFolder.Trash : "", spot.Key.Folder ?? "", spot.Key.Id + DataFolder.Extension);
 
     /// <summary>Where the copy keeps the last good bytes of a document apart: <c>kept\records\8f3a1c.json</c>, <c>kept\trash\records\8f3a1c.json</c>.</summary>
-    private string KeptPath(Spot spot) => Path.Combine(_folder, KeptName, spot.InTrash ? DataFolder.Trash : "", spot.Key.Folder ?? "", spot.Key.Id + DataFolder.Extension);
+    private string KeptPath(Spot spot) =>
+        Path.Combine(RootPath(KeptName, spot.Key.Account), spot.InTrash ? DataFolder.Trash : "", spot.Key.Folder ?? "", spot.Key.Id + DataFolder.Extension);
 
     /// <summary>A history slot in the copy: <c>data\history\records\8f3a1c\v6.json</c>, <c>data\history\settings\v3.json</c>.</summary>
     private string SlotPath(SlotKey slot) =>
-        Path.Combine(_folder, DataName, slot.InTrash ? DataFolder.Trash : "", DataFolder.History, slot.Key.Folder ?? "", slot.Key.Id, SlotName(slot.Version));
+        Path.Combine(RootPath(DataName, slot.Key.Account), slot.InTrash ? DataFolder.Trash : "", DataFolder.History, slot.Key.Folder ?? "", slot.Key.Id, SlotName(slot.Version));
 
     /// <summary>Where a document is in the copy: in its folder, or in the trash.</summary>
     private readonly record struct Spot(DocumentKey Key, bool InTrash);
+
+    /// <summary>A folder of a load: of the data folder or of a private folder, a document folder or the root, in the trash or not (M2.7b).</summary>
+    private readonly record struct FolderKey(string? Account, string? Folder, bool InTrash);
 
     /// <summary>A history slot of a document, in its folder or in the trash.</summary>
     private readonly record struct SlotKey(DocumentKey Key, bool InTrash, int Version);

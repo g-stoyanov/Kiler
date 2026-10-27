@@ -8,7 +8,8 @@ public sealed partial class DataCopy
 {
     /// <summary>
     /// One load of the share. The root documents, the document folders and their folders in the trash are each held and
-    /// listed once, and what to read is chosen for all of them at once, so a document that moved to the trash or back between
+    /// listed once, those of the data folder and then those of the private folder of the current user (M2.7b), and what to
+    /// read is chosen for all of them at once, so a document that moved to the trash or back between
     /// two loads is followed with what the copy keeps of it; then each folder is read and taken into the copy (the new and
     /// changed files that fit the budget, read at most <see cref="DataFolder.LoadReads"/> at a time, M2.7). A document that
     /// the copy had and the share no longer lists, and that did not move, also when its folder has gone, is gone: its last
@@ -16,12 +17,13 @@ public sealed partial class DataCopy
     /// taken (decided in M2.7a). Links, names that fail the check, files that cannot be read, documents over the budget and
     /// bytes that cannot be written into the copy are skipped and reported; the next load tries them again. A folder that
     /// cannot be listed, such as one that is a link, or that lists too many entries, is reported, and its documents stay as
-    /// the copy has them. A root that cannot be held or listed is an <see cref="IOException"/> or an
-    /// <see cref="UnauthorizedAccessException"/>: the share cannot be reached (M2.8). Any other exception is a fault of the
+    /// the copy has them, and so is the private folder (<see cref="ListPrivate"/>). The root of the data folder that cannot be
+    /// held or listed is an <see cref="IOException"/> or an <see cref="UnauthorizedAccessException"/>: the share cannot be
+    /// reached (M2.8). Any other exception is a fault of the
     /// code: what the load took before it is written into the index first, so a start gives it. The index is written once,
     /// after the files, and before them only when the last good bytes of a document went apart and its file is overwritten.
     /// The old temporary files of the listings are deleted, on the clock given to
-    /// <see cref="Open(DataFolder, string, TimeProvider)"/>, which also times when the copy took a document and when it went,
+    /// <see cref="Open(DataFolder, string, TimeProvider, string?)"/>, which also times when the copy took a document and when it went,
     /// and the changes outside Kiler until they have settled.
     /// </summary>
     public LoadResult Load()
@@ -29,11 +31,12 @@ public sealed partial class DataCopy
         var now = _time.GetUtcNow();
         var report = new Report(_limits.Reports);
         var listed = new List<DataFolder.ListedFolder>();
+        var missing = new List<FolderKey>();
         var taken = false;
         _budget = null;
         try
         {
-            foreach (var (folder, inTrash) in LoadFolders())
+            foreach (var (folder, inTrash) in FoldersOf(null))
             {
                 try
                 {
@@ -41,11 +44,12 @@ public sealed partial class DataCopy
                 }
                 catch (Exception ex) when ((folder is not null || inTrash) && ex is IOException or UnauthorizedAccessException)
                 {
-                    report.Skip(new SkippedEntry(FolderName(folder, inTrash), null, SkipReason.Unreadable));
+                    report.Skip(new SkippedEntry(FolderName(null, folder, inTrash), null, SkipReason.Unreadable));
                 }
             }
 
-            var plan = Choose(listed, now);
+            var privateFolder = ListPrivate(listed, missing, report);
+            var plan = Choose(listed, missing, now);
             foreach (var folder in listed)
             {
                 using (folder)
@@ -54,9 +58,10 @@ public sealed partial class DataCopy
                 }
             }
 
+            plan.Loaded.UnionWith(missing);
             taken |= Leave(plan, now, report);
             taken |= TrimToBudget(plan);
-            taken |= TakeHistory(now, report);
+            taken |= TakeHistory(privateFolder, now, report);
             taken |= ReportOutside(now, report);
         }
         catch
@@ -91,9 +96,22 @@ public sealed partial class DataCopy
         return report.Result();
     }
 
-    /// <summary>The name of a folder of a load in a report: the document folder, <c>null</c> for the root, or its folder in the trash.</summary>
-    private static string? FolderName(string? folder, bool inTrash) =>
-        !inTrash ? folder : folder is null ? DataFolder.Trash : Path.Join(DataFolder.Trash, folder);
+    /// <summary>
+    /// The name of a folder of a load in a report: the document folder, <c>null</c> for the root of the data folder, or its
+    /// folder in the trash; in a private folder, after <c>private\&lt;account&gt;</c> (M2.7b).
+    /// </summary>
+    private static string? FolderName(string? account, string? folder, bool inTrash)
+    {
+        var name = Path.Join(RootName(account), inTrash ? DataFolder.Trash : null, folder);
+        return name.Length == 0 ? null : name;
+    }
+
+    /// <summary>The name of a root in a report: <c>null</c> for the data folder, <c>private\&lt;account&gt;</c> for a private folder.</summary>
+    private static string? RootName(string? account) => account is null ? null : Path.Join(DataFolder.Private, account);
+
+    private static FolderKey FolderOf(Spot spot) => new(spot.Key.Account, spot.Key.Folder, spot.InTrash);
+
+    private static FolderKey FolderOf(DataFolder.ListedFolder folder) => new(folder.Account, folder.Folder, folder.InTrash);
 
     /// <summary>
     /// Whether a document that the share stopped listing is still one whose move a listing can show late, through the SMB
@@ -184,6 +202,7 @@ public sealed partial class DataCopy
 
         return new CopyEntry
         {
+            Account = spot.Key.Account,
             Folder = spot.Key.Folder,
             Id = spot.Key.Id,
             InTrash = spot.InTrash,
@@ -240,16 +259,62 @@ public sealed partial class DataCopy
             Own = lineage.Own,
         };
 
-    /// <summary>The folders of a load in their order: the root and the document folders, then the same in the trash.</summary>
-    private IEnumerable<(string? Folder, bool InTrash)> LoadFolders()
+    /// <summary>
+    /// The folders of a load of the data folder, or of the private folder of <paramref name="account"/>, in their order: the
+    /// root and the document folders, then the same in the trash.
+    /// </summary>
+    private static IEnumerable<(string? Folder, bool InTrash)> FoldersOf(string? account)
     {
         foreach (var inTrash in (bool[])[false, true])
         {
             yield return (null, inTrash);
-            foreach (var folder in _share.DocumentFolders)
+            foreach (var folder in DataFolder.DocumentFoldersOf(account))
             {
                 yield return (folder, inTrash);
             }
+        }
+    }
+
+    /// <summary>
+    /// Lists the folders of the private folder of the current user (M2.7b), after those of the data folder, whose root the
+    /// load holds by then. A private folder that is not there, not made yet or gone, gives its folders as listed whole and
+    /// empty (<paramref name="missing"/>), so what the copy had of it is gone, with its last good bytes kept apart. One that
+    /// cannot be opened or listed, such as one that is a link, is reported, and its documents stay as the copy has them; so
+    /// does a folder of it that cannot be listed. Gives the private folder, or <c>null</c> when it was not listed.
+    /// </summary>
+    private DataFolder? ListPrivate(List<DataFolder.ListedFolder> listed, List<FolderKey> missing, Report report)
+    {
+        if (_account is not { } account)
+        {
+            return null;
+        }
+
+        try
+        {
+            var own = _share.OpenPrivate(account);
+            foreach (var (folder, inTrash) in FoldersOf(account))
+            {
+                try
+                {
+                    listed.Add(own.ListFolder(folder, inTrash, _limits.Listed, _limits.Reports));
+                }
+                catch (Exception ex) when ((folder is not null || inTrash) && ex is IOException or UnauthorizedAccessException)
+                {
+                    report.Skip(new SkippedEntry(FolderName(account, folder, inTrash), null, SkipReason.Unreadable));
+                }
+            }
+
+            return own;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            missing.AddRange(FoldersOf(account).Select(place => new FolderKey(account, place.Folder, place.InTrash)));
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            report.Skip(new SkippedEntry(RootName(account), null, SkipReason.Unreadable));
+            return null;
         }
     }
 
@@ -269,12 +334,13 @@ public sealed partial class DataCopy
     /// takes, and none when even all of them would not make it fit (<see cref="FolderPlan.Evicted"/>). The others go into
     /// <see cref="FolderPlan.OverBudget"/>.
     /// </summary>
-    private Plan Choose(IReadOnlyList<DataFolder.ListedFolder> listed, DateTimeOffset now)
+    private Plan Choose(IReadOnlyList<DataFolder.ListedFolder> listed, IEnumerable<FolderKey> missing, DateTimeOffset now)
     {
         var plan = new Plan();
+        plan.Whole.UnionWith(missing);
         foreach (var folder in listed.Where(folder => !folder.TooMany))
         {
-            plan.Whole.Add((folder.Folder, folder.InTrash));
+            plan.Whole.Add(FolderOf(folder));
             foreach (var document in folder.Listing.Documents.Concat(folder.Listing.Unread))
             {
                 plan.Listed.Add(new Spot(document.Key, folder.InTrash));
@@ -405,11 +471,12 @@ public sealed partial class DataCopy
     /// <summary>
     /// Reads a listed folder and takes it into the copy (<see cref="Take"/>). A folder that lists too many entries, or that
     /// cannot be read, such as one made a link before its reads were checked, is reported and nothing of it is taken; the
-    /// root of the data folder throws. Gives whether the index has changed.
+    /// root of the data folder throws, and that of a private folder is reported too (M2.7b). Gives whether the index has
+    /// changed.
     /// </summary>
     private bool TakeFolder(DataFolder.ListedFolder folder, Plan plan, DateTimeOffset now, Report report)
     {
-        var name = FolderName(folder.Folder, folder.InTrash);
+        var name = FolderName(folder.Account, folder.Folder, folder.InTrash);
         if (folder.TooMany)
         {
             report.Skip(new SkippedEntry(name, null, SkipReason.OverBudget));
@@ -420,15 +487,15 @@ public sealed partial class DataCopy
         IReadOnlyList<LoadedFile> files;
         try
         {
-            files = _share.ReadFolder(folder, folderPlan.Read, now);
+            files = folder.Source.ReadFolder(folder, folderPlan.Read, now);
         }
-        catch (Exception ex) when ((folder.Folder is not null || folder.InTrash) && ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when ((folder.Account is not null || folder.Folder is not null || folder.InTrash) && ex is IOException or UnauthorizedAccessException)
         {
             report.Skip(new SkippedEntry(name, null, SkipReason.Unreadable));
             return false;
         }
 
-        plan.Loaded.Add((folder.Folder, folder.InTrash));
+        plan.Loaded.Add(FolderOf(folder));
         var taken = Evict(folderPlan.Evicted);
         report.Skip(name, folder.Listing.Links, SkipReason.Link);
         report.Skip(name, folder.Listing.BadNames, SkipReason.BadName);
@@ -467,7 +534,7 @@ public sealed partial class DataCopy
     /// </summary>
     private bool Take(DataFolder.ListedFolder folder, IReadOnlyList<LoadedFile> files, Plan plan, DateTimeOffset now, Report report)
     {
-        var name = FolderName(folder.Folder, folder.InTrash);
+        var name = FolderName(folder.Account, folder.Folder, folder.InTrash);
         var changes = new List<Change>();
         foreach (var file in files)
         {
@@ -527,7 +594,7 @@ public sealed partial class DataCopy
             {
                 if (copied[i] == Keep.Done)
                 {
-                    _history[slot] = new SlotEntry(slot.Key.Folder, slot.Key.Id, slot.InTrash, slot.Version, lastGood.Hash, lastGood.Length, now, lastGood.Own, FromShare: false);
+                    _history[slot] = new SlotEntry(slot.Key.Account, slot.Key.Folder, slot.Key.Id, slot.InTrash, slot.Version, lastGood.Hash, lastGood.Length, now, lastGood.Own, FromShare: false);
                 }
                 else
                 {
@@ -667,7 +734,7 @@ public sealed partial class DataCopy
     private bool Leave(Plan plan, DateTimeOffset now, Report report)
     {
         var taken = false;
-        foreach (var (spot, entry) in _index.Where(entry => plan.Loaded.Contains((entry.Key.Key.Folder, entry.Key.InTrash)) && plan.IsLeaving(entry.Key, entry.Value)).ToList())
+        foreach (var (spot, entry) in _index.Where(entry => plan.Loaded.Contains(FolderOf(entry.Key)) && plan.IsLeaving(entry.Key, entry.Value)).ToList())
         {
             var other = spot with { InTrash = !spot.InTrash };
             // The other place took the move from a late listing: it keeps the earlier stay, and whether this Kiler wrote the bytes.
@@ -700,7 +767,7 @@ public sealed partial class DataCopy
                 var kept = CopyLastGood(LastGoodPath(spot, entry), KeptPath(spot), lastGood);
                 if (kept == Keep.Failed)
                 {
-                    report.Skip(new SkippedEntry(FolderName(spot.Key.Folder, spot.InTrash), spot.Key.Id + DataFolder.Extension, SkipReason.NotCopied));
+                    report.Skip(new SkippedEntry(FolderName(spot.Key.Account, spot.Key.Folder, spot.InTrash), spot.Key.Id + DataFolder.Extension, SkipReason.NotCopied));
                     continue;
                 }
 

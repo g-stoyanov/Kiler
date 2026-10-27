@@ -4,16 +4,19 @@ namespace Kiler.Storage;
 
 /// <summary>
 /// The index of a local copy, <c>index.json</c> in its folder (M2.7): the data folder it is a copy of, an entry for each
-/// document that the copy knows, in its folder or in the trash, and an entry for each history slot it keeps (M2.7a). A
-/// format that Kiler does not know, such as the format 1 of M2.7, is no index, and the load reads everything again.
+/// document that the copy knows, in its folder or in the trash, and an entry for each history slot it keeps (M2.7a), of the
+/// data folder or of the private folder of the current user (M2.7b). A format that Kiler does not know, such as the format 1
+/// of M2.7 or 2 of M2.7a, is no index, and the load reads everything again. Format 3 adds the account of an entry and of a
+/// slot (M2.7b), which a Kiler of format 2 would not read, and would take the private documents for those of the data folder.
 /// </summary>
 internal sealed record CopyIndex(int Format, string? Share, IReadOnlyList<CopyEntry?>? Files, IReadOnlyList<SlotEntry?>? History)
 {
-    public const int CurrentFormat = 2;
+    public const int CurrentFormat = 3;
 }
 
 /// <summary>
-/// A document in the index of a local copy (M2.7), in its folder or in the trash (<see cref="InTrash"/>, M2.7a). Of the file
+/// A document in the index of a local copy (M2.7), in its folder or in the trash (<see cref="InTrash"/>, M2.7a), of the data
+/// folder or of the private folder of <see cref="Account"/> (M2.7b). Of the file
 /// on the share: the size and the times that the last listing gave, or none yet after a write of this Kiler
 /// (<see cref="Unseen"/>), the owner, read through the handle it was read with (M2.6), and why it is damaged, when it is. Of
 /// the document in the copy: when the copy first took it (<see cref="Taken"/>) and when the share stopped listing it
@@ -30,6 +33,8 @@ internal sealed record CopyEntry
 {
     /// <summary>The times of a stamp that no listing gives, for a file that this Kiler wrote and no load has read back yet.</summary>
     public static readonly DateTimeOffset Unseen = DateTimeOffset.MinValue;
+
+    public string? Account { get; init; }
 
     public string? Folder { get; init; }
 
@@ -90,7 +95,7 @@ internal sealed record CopyEntry
 internal sealed record KeptCopy(int Version, string? Hash, long Length, bool Own);
 
 /// <summary>
-/// A history slot that the local copy keeps (M2.7a): the document, the version, the SHA-256 and the length of its bytes, when
+/// A history slot that the local copy keeps (M2.7a): the document, of the data folder or of a private folder (M2.7b), the version, the SHA-256 and the length of its bytes, when
 /// the copy took it, on the clock of this machine, as the oldest make room first, and whether it is this Kiler's own: the slot
 /// of a replace or a delete of this Kiler, or bytes that this Kiler wrote, which make room only for each other (decided in
 /// M2.7a, by the user). The others are the versions that the copy had from other Kilers, and the slots read from the history
@@ -99,7 +104,7 @@ internal sealed record KeptCopy(int Version, string? Hash, long Length, bool Own
 /// folder, as two documents of one id, which Kiler never makes, would otherwise take each other's slots (fifth security
 /// review of M2.7a).
 /// </summary>
-internal sealed record SlotEntry(string? Folder, string? Id, bool InTrash, int Version, string? Hash, long Length, DateTimeOffset Taken, bool Own, bool FromShare);
+internal sealed record SlotEntry(string? Account, string? Folder, string? Id, bool InTrash, int Version, string? Hash, long Length, DateTimeOffset Taken, bool Own, bool FromShare);
 
 /// <summary>
 /// The budget of a local copy (decided after the reviews of M2.7, by the user): anyone who can write the share can put any
