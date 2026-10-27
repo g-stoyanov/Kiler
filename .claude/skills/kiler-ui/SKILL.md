@@ -12,7 +12,7 @@ Decisions come from `docs/PLAN.md` (section 2, M1, M6, M7), `docs/tasks/M1.md` a
 - React 19, TypeScript, Vite. ESLint and Prettier. TypeScript in strict mode, as a good practice.
 - The browser is only the view. Filters, search, permissions and encryption live in C#.
 - The build is embedded in `Kiler.exe`. **The app works without internet:** every library is in the build. No CDN and no requests to external addresses.
-- The app is entirely in English: UI texts, messages and errors (PLAN section 8, rule 8). The Bulgarian texts in the design are only examples of meaning; do not copy or translate them word for word.
+- The app is entirely in English: UI texts, messages and errors (PLAN section 8, rule 9). The Bulgarian texts in the design are only examples of meaning; do not copy or translate them word for word.
 - Package versions are the current stable ones when `src/ui` is created (PLAN section 2), checked with `docs-researcher`, not from memory. `package-lock.json` goes into git, because `npm ci` needs it (M1.8, CI in M1.9). `node_modules` and `dist` do not.
 - Fixed in M1.7 (`src/ui/package.json`): Vite 8, React 19.3, ESLint 10 with typescript-eslint `strict`, Prettier 3, Vitest 5, jsdom 30.
   - TypeScript stays on `~6.0`: typescript-eslint 8 does not support TypeScript 7, which has no programmatic API. Move to 7 only when typescript-eslint does.

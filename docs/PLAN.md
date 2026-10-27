@@ -129,7 +129,7 @@ Design sections 4 and 14.
 **Before the steps:**
 
 - Git hooks `pre-commit`, `commit-msg` and `pre-push` that call the `data-guard` script, so commits made outside Claude are checked too (M1.0a).
-- A probe exe, `tools/Kiler.Probe`, published the same way as `Kiler.exe`, for the checks from design section 14 before the real code is written (M1.0b). It starts a local server and opens the browser, and with `--diag <folder>` it measures many small files and checks the file owner. Only a summary of its results goes into the repo: the notes under M1.0b in [tasks/M1.md](tasks/M1.md). The decisions made after it are in this plan. M1.11 moved its `--diag` logic into `Kiler.exe` and deleted it.
+- A probe exe, `tools/Kiler.Probe`, published the same way as `Kiler.exe`, for the checks from design section 14 before the real code is written (M1.0b). It starts a local server and opens the browser, and with `--diag <folder>` it measures many small files and checks the file owner. Only a summary of its results goes into the repo: the notes under M1.0b in [tasks/log/M1.md](tasks/log/M1.md). The decisions made after it are in this plan. M1.11 moved its `--diag` logic into `Kiler.exe` and deleted it.
 
 **Steps:**
 
@@ -591,6 +591,7 @@ They are resolved at the start of the relevant module. The decisions are also re
 | M3 | Whether the first copy checks the copied exe against the signed `version.json` before it starts it. The bytes are copied by path some seconds after the start, and a DLL planted next to the exe in the shared folder runs in it (M1.5a security review). The checkpoint after M1 confirmed it: planted copies of `NTASN1.dll` and `SSPICLI.DLL` replaced the system ones in every start from the shared folder, and more in some ([tasks/M1.md](tasks/M1.md#checkpoint-in-the-real-environment)). |
 | M6 | Whether the UI shows the shared folder that Kiler uses (M1.5a security review). |
 | M6 | UI component library, routing, data loading. |
+| M6 | Whether the redirect of the token exchange sends `Clear-Site-Data: "cache"`, against a browser cache poisoned from another port of 127.0.0.1 (the M1.8 residual risk in [tasks/log/M1.md](tasks/log/M1.md); to be checked in Edge with a test listener first). |
 | M7 | What highlights the code in MD: CodeMirror or a separate library. |
 | M8 | Which language the README is in. Decided: English, like the other repository documents. |
 
@@ -625,11 +626,11 @@ The split is as follows:
 
 | Name | Kind | When it is used | Role |
 |---|---|---|---|
-| `kiler-dotnet` | skill | C# and .NET code | project structure, Native AOT, xUnit v3 and TDD, Windows parts behind interfaces |
+| `kiler-dotnet` | skill | C# and .NET code | project structure, Native AOT, xUnit v3 and TDD, Windows parts behind interfaces; the rules of one area in a file of its own (`host.md` for Kiler.App, `storage.md` for Kiler.Storage) |
 | `kiler-crypto` | skill | encryption, keys, passwords, tokens | the algorithms and rules from design sections 7 and 12 |
 | `kiler-ui` | skill | `src/ui` | React, TypeScript, Vite, API, secret values in the browser, Vitest |
 | `code-reviewer` | subagent, read-only | every task, before the tick | scope, the tests from "Tests", bugs, the rules, real data |
-| `security-reviewer` | subagent, read-only | security tasks (M1.4, M3, M4, M7, etc.) | local server, permissions, secret values, encryption, paths, HTML |
+| `security-reviewer` | subagent, read-only | security tasks (M1.4, M3, M4, M7, etc.) | local server, permissions, secret values, encryption, paths, HTML, judged by the threat model of design 7.8 |
 | `docs-researcher` | subagent, web search | when in doubt about the API of the new versions | a short answer with sources |
 | `note` | skill (command `/note`) | after a step of the work | a course note |
 | `log-prompt` | hook, `UserPromptSubmit` | every message that enters the conversation | log in `course/prompts.jsonl`: the user's prompts, plus subagent reports and system notifications as a debug log |
@@ -644,7 +645,16 @@ Rules:
 5. **No internal data.** The agent and skill files are in git, so they contain no internal names.
 6. **Hooks are registered in `.claude/settings.local.json`**, which is outside git, because the path to the script is local. The scripts themselves are in git.
 7. **`data-guard` coverage:** the Claude hook sees only Claude's commands through the Bash and PowerShell tools. Commits from the app's buttons, another terminal or another tool are covered by the git hooks (M1.0a), once they are enabled for the clone with `git config core.hooksPath .githooks`. `git commit --no-verify` skips the git hooks, and Claude must not use it.
-8. **Language:**
+8. **What a session loads** (decided on 2026-10-27, after M2.7a ended with the context almost full, and three quarters of its tokens went to five review passes):
+   - a skill holds rules, not the history of the tasks, and the rules of one area are in a file of their own, read only for that area;
+   - the module file holds the open tasks with the notes they need, and the done tasks are whole in `docs/tasks/log/`;
+   - a repeat review pass sees only the fixes, a reviewer without critical or major points does no further pass, and at most two passes of a reviewer run in one session;
+   - the full check runs before the first review and before the commit; between the passes only the tests of the changed projects and `format.ps1` run;
+   - `security-reviewer` judges by the threat model of design 7.8 in its agent file;
+   - the reviewers leave the known internal terms to the `data-guard` hooks.
+
+   The details are in the work cycle, [docs/tasks/README.md](tasks/README.md): steps 1, 2, 4, 5, 6 and 7, and "Start of a module".
+9. **Language:**
    - AI instructions in `.claude/` (skills, agents, hooks) are in English. This keeps the descriptions shorter and the conditions for use more precise.
    - The descriptions are short, in the form "what it is. Use when …".
    - Repository documents are in English.

@@ -16,13 +16,27 @@ Write the report in English.
 
 The task number, for example `M1.4`.
 
+## Threat model (design 7.8)
+
+Everyone who uses Kiler can write, rename and delete in the shared folder, and without folder permissions set by IT nothing stops them. So Kiler detects the changes made outside it and lets an admin restore them; it does not prevent them (design 7.8). Judge every finding against this model:
+
+- **In the model, critical or major when broken: the boundaries.** Nothing from the share escapes it: no path is built from a name of the share without the name check, no link is followed, nothing is written or deleted outside `data\` or outside the folder of the local copy, no code runs, there is no crash or unhandled exception, and no memory or disk is used beyond the limits. The same for secrets and keys, the sign-in, the levels and permissions, the encryption and the local server. The check of the owner of a root, such as `private\<account>`, is a boundary too: a user's private records go only into a folder that is theirs (design 7.10).
+- **In the model, major when broken: careless changes and accidents** are detected and can be restored: a file edited in place, deleted outside the trash, damaged or left by a crash, two writes at once, a share that cannot be reached. Kiler's own files in the profile (the local copy and its index) are not lost through them. The local copy keeps the last good bytes of a document that it has had for more than a day (`DataCopy.BriefStay`) or that this Kiler wrote, also against files planted on purpose.
+- **Outside the model: the accepted limits.** Someone who plants files on purpose can still make the local copy follow a move that did not happen within the 30 s of a late listing, report a false restore candidate, or lose the last good bytes of a document that it has had for less than a day. Report such a case in one line as `[minor, out of model]`, without a fix, unless it also breaks one of the points above. Another deliberate forgery that breaks none of them is judged the same way, and the report says why it is outside the model; the user decides whether it is accepted. Design 7.8 marks a change whose file owner does not match its author, and an admin chooses what a restore writes back.
+
+The limits accepted so far are in the decisions at the top of the module file, for example "The limits of the local copy" in `docs/tasks/M2.md`.
+
 ## Steps
 
 1. Read:
-   - the task in `docs/tasks/M<n>.md` and its module in `docs/PLAN.md`;
+   - the task in `docs/tasks/M<n>.md` (its notes, and the decisions of the module at the top of the file; the other tasks are not needed) and its module in `docs/PLAN.md`;
    - `.claude/skills/kiler-crypto/SKILL.md` if the task touches encryption, keys, passwords or tokens;
    - sections 7 and 12 of `KILER_DESIGN.md` if the file exists. It is local and not in git. Do not quote internal names from it in the report.
-2. Collect the changes: `git status --short`, `git diff --cached`, `git diff HEAD` and the new files (`git ls-files --others --exclude-standard`). If you find an internal term from `.claude/data-guard.local.txt`, give the file and line without quoting the term. Look for the terms with the Grep tool and write no file, not even a temporary one: a copy of the terms outside that file can end up where it should not (M2.1).
+2. Collect the changes: `git status --short`, `git diff --cached`, `git diff HEAD` and the new files (`git ls-files --others --exclude-standard`).
+
+   **A repeat pass** (the brief says so and lists the findings of the last pass) runs other commands instead of these. The main agent staged the state that the last pass reviewed (`git add -A`) before it made the fixes, so the fixes are `git diff` (the working tree against the index) and the files that `git ls-files --others --exclude-standard` lists, which are new since then. Review only them, and read the rest of the code only where a fix depends on it. Check that each finding of the last pass is closed and that the fixes open no new hole. If `git diff --cached` is empty, or the fixes are empty while the brief lists findings, the staging is wrong: say so, and do not report the findings as closed.
+
+   Do not read `.claude/data-guard.local.txt` or search for its terms: the `data-guard` hooks check them at every commit and push. If something looks like real internal data, such as a host, an account or a company path, give the file and line without quoting it.
 3. Check what applies to the task:
    - **Local server:**
      - it listens only on loopback;
@@ -76,6 +90,7 @@ Task: M<n>.<k>
 
 Findings
 - [critical|major|minor] path:line — the problem; how it can be abused; CWE or OWASP if any; suggestion.
+- [minor, out of model] path:line — the deliberate forgery in one line (see "Threat model").
 
 Checked with no findings
 - <short list of the areas checked>

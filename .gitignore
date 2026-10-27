@@ -58,6 +58,8 @@ bld/
 [Oo]bj/
 [Ll]og/
 [Ll]ogs/
+# The log of the done tasks is a document, not a build log
+!docs/tasks/log/
 
 # Visual Studio 2015/2017 cache/options directory
 .vs/

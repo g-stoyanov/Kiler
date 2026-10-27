@@ -62,7 +62,7 @@ These are outside git (in `.gitignore`):
 
 ## Tasks
 
-Work follows the tasks in `docs/tasks/`, one file per module, with numbers `M<module>.<n>` and ticks. Before working on code, read [docs/tasks/README.md](docs/tasks/README.md). It contains:
+Work follows the tasks in `docs/tasks/`, one file per module, with numbers `M<module>.<n>` and ticks. The done tasks, with all their notes and review passes, are in `docs/tasks/log/`, which is read only when a note points there. Before working on code, read [docs/tasks/README.md](docs/tasks/README.md). It contains:
 
 - the task format;
 - the work cycle;
@@ -74,7 +74,7 @@ One session covers one or several small tasks from one module.
 
 They are described in [docs/PLAN.md, section 8](docs/PLAN.md#8-agents-skills-and-hooks).
 
-- **Skills with the rules:** `kiler-dotnet`, `kiler-crypto`, `kiler-ui`.
+- **Skills with the rules:** `kiler-dotnet`, `kiler-crypto`, `kiler-ui`. `kiler-dotnet` keeps the rules of one area in a file of its own (`host.md`, `storage.md`), read only for that area.
 - **Reviewer subagents:** `code-reviewer` for every task and `security-reviewer` for the security tasks. They only read.
 - **Documentation subagent:** `docs-researcher`.
 - **Hooks:**
