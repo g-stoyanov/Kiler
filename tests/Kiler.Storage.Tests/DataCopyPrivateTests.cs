@@ -332,7 +332,7 @@ public sealed class DataCopyPrivateTests : IDisposable
     }
 
     [Fact]
-    public void Open_WithAnotherAccount_LeavesTheEntriesOfThePrivateFolderOut_AndDeletesTheirFilesOnceOld()
+    public void Open_WithAnotherAccount_KeepsTheEntriesOfThePrivateFolder_AndGivesNoneOfThem()
     {
         WriteShared(Record, "shared");
         var mine = _share.CreatePrivate(Me);
@@ -362,22 +362,19 @@ public sealed class DataCopyPrivateTests : IDisposable
         Assert.Equal(OtherRecord.InPrivate(Me), Assert.Single(again.Trash()).Key);
         Assert.All(files, file => Assert.True(File.Exists(file), $"{file} has gone from the copy of its account."));
 
-        Assert.Equal(Record, Assert.Single(OpenAt(Other).Documents()).Key);
+        // Another account, or none, gives none of them, and keeps them as the private folder of another user, for a restore (M2.7c).
+        foreach (var account in (string?[])[Other, null])
+        {
+            var another = OpenAt(account);
+            Assert.Equal(Record, Assert.Single(another.Documents()).Key);
+            Assert.Empty(another.Trash());
+            Assert.Equal(Record, Assert.Single(another.Load().Changed.Concat(another.Documents())).Key);
+        }
 
-        Assert.All(files, file => Assert.False(File.Exists(file), $"{file} of another account is still in the copy."));
-        Assert.Equal(Record, Assert.Single(OpenAt(Me).Documents()).Key);
-    }
-
-    [Fact]
-    public void Open_WithAnotherAccount_KeepsTheFilesOfThePrivateFolderWhileTheyAreYoung()
-    {
-        Create(_share.CreatePrivate(Me), Record, "mine");
-        OpenAt(Me).Load();
-
-        Assert.Empty(OpenAt(null).Documents());
-
-        // Young, they may be the writes of another Kiler of the user, in another session.
-        Assert.True(File.Exists(PrivateCopyPath(Me, Record)), "A young file of the private folder is gone.");
+        Assert.All(files, file => Assert.True(File.Exists(file), $"{file} of another account has gone from the copy."));
+        var back = OpenAt(Me);
+        Assert.Equal(Keys([Record, MyRecord]), Keys(back.Documents()));
+        Assert.Equal(OtherRecord.InPrivate(Me), Assert.Single(back.Trash()).Key);
     }
 
     [Fact]

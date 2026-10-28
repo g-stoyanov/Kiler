@@ -87,13 +87,33 @@ public sealed partial class DataFolder
     }
 
     /// <summary>
+    /// Holds the data folder and <c>private\</c> while a load lists the private folders of other users (M2.7c), as the load
+    /// of the user's own holds the root while it lists their private folder (M2.7b): a data folder that has gone, or a
+    /// <c>private\</c> renamed in between, is never taken for private folders that have gone. A <c>private\</c> that is not
+    /// there, or that cannot be held, such as a link, leaves the root alone held, and each private folder finds it so. A root
+    /// that cannot be held is an <see cref="IOException"/> or an <see cref="UnauthorizedAccessException"/>, as for a listing.
+    /// </summary>
+    internal Holds HoldPrivateFolders()
+    {
+        try
+        {
+            return HoldIfThere(Private) ?? Hold(create: false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return Hold(create: false);
+        }
+    }
+
+    /// <summary>
     /// Reads the listed documents of a held folder that the copy chose, at most <see cref="LoadReads"/> at a time on threads
     /// of their own (<see cref="Workers"/>), then checks the held folders through their handles and deletes the temporary
     /// files of the listing that are older than <see cref="TemporaryFileAge"/> at <paramref name="now"/>, as a crash leaves
     /// them (M2.3); the markers of a delete or a restore are among them (M2.5). A folder that became a link before its reads
-    /// were checked is an <see cref="IOException"/>, and nothing of it is given.
+    /// were checked is an <see cref="IOException"/>, and nothing of it is given. With <paramref name="headsOnly"/>, only the
+    /// head of each document is read, as the copy of an admin reads the private folders of other users (M2.7c).
     /// </summary>
-    internal IReadOnlyList<LoadedFile> ReadFolder(ListedFolder listed, IReadOnlyList<ListedDocument> chosen, DateTimeOffset now)
+    internal IReadOnlyList<LoadedFile> ReadFolder(ListedFolder listed, IReadOnlyList<ListedDocument> chosen, DateTimeOffset now, bool headsOnly)
     {
         ArgumentNullException.ThrowIfNull(listed);
         if (listed.Held is not { } held || listed.TooMany)
@@ -101,7 +121,7 @@ public sealed partial class DataFolder
             return [];
         }
 
-        var files = Workers.Run(chosen, LoadReads, document => ReadListed(document, listed.InTrash ? TrashPath(document.Key) : DocumentPath(document.Key)));
+        var files = Workers.Run(chosen, LoadReads, document => ReadListed(document, listed.InTrash ? TrashPath(document.Key) : DocumentPath(document.Key), headsOnly));
 
         // An empty folder made a mount point in place would have given the listing, or the files, of another folder.
         held.ThrowIfLink();
@@ -172,9 +192,10 @@ public sealed partial class DataFolder
     /// <see cref="DocumentFormat.MaxSize"/> is damaged without a read. A file that has gone since the listing gives no read,
     /// and the next listing says so. One that has grown since the listing, or that cannot be opened or read, is unreadable,
     /// for that file alone (M2.2 note), and the next load tries it again. The file is closed before the parse, as any open
-    /// handle stops a rename over it (M2.5).
+    /// handle stops a rename over it (M2.5). With <paramref name="headsOnly"/>, the file is checked whole but only its head is
+    /// given, and no document (M2.7c).
     /// </summary>
-    private LoadedFile ReadListed(ListedDocument listed, string path)
+    private LoadedFile ReadListed(ListedDocument listed, string path, bool headsOnly)
     {
         byte[] bytes;
         string? owner;
@@ -183,26 +204,33 @@ public sealed partial class DataFolder
             using var stream = Files.OpenRead(path);
             if (stream is null)
             {
-                return new LoadedFile(listed, [], null, Unreadable: false);
+                return new LoadedFile(listed, [], null, null, Unreadable: false);
             }
 
             owner = Files.Owner(stream);
             if (listed.File.Size > DocumentFormat.MaxSize)
             {
-                return new LoadedFile(listed, [], DocumentRead.Damaged(DocumentDamage.TooLarge).WithOwner(owner), Unreadable: false);
+                var tooLarge = DocumentRead.Damaged(DocumentDamage.TooLarge).WithOwner(owner);
+                return new LoadedFile(listed, [], DocumentHead.Of(tooLarge), headsOnly ? null : tooLarge, Unreadable: false);
             }
 
             if (!DocumentFormat.TryReadBytes(stream, listed.File.Size, out bytes))
             {
-                return new LoadedFile(listed, [], null, Unreadable: true);
+                return new LoadedFile(listed, [], null, null, Unreadable: true);
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return new LoadedFile(listed, [], null, Unreadable: true);
+            return new LoadedFile(listed, [], null, null, Unreadable: true);
         }
 
-        return new LoadedFile(listed, bytes, DocumentFormat.Read(listed.Key, bytes).WithOwner(owner), Unreadable: false);
+        if (headsOnly)
+        {
+            return new LoadedFile(listed, bytes, DocumentFormat.ReadHead(listed.Key, bytes) with { Owner = owner }, null, Unreadable: false);
+        }
+
+        var read = DocumentFormat.Read(listed.Key, bytes).WithOwner(owner);
+        return new LoadedFile(listed, bytes, DocumentHead.Of(read), read, Unreadable: false);
     }
 
     /// <summary>
@@ -287,11 +315,12 @@ public sealed partial class DataFolder
 }
 
 /// <summary>
-/// A listed document that a load read (M2.7): its bytes as they are and what they give, with its owner. No read when the file
-/// had gone since the listing, or is <see cref="Unreadable"/>: it had grown since the listing, or could not be opened or
-/// read. No bytes for a damaged file over the size limit.
+/// A listed document that a load read (M2.7): its bytes as they are and what they give, its head (<see cref="Head"/>, its
+/// version or its damage, with its owner) and the document (<see cref="Read"/>). No head and no read when the file had gone
+/// since the listing, or is <see cref="Unreadable"/>: it had grown since the listing, or could not be opened or read. No
+/// read when only the head was read (M2.7c). No bytes for a damaged file over the size limit.
 /// </summary>
-internal sealed record LoadedFile(ListedDocument Listed, byte[] Bytes, DocumentRead? Read, bool Unreadable);
+internal sealed record LoadedFile(ListedDocument Listed, byte[] Bytes, DocumentHead? Head, DocumentRead? Read, bool Unreadable);
 
 /// <summary>A history slot of a listing (M2.7a): its version, from its name, and its entry.</summary>
 internal sealed record ListedSlot(int Version, FileEntry File);

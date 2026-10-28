@@ -195,6 +195,52 @@ public class DocumentFormatTests
         Assert.Equal(DocumentDamage.NotJson, DocumentFormat.Read(Key, bytes).Damage);
     }
 
+    [Theory]
+    [MemberData(nameof(DamagedFiles))]
+    public void ReadHead_ADamagedFile_GivesTheReasonOfTheRead(string json, DocumentDamage damage) =>
+        Assert.Equal(new DocumentHead(0, damage, null), DocumentFormat.ReadHead(Key, Encoding.UTF8.GetBytes(json)));
+
+    [Fact]
+    public void ReadHead_InvalidUtf8AndAFileTooLarge_AreDamagedAsInTheRead()
+    {
+        byte[] invalid = [.. """{"id": "8f3a1c", "version": 1, "name": """u8, (byte)'"', 0xC3, 0x28, (byte)'"', (byte)'}'];
+
+        Assert.Equal(DocumentDamage.NotJson, DocumentFormat.ReadHead(Key, invalid).Damage);
+        Assert.Equal(DocumentDamage.TooLarge, DocumentFormat.ReadHead(Key, Padded("""{"id": "8f3a1c", "version": 1}"""u8, DocumentFormat.MaxSize + 1)).Damage);
+    }
+
+    [Fact]
+    public void ReadHead_ADocument_GivesItsVersion_WhereverIdAndVersionAre_AndAfterAByteOrderMark()
+    {
+        var bytes = DocumentFormat.Next(Key, 6, Content("""{"name": "demo"}"""));
+        byte[] withBom = [.. Encoding.UTF8.Preamble, .. bytes];
+
+        Assert.Equal(new DocumentHead(7, null, null), DocumentFormat.ReadHead(Key, bytes));
+        Assert.Equal(new DocumentHead(7, null, null), DocumentFormat.ReadHead(Key, withBom));
+        Assert.Equal(new DocumentHead(3, null, null), DocumentFormat.ReadHead(Key, """{"name": "a", "version": 3, "id": "8f3a1c"}"""u8.ToArray()));
+    }
+
+    [Fact]
+    public void ReadHead_MakesNoNodesOfTheContent_AsTheReadDoes()
+    {
+        var items = new JsonArray([.. Enumerable.Range(0, 20_000).Select(i => (JsonNode)new JsonObject { ["a"] = i })]);
+        var bytes = DocumentFormat.New(Key, new JsonObject { ["items"] = items });
+
+        // Once first, for the code and the pooled buffers of the parser.
+        DocumentFormat.ReadHead(Key, bytes);
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var head = DocumentFormat.ReadHead(Key, bytes);
+        var headBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        DocumentFormat.Read(Key, bytes);
+        before = GC.GetAllocatedBytesForCurrentThread();
+        DocumentFormat.Read(Key, bytes);
+        var readBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(new DocumentHead(1, null, null), head);
+        Assert.True(headBytes < 64 * 1024, $"The head of a document of {bytes.Length} bytes took {headBytes} bytes.");
+        Assert.True(readBytes > bytes.Length, $"The whole read of a document of {bytes.Length} bytes took only {readBytes} bytes.");
+    }
+
     [Fact]
     public void Read_IdAndVersionAnywhereInTheObject_AreFound()
     {

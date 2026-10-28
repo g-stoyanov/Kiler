@@ -240,9 +240,11 @@ Design sections 5 and 7.10.
    - the upper layers write through the copy (decided by the user). It takes the bytes that this Kiler wrote, never makes room with them, and reads the share's file back at the next load, as the stamp and the owner of a write are not proof of the share.
 
    Decided in M2.7b (by the user, before the code): the old M2.7b is split into the private folder of the current user (M2.7b), the other private folders for an admin with the stopped creates (M2.7c), and the owner of a private folder (M2.7d). The private folder of the current user goes into the same copy, under `private\<account>\` of its places, in one budget with the data folder; a document key carries the account of its private folder, and `DataCopy.Open` takes the account of the current user. After the security review, a private folder is held from the data folder through `private\`, so no link at `private\` is followed.
+
+   Decided in M2.7c (by the user, before the code): the stopped creates of a private folder go to a task of their own, M2.7e. An admin's copy takes the private folders of the accounts that M4 gives it after the sign-in (`DataCopy.CopyOthers`), never every folder in `private\`. One that it is no longer given, and every one before the first call, stays in the copy as it is, neither loaded nor let go. Their documents are checked whole, but only their heads are read; their history is not taken, they are never given to the upper layers, and their changes outside Kiler are reported for a restore. They have a budget of their own: 64 MiB and 20 000 documents for all of them, and 4 MiB and 1000 documents for each, whose brief leftovers make room only in it.
 7. Watching for changes about every 10 seconds: one listing of the folder with names and dates, reloading the changed files, events to the upper layers. Folders it does not know, such as the `kiler-diag-*` subfolder of `--diag` (M1.11), which a stopped run can leave in `data\`, are ignored.
    - Only the current user's private folder is loaded and watched.
-   - An admin's exe also copies the other users' private folders into its cache, without reading them, so they can be restored (step 10).
+   - An admin's exe also copies into its cache the private folders of the other users that it is given, reading only the head of each document, so they can be restored (step 10; decided in M2.7c).
 8. Resilience:
    - a corrupted JSON file is skipped and reported, without a crash;
    - when the network is unavailable, the application works from the cache and shows this.

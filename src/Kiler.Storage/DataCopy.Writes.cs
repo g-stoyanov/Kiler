@@ -128,13 +128,23 @@ public sealed partial class DataCopy
 
     /// <summary>
     /// Whether the copy has room for an entry in place of others, as a write of this Kiler takes it: within the budget of
-    /// bytes and of documents, or no further over it than it is. A copy that a load filled has no room for one more, and an
-    /// index with more entries than the budget would be no index at the next start (security review of M2.7a).
+    /// bytes and of documents of the user's own, or no further over it than it is. A copy that a load filled has no room for
+    /// one more, and an index with more entries than the budget would be no index at the next start (security review of
+    /// M2.7a). The private folders of other users are in a budget of their own, which a write never touches (M2.7c).
     /// </summary>
     private bool HasRoom(CopyEntry next, params ReadOnlySpan<CopyEntry?> replaced)
     {
-        var bytes = _index.Values.Sum(Cost);
-        var count = _index.Count;
+        long bytes = 0;
+        var count = 0;
+        foreach (var (spot, entry) in _index)
+        {
+            if (IsOwn(spot.Key.Account))
+            {
+                bytes += Cost(entry);
+                count++;
+            }
+        }
+
         var nextBytes = bytes + Cost(next);
         var nextCount = count + 1;
         foreach (var entry in replaced)

@@ -1431,7 +1431,11 @@ public sealed class DataCopyTests : IDisposable
         long? historyBytes = null,
         int? historySlots = null,
         int? historyListings = null,
-        long? historyReads = null) =>
+        long? historyReads = null,
+        long? otherBytes = null,
+        int? otherDocuments = null,
+        long? bytesPerOther = null,
+        int? documentsPerOther = null) =>
         new(
             bytes ?? CopyLimits.Default.Bytes,
             documents ?? CopyLimits.Default.Documents,
@@ -1440,7 +1444,11 @@ public sealed class DataCopyTests : IDisposable
             historyBytes ?? CopyLimits.Default.HistoryBytes,
             historySlots ?? CopyLimits.Default.HistorySlots,
             historyListings ?? CopyLimits.Default.HistoryListings,
-            historyReads ?? CopyLimits.Default.HistoryReads);
+            historyReads ?? CopyLimits.Default.HistoryReads,
+            otherBytes ?? CopyLimits.Default.OtherBytes,
+            otherDocuments ?? CopyLimits.Default.OtherDocuments,
+            bytesPerOther ?? CopyLimits.Default.BytesPerOther,
+            documentsPerOther ?? CopyLimits.Default.DocumentsPerOther);
 
     private DataCopy Open() => DataCopy.Open(_share, _copy, TimeProvider.System);
 

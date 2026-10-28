@@ -5,7 +5,7 @@ namespace Kiler.Storage;
 /// <summary>
 /// The index of a local copy, <c>index.json</c> in its folder (M2.7): the data folder it is a copy of, an entry for each
 /// document that the copy knows, in its folder or in the trash, and an entry for each history slot it keeps (M2.7a), of the
-/// data folder or of the private folder of the current user (M2.7b). A format that Kiler does not know, such as the format 1
+/// data folder or of a private folder (M2.7b): of the current user, or of another user, kept only for a restore (M2.7c). A format that Kiler does not know, such as the format 1
 /// of M2.7 or 2 of M2.7a, is no index, and the load reads everything again. Format 3 adds the account of an entry and of a
 /// slot (M2.7b), which a Kiler of format 2 would not read, and would take the private documents for those of the data folder.
 /// </summary>
@@ -16,7 +16,7 @@ internal sealed record CopyIndex(int Format, string? Share, IReadOnlyList<CopyEn
 
 /// <summary>
 /// A document in the index of a local copy (M2.7), in its folder or in the trash (<see cref="InTrash"/>, M2.7a), of the data
-/// folder or of the private folder of <see cref="Account"/> (M2.7b). Of the file
+/// folder or of the private folder of <see cref="Account"/> (M2.7b), the current user's or another's (M2.7c). Of the file
 /// on the share: the size and the times that the last listing gave, or none yet after a write of this Kiler
 /// (<see cref="Unseen"/>), the owner, read through the handle it was read with (M2.6), and why it is damaged, when it is. Of
 /// the document in the copy: when the copy first took it (<see cref="Taken"/>) and when the share stopped listing it
@@ -116,14 +116,39 @@ internal sealed record SlotEntry(string? Account, string? Folder, string? Id, bo
 /// that it reads, as anyone can make every document change and every slot unreadable (security review of M2.7a);
 /// <see cref="Listed"/> the entries of one listing of a folder; <see cref="Reports"/> the skipped entries that one load gives.
 /// </summary>
-internal sealed record CopyLimits(long Bytes, int Documents, int Listed, int Reports, long HistoryBytes, int HistorySlots, int HistoryListings, long HistoryReads)
+internal sealed record CopyLimits(
+    long Bytes,
+    int Documents,
+    int Listed,
+    int Reports,
+    long HistoryBytes,
+    int HistorySlots,
+    int HistoryListings,
+    long HistoryReads,
+    long OtherBytes,
+    int OtherDocuments,
+    long BytesPerOther,
+    int DocumentsPerOther)
 {
     /// <summary>
     /// 64 MiB and 20 000 documents, many times the 2–4 MB of 2000 records (design 5.3); as much again for the history, with
-    /// 100 history folders and 16 MiB of slots a load; a folder of more than 40 000 entries, twice the documents; 1000 reports.
+    /// 100 history folders and 16 MiB of slots a load; a folder of more than 40 000 entries, twice the documents; 1000 reports;
+    /// and as much again for the private folders of other users in an admin's copy, 4 MiB and 1000 documents of them each
+    /// (decided in M2.7c, by the user).
     /// </summary>
-    public static CopyLimits Default { get; } =
-        new(DataCopy.MaxBytes, DataCopy.MaxDocuments, 2 * DataCopy.MaxDocuments, 1000, DataCopy.MaxHistoryBytes, DataCopy.MaxHistorySlots, 100, 16L * 1024 * 1024);
+    public static CopyLimits Default { get; } = new(
+        DataCopy.MaxBytes,
+        DataCopy.MaxDocuments,
+        2 * DataCopy.MaxDocuments,
+        1000,
+        DataCopy.MaxHistoryBytes,
+        DataCopy.MaxHistorySlots,
+        100,
+        16L * 1024 * 1024,
+        DataCopy.MaxOtherBytes,
+        DataCopy.MaxOtherDocuments,
+        DataCopy.MaxBytesPerOther,
+        DataCopy.MaxDocumentsPerOther);
 }
 
 /// <summary>The JSON of the layer's own types, with source generation, as Native AOT has no reflection-based serialization.</summary>

@@ -18,18 +18,23 @@ public sealed class LoadResult
     /// <see cref="Document"/>, or why the file is damaged. A document whose bytes could not be written into the copy is here
     /// too, as the share has it (<see cref="SkipReason.NotCopied"/>), and so is one that turned out, once read, to need more
     /// room than the budget has left (<see cref="SkipReason.OverBudget"/>). The documents of the trash are not here; the
-    /// copy gives them (<see cref="DataCopy.Trash"/>).
+    /// copy gives them (<see cref="DataCopy.Trash"/>). Nor are those of the private folders of other users, which an admin's
+    /// copy keeps only for a restore (<see cref="DataCopy.CopyOthers"/>, M2.7c).
     /// </summary>
     public IReadOnlyList<LoadedDocument> Changed { get; }
 
-    /// <summary>The documents that the local copy had and the share no longer has in their folders, also those moved to the trash.</summary>
+    /// <summary>
+    /// The documents that the local copy had and the share no longer has in their folders, also those moved to the trash; not
+    /// those of the private folders of other users (M2.7c).
+    /// </summary>
     public IReadOnlyList<DocumentKey> Gone { get; }
 
     /// <summary>
     /// The documents, in their folders or in the trash, that this load found changed outside Kiler, each once: gone otherwise
     /// than to the trash or back, damaged, edited in place once the edit has settled (<see cref="InPlaceEdits"/>), or at a
     /// version that is not after the last good one. The local copy keeps their last good bytes apart, when it has them, for a
-    /// restore (M2.9); the upper layers see the share as it is.
+    /// restore (M2.9); the upper layers see the share as it is. Those of the private folders of other users that an admin's copy
+    /// is given are here too, under their accounts (<see cref="DataCopy.CopyOthers"/>, M2.7c).
     /// </summary>
     public IReadOnlyList<OutsideChange> Outside { get; }
 
@@ -56,7 +61,8 @@ public sealed record LoadedDocument(DocumentKey Key, DocumentRead Read);
 /// The document folder, or <c>null</c> for the root of the data folder; for an entry of the trash or of the history, its
 /// folder there, such as <c>trash\records</c>, <c>trash</c> or <c>history\records\8f3a1c</c> (M2.7a); in the private folder of
 /// the current user, the same after <c>private\&lt;account&gt;</c>, such as <c>private\demo.user\records</c>, and
-/// <c>private\demo.user</c> alone for its root, or for the whole private folder when it cannot be opened (M2.7b).
+/// <c>private\demo.user</c> alone for its root, or for the whole private folder when it cannot be opened (M2.7b); the same
+/// for the private folder of another user that an admin's copy is given (M2.7c).
 /// </param>
 /// <param name="Name">
 /// The escaped name of the file, or <c>null</c> for the whole folder: one that could not be listed, or one that lists too

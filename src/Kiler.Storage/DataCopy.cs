@@ -5,8 +5,9 @@ namespace Kiler.Storage;
 
 /// <summary>
 /// The local copy of a data folder (M2.7, design 5.3), in a folder of the user's own that Kiler.App gives (M2.10), with the
-/// private folder of the current user, and no other (M2.7b). Its <c>data\</c> repeats the folders of the share, the trash
-/// and the history among them (M2.7a), and the private folder in <c>private\&lt;account&gt;\</c>, with the bytes of the files
+/// private folder of the current user (M2.7b), and for an admin those of the other users that the copy is given
+/// (<see cref="CopyOthers"/>, M2.7c), kept only for a restore and never given. Its <c>data\</c> repeats the folders of the
+/// share, the trash and the history among them (M2.7a), and each private folder in <c>private\&lt;account&gt;\</c>, with the bytes of the files
 /// as the share has them, and its <c>index.json</c> keeps for each document the size and the times of its listing, its owner,
 /// its damage, and the version and the hash of its bytes in the copy (decided in M2.7). A start gives the documents from the
 /// copy at once, without the share (<see cref="Documents"/>, <see cref="Trash"/>); a load lists each folder of the share once
@@ -22,7 +23,7 @@ namespace Kiler.Storage;
 /// deleted only once an index that no longer names it is written, and overwritten only once an index names the last good
 /// bytes that it held where they went, so a stop at any point leaves them named (review of M2.7a). The copy takes at most
 /// <see cref="MaxBytes"/> and <see cref="MaxDocuments"/>, the trash and the last good bytes included, also with the writes of
-/// this Kiler, and at most <see cref="MaxHistoryBytes"/> and <see cref="MaxHistorySlots"/> of history, so nothing that anyone
+/// this Kiler, of the private folders of other users a budget of their own (<see cref="MaxOtherBytes"/>, M2.7c), and at most <see cref="MaxHistoryBytes"/> and <see cref="MaxHistorySlots"/> of history, so nothing that anyone
 /// puts on the share makes the memory or the disk of a Kiler grow without a bound; the last good bytes of documents that were
 /// in the copy only briefly make room for the documents of the share (decided after the reviews of M2.7, by the user), and the
 /// oldest slots for the new ones, those of this Kiler only for each other (decided in M2.7a, by the user). The paths in the
@@ -42,6 +43,31 @@ public sealed partial class DataCopy
 
     /// <summary>The most history slots that the copy keeps.</summary>
     public const int MaxHistorySlots = 20_000;
+
+    /// <summary>
+    /// The most bytes of the private folders of other users that the copy takes, all of them together, a budget apart from
+    /// that of the user's own (decided in M2.7c, by the user): 64 MiB.
+    /// </summary>
+    public const long MaxOtherBytes = 64L * 1024 * 1024;
+
+    /// <summary>The most documents of the private folders of other users that the copy takes, all of them together.</summary>
+    public const int MaxOtherDocuments = 20_000;
+
+    /// <summary>
+    /// The most bytes of the private folder of one other user that the copy takes, within <see cref="MaxOtherBytes"/>, so a
+    /// user who fills their own keeps no other out (decided in M2.7c, by the user): 4 MiB.
+    /// </summary>
+    public const long MaxBytesPerOther = 4L * 1024 * 1024;
+
+    /// <summary>The most documents of the private folder of one other user that the copy takes.</summary>
+    public const int MaxDocumentsPerOther = 1_000;
+
+    /// <summary>
+    /// The most accounts of other users that <see cref="CopyOthers"/> takes: each is a pass of its own in every load, of about
+    /// 15 requests to the share and some walks of the index, so a list without a bound would make every load of an admin as
+    /// long (security review of M2.7c, decided by the user). Two hundred is far more than one team.
+    /// </summary>
+    public const int MaxOthers = 200;
 
     /// <summary>
     /// How long a document must have been in the copy while the share listed it, from when the copy took it to when the share
@@ -83,6 +109,9 @@ public sealed partial class DataCopy
     /// <summary>Whether the index on the disk is older than the one in memory, as its last write failed or it was corrected at the open.</summary>
     private bool _indexBehind;
 
+    /// <summary>The accounts of the other users whose private folders the loads copy, in order (<see cref="CopyOthers"/>, M2.7c).</summary>
+    private SortedSet<string> _others = new(StringComparer.Ordinal);
+
     private DataCopy(DataFolder share, string? account, string folder, TimeProvider time, CopyLimits limits, Dictionary<Spot, CopyEntry> index, Dictionary<SlotKey, SlotEntry> history)
     {
         _share = share;
@@ -116,8 +145,9 @@ public sealed partial class DataCopy
     /// <see cref="DataFolder.TemporaryFileAge"/>, as the budget counts only what the index names; younger, they can be the
     /// writes of another Kiler of the same user, in another session. An entry whose bytes have gone from the copy loses them.
     /// With <paramref name="account"/>, the private folder of that account, the current user's, goes into the copy too, in
-    /// the same budget (decided in M2.7b, by the user); <c>null</c> takes none. The entries of another private folder are
-    /// left out of the index, and their files go as those that no entry names. An account that fails the name check of
+    /// the same budget (decided in M2.7b, by the user); <c>null</c> takes none. The entries of another private folder stay
+    /// in the index as the private folder of another user, never given, as an admin keeps them for a restore, and as they
+    /// were until the copy is given that account (<see cref="CopyOthers"/>, M2.7c). An account that fails the name check of
     /// <see cref="StorageName"/> is an <see cref="ArgumentException"/>.
     /// </summary>
     public static DataCopy Open(DataFolder share, string folder, TimeProvider time, string? account = null) => Open(share, folder, time, CopyLimits.Default, account);
@@ -171,6 +201,40 @@ public sealed partial class DataCopy
     public IReadOnlyList<LoadedDocument> Trash() => Give(inTrash: true);
 
     /// <summary>
+    /// Gives the copy the accounts of the other users whose private folders it copies, for an admin after the sign-in (M4):
+    /// from the next load on, each is loaded as the private folder of the current user is, with only the head of each document
+    /// read (<see cref="DocumentFormat.ReadHead"/>), without its history, in a budget of its own (<see cref="MaxBytesPerOther"/>
+    /// within <see cref="MaxOtherBytes"/>), and never given: not by <see cref="Documents"/>, <see cref="Trash"/>, nor in
+    /// <see cref="LoadResult.Changed"/> and <see cref="LoadResult.Gone"/>. Their changes outside Kiler are in
+    /// <see cref="LoadResult.Outside"/>, for a restore (M2.9). Each call takes the place of the last; an account that is no
+    /// longer given, and every account before the first call, stays in the copy as the last load left it, neither loaded nor
+    /// let go, so a sign-in that says otherwise, or a forged one, never costs the admin the last good bytes of others (decided
+    /// in M2.7c, by the user). The account of the current user stays the user's own. Which accounts, such as the users that
+    /// an admin sealed, is decided in M4; a private folder that is not on the list, as one that anyone makes in
+    /// <c>private\</c>, is never copied. An account that fails the name check of <see cref="StorageName"/>, or a list of
+    /// more than <see cref="MaxOthers"/> other accounts, is an <see cref="ArgumentException"/>, and the list stays as it was.
+    /// </summary>
+    public void CopyOthers(IEnumerable<string> accounts)
+    {
+        ArgumentNullException.ThrowIfNull(accounts);
+        var others = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var account in accounts)
+        {
+            if (StorageName.Check(account) != _account)
+            {
+                others.Add(account);
+            }
+        }
+
+        if (others.Count > MaxOthers)
+        {
+            throw new ArgumentException($"A local copy takes the private folders of at most {MaxOthers} other users.", nameof(accounts));
+        }
+
+        _others = others;
+    }
+
+    /// <summary>
     /// The index of the copy, or an empty one when there is none that can be taken (<see cref="Open(DataFolder, string, TimeProvider, string?)"/>).
     /// An index that is there and cannot be read now throws.
     /// </summary>
@@ -190,19 +254,25 @@ public sealed partial class DataCopy
             return (index, history);
         }
 
-        // The budget keeps the index within its counts; twice them bounds the memory of one that is not what the copy wrote,
-        // while one a little over them, as a fault could leave it, still keeps the last good bytes (fourth security review).
+        // The budget keeps the index within its counts, the user's own and those of the private folders of other users apart
+        // (M2.7c); twice them bounds the memory of one that is not what the copy wrote, while one a little over them, as a
+        // fault could leave it, still keeps the last good bytes (fourth security review).
         if (read is not { Format: CopyIndex.CurrentFormat, Files: { } files }
-            || files.Count > 2 * limits.Documents
+            || files.Count(entry => entry is null || entry.Account is null || entry.Account == account) > 2 * limits.Documents
             || (read.History?.Count ?? 0) > 2 * limits.HistorySlots
             || !string.Equals(read.Share, share.Root, StringComparison.OrdinalIgnoreCase))
         {
             return (index, history);
         }
 
+        // The private folders of other users alone over their bound leave only themselves out: the entries that became another
+        // user's at an open with another account stay frozen and are never trimmed, so they can grow past it, and they must not
+        // cost the copy of the user's own (security review of M2.7c).
+        var takeOthers = files.Count(entry => entry is { Account: { } other } && other != account) <= 2 * limits.OtherDocuments;
+        bool Takes(DocumentKey key) => takeOthers || key.Account is null || key.Account == account;
         foreach (var entry in files)
         {
-            if (entry is not null && KeyOf(entry.Account, entry.Folder, entry.Id, account) is { } key && IsWhole(entry))
+            if (entry is not null && KeyOf(entry.Account, entry.Folder, entry.Id) is { } key && Takes(key) && IsWhole(entry))
             {
                 index[new Spot(key, entry.InTrash)] = entry;
             }
@@ -210,7 +280,7 @@ public sealed partial class DataCopy
 
         foreach (var slot in read.History ?? [])
         {
-            if (slot is { Version: >= 1, Hash: not null, Length: > 0 and <= DocumentFormat.MaxSize } && KeyOf(slot.Account, slot.Folder, slot.Id, account) is { } key)
+            if (slot is { Version: >= 1, Hash: not null, Length: > 0 and <= DocumentFormat.MaxSize } && KeyOf(slot.Account, slot.Folder, slot.Id) is { } key && Takes(key))
             {
                 history[new SlotKey(key, slot.InTrash, slot.Version)] = slot;
             }
@@ -220,13 +290,12 @@ public sealed partial class DataCopy
     }
 
     /// <summary>
-    /// The key of an entry of the index, when its names pass the check and it is a document of the data folder, or of the
-    /// private folder of the current user (<paramref name="current"/>); an entry of another private folder is left out, and
-    /// its files go as those that no entry names (M2.7b).
+    /// The key of an entry of the index, when its names pass the check and it is a document of the data folder or of a
+    /// private folder: that of the current user, or of another, which stays as it is, and is never given (M2.7c).
     /// </summary>
-    private static DocumentKey? KeyOf(string? account, string? folder, string? id, string? current)
+    private static DocumentKey? KeyOf(string? account, string? folder, string? id)
     {
-        if (!StorageName.IsValid(id) || (folder is not null && !StorageName.IsValid(folder)) || (account is not null && account != current))
+        if (!StorageName.IsValid(id) || (folder is not null && !StorageName.IsValid(folder)) || (account is not null && !StorageName.IsValid(account)))
         {
             return null;
         }
@@ -407,10 +476,13 @@ public sealed partial class DataCopy
         }
     }
 
-    /// <summary>The documents of one place, as <see cref="Documents"/> and <see cref="Trash"/> give them.</summary>
+    /// <summary>
+    /// The documents of one place, as <see cref="Documents"/> and <see cref="Trash"/> give them: of the data folder and of the
+    /// private folder of the current user, never of another (M2.7c).
+    /// </summary>
     private IReadOnlyList<LoadedDocument> Give(bool inTrash)
     {
-        KeyValuePair<Spot, CopyEntry>[] entries = [.. _index.Where(entry => entry.Key.InTrash == inTrash && !entry.Value.Gone)];
+        KeyValuePair<Spot, CopyEntry>[] entries = [.. _index.Where(entry => entry.Key.InTrash == inTrash && !entry.Value.Gone && IsOwn(entry.Key.Key.Account))];
         var reads = Workers.Run(entries, DataFolder.LoadReads, entry => ReadCopy(entry.Key, entry.Value));
         var documents = new List<LoadedDocument>(entries.Length);
         for (var i = 0; i < entries.Length; i++)
@@ -438,6 +510,15 @@ public sealed partial class DataCopy
 
         return documents;
     }
+
+    /// <summary>
+    /// Whether the documents of a root are the user's own: of the data folder (<c>null</c>), or of the private folder of the
+    /// current user. Those of the private folders of other users are copied for a restore and never given (M2.7c).
+    /// </summary>
+    private bool IsOwn(string? account) => account is null || account == _account;
+
+    /// <summary>Whether the loads take the documents of a root: the user's own, or a private folder of another user that the copy is given (M2.7c).</summary>
+    private bool IsLoaded(string? account) => IsOwn(account) || (account is not null && _others.Contains(account));
 
     /// <summary>
     /// The document of an entry, from the copy: damaged as the share gave it, or read from its file, with the owner of the
@@ -538,7 +619,7 @@ public sealed partial class DataCopy
     /// of them, and the history folders of the documents in <c>data\history\</c> and <c>data\trash\history\</c>, of which an empty one that old goes too, as
     /// ids that come and go would leave them without a bound (security review of M2.7a); and the same of each private folder
     /// in <c>data\private\</c> and <c>kept\private\</c>, that of the current user and those of the other accounts, whose
-    /// entries the index left out (M2.7b). When every folder could be listed,
+    /// entries stay in the index as the private folders of other users (M2.7b, M2.7c). When every folder could be listed,
     /// an entry whose bytes are no longer there loses them, as the budget would count them: the bytes of a version that Kiler
     /// made, and its entry, so the next load reads it again; the bytes of a change outside Kiler, and the last good bytes kept
     /// apart; a slot.
@@ -669,7 +750,7 @@ public sealed partial class DataCopy
     /// <summary>
     /// The roots that the copy has folders of: the data folder, as <c>null</c>, and each private folder in
     /// <c>data\private\</c> or <c>kept\private\</c> whose name passes the check, the current user's and those of other
-    /// accounts, whose files no entry names (M2.7b). <paramref name="listedAll"/>: whether both could be listed.
+    /// accounts (M2.7b, M2.7c). <paramref name="listedAll"/>: whether both could be listed.
     /// </summary>
     private List<string?> CopyRoots(out bool listedAll)
     {

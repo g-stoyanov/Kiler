@@ -56,50 +56,58 @@ public static class DocumentFormat
         return Write(key, changes + 1, content);
     }
 
-    /// <summary>The document in <paramref name="bytes"/>, or why they are a damaged file of <paramref name="key"/>.</summary>
-    internal static DocumentRead Read(DocumentKey key, ReadOnlySpan<byte> bytes)
+    /// <summary>
+    /// The document in <paramref name="bytes"/>, or why they are a damaged file of <paramref name="key"/>. Whether they are
+    /// damaged, and why, comes from <see cref="ReadHead"/>, so the two never judge a file apart (M2.7c); only the content of a
+    /// good file is then parsed into nodes.
+    /// </summary>
+    internal static DocumentRead Read(DocumentKey key, ReadOnlyMemory<byte> bytes)
+    {
+        var head = ReadHead(key, bytes);
+        if (head.Damage is { } damage)
+        {
+            return DocumentRead.Damaged(damage);
+        }
+
+        // The head has checked the whole file with the same options, so the parse takes it.
+        var document = JsonNode.Parse(WithoutBom(bytes).Span, documentOptions: ReaderOptions)!.AsObject();
+        document.Remove(IdName);
+        document.Remove(VersionName);
+        return DocumentRead.Good(new Document(key, head.Version, document));
+    }
+
+    /// <summary>
+    /// The <c>version</c> of the document in <paramref name="bytes"/>, or why they are a damaged file of
+    /// <paramref name="key"/>, without the owner (M2.7c). The whole file is checked as strictly as a document is read, through
+    /// <see cref="JsonDocument"/>, whose buffers are pooled and given back, and no node of its content is made: the local copy
+    /// of an admin keeps the private folders of other users only for a restore (M2.9), and never parses their content.
+    /// </summary>
+    internal static DocumentHead ReadHead(DocumentKey key, ReadOnlyMemory<byte> bytes)
     {
         ArgumentNullException.ThrowIfNull(key);
         if (bytes.Length > MaxSize)
         {
-            return DocumentRead.Damaged(DocumentDamage.TooLarge);
-        }
-
-        // RFC 8259 lets a reader skip a byte order mark. Kiler never writes one, a text editor can.
-        var bom = Encoding.UTF8.Preamble;
-        if (bytes.StartsWith(bom))
-        {
-            bytes = bytes[bom.Length..];
+            return new DocumentHead(0, DocumentDamage.TooLarge, null);
         }
 
         // The parse leaves the strings as they are in the file, so bytes that are not UTF-8, or an escaped lone surrogate,
         // would fail only at the first read of that string, in an upper layer.
-        if (!Utf8.IsValid(bytes) || !TryParse(bytes, out var node) || !StringsDecode(bytes))
+        bytes = WithoutBom(bytes);
+        if (!Utf8.IsValid(bytes.Span))
         {
-            return DocumentRead.Damaged(DocumentDamage.NotJson);
+            return new DocumentHead(0, DocumentDamage.NotJson, null);
         }
 
-        if (node is not JsonObject document)
+        try
         {
-            return DocumentRead.Damaged(DocumentDamage.NotAnObject);
+            using var document = JsonDocument.Parse(bytes, ReaderOptions);
+            return StringsDecode(bytes.Span) ? HeadOf(key, document.RootElement) : new DocumentHead(0, DocumentDamage.NotJson, null);
         }
-
-        // An upper layer that reads names ignoring case would take "ID" or "Version" for the layer's own.
-        if (!document.TryGetPropertyValue(IdName, out var id) || id is not JsonValue idValue
-            || !idValue.TryGetValue<string>(out var idText) || idText != key.Id || HasCaseVariant(document, IdName))
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
         {
-            return DocumentRead.Damaged(DocumentDamage.WrongId);
+            // The check of names twice throws InvalidOperationException for a name that does not decode.
+            return new DocumentHead(0, DocumentDamage.NotJson, null);
         }
-
-        if (!document.TryGetPropertyValue(VersionName, out var version) || version is not JsonValue versionValue
-            || !versionValue.TryGetValue<int>(out var number) || number < FirstVersion || HasCaseVariant(document, VersionName))
-        {
-            return DocumentRead.Damaged(DocumentDamage.WrongVersion);
-        }
-
-        document.Remove(IdName);
-        document.Remove(VersionName);
-        return DocumentRead.Good(new Document(key, number, document));
     }
 
     /// <summary>Reads a document from a stream, as <see cref="TryReadBytes(Stream, out byte[])"/> reads it.</summary>
@@ -202,24 +210,40 @@ public static class DocumentFormat
         return buffer.WrittenSpan.ToArray();
     }
 
-    /// <summary>Whether the object has a name that is <paramref name="name"/> in another case, such as <c>ID</c>.</summary>
-    private static bool HasCaseVariant(JsonObject document, string name) =>
-        document.Any(property => property.Key != name && property.Key.Equals(name, StringComparison.OrdinalIgnoreCase));
+    /// <summary>RFC 8259 lets a reader skip a byte order mark. Kiler never writes one, a text editor can.</summary>
+    private static ReadOnlyMemory<byte> WithoutBom(ReadOnlyMemory<byte> bytes) =>
+        bytes.Span.StartsWith(Encoding.UTF8.Preamble) ? bytes[Encoding.UTF8.Preamble.Length..] : bytes;
 
-    /// <summary>Parses the bytes when they are valid JSON. The node is <c>null</c> for the JSON <c>null</c>.</summary>
-    private static bool TryParse(ReadOnlySpan<byte> bytes, out JsonNode? node)
+    /// <summary>The head of a file of valid JSON: an object with <c>id</c> and <c>version</c>, as a document has them.</summary>
+    private static DocumentHead HeadOf(DocumentKey key, JsonElement document)
     {
-        try
+        if (document.ValueKind != JsonValueKind.Object)
         {
-            node = JsonNode.Parse(bytes, documentOptions: ReaderOptions);
-            return true;
+            return new DocumentHead(0, DocumentDamage.NotAnObject, null);
         }
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+
+        // An upper layer that reads names ignoring case would take "ID" or "Version" for the layer's own. Each name at the
+        // top is read once, as a file can have any number of them.
+        var (idVariant, versionVariant) = (false, false);
+        foreach (var property in document.EnumerateObject())
         {
-            // The check of names twice throws InvalidOperationException for a name that does not decode.
-            node = null;
-            return false;
+            var name = property.Name;
+            idVariant |= name != IdName && name.Equals(IdName, StringComparison.OrdinalIgnoreCase);
+            versionVariant |= name != VersionName && name.Equals(VersionName, StringComparison.OrdinalIgnoreCase);
         }
+
+        if (!document.TryGetProperty(IdName, out var id) || id.ValueKind != JsonValueKind.String || id.GetString() != key.Id || idVariant)
+        {
+            return new DocumentHead(0, DocumentDamage.WrongId, null);
+        }
+
+        if (!document.TryGetProperty(VersionName, out var version) || version.ValueKind != JsonValueKind.Number
+            || !version.TryGetInt32(out var number) || number < FirstVersion || versionVariant)
+        {
+            return new DocumentHead(0, DocumentDamage.WrongVersion, null);
+        }
+
+        return new DocumentHead(number, null, null);
     }
 
     /// <summary>Whether every escaped string and name decodes; the others are valid UTF-8 already.</summary>

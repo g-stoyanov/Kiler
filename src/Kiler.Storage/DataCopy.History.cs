@@ -51,12 +51,13 @@ public sealed partial class DataCopy
     /// <see cref="CopyLimits.HistoryListings"/> history folders and reads at most <see cref="CopyLimits.HistoryReads"/> of
     /// slots, as anyone can make every document change and every slot unreadable; the others wait for the next load. The
     /// history of a document of the private folder waits too when this load did not list that folder (<paramref name="privateFolder"/>,
-    /// M2.7b). Gives whether the index has changed.
+    /// M2.7b). The private folders of other users have no history in the copy, also when an entry of one has a
+    /// <see cref="CopyEntry.HistoryFrom"/> left from when it was the user's own (M2.7c). Gives whether the index has changed.
     /// </summary>
     private bool TakeHistory(DataFolder? privateFolder, DateTimeOffset now, Report report)
     {
         var keys = _index
-            .Where(entry => entry.Value.HistoryFrom is not null)
+            .Where(entry => entry.Value.HistoryFrom is not null && IsOwn(entry.Key.Key.Account))
             .Select(entry => entry.Key.Key)
             .Distinct()
             .OrderBy(_historyFailed.Contains)

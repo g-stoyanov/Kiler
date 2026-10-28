@@ -11,7 +11,11 @@ public sealed partial class DataCopy
     /// listed once, those of the data folder and then those of the private folder of the current user (M2.7b), and what to
     /// read is chosen for all of them at once, so a document that moved to the trash or back between
     /// two loads is followed with what the copy keeps of it; then each folder is read and taken into the copy (the new and
-    /// changed files that fit the budget, read at most <see cref="DataFolder.LoadReads"/> at a time, M2.7). A document that
+    /// changed files that fit the budget, read at most <see cref="DataFolder.LoadReads"/> at a time, M2.7). Then the private
+    /// folder of each other user that the copy is given (<see cref="CopyOthers"/>, M2.7c) is loaded so, one after the other,
+    /// while the data folder and <c>private\</c> are held, each in the budget of its own within that of all of them, with only
+    /// the heads of its documents read, and without its history; nothing of it is given, and its changes outside Kiler are
+    /// reported. A document that
     /// the copy had and the share no longer lists, and that did not move, also when its folder has gone, is gone: its last
     /// good bytes are kept apart. The history folder of each document that has changed is then listed, and its new slots
     /// taken (decided in M2.7a). Links, names that fail the check, files that cannot be read, documents over the budget and
@@ -48,19 +52,29 @@ public sealed partial class DataCopy
                 }
             }
 
-            var privateFolder = ListPrivate(listed, missing, report);
-            var plan = Choose(listed, missing, now);
-            foreach (var folder in listed)
+            var privateFolder = _account is { } account ? ListPrivate(account, listed, missing, report) : null;
+            LoadFolders(listed, missing, OwnCap, now, report, ref taken);
+            using (var held = _others.Count > 0 ? _share.HoldPrivateFolders() : null)
             {
-                using (folder)
+                foreach (var other in _others)
                 {
-                    taken |= TakeFolder(folder, plan, now, report);
+                    var theirs = new List<DataFolder.ListedFolder>();
+                    var theirsMissing = new List<FolderKey>();
+                    try
+                    {
+                        ListPrivate(other, theirs, theirsMissing, report);
+                        LoadFolders(theirs, theirsMissing, OtherCap(other), now, report, ref taken);
+                    }
+                    finally
+                    {
+                        foreach (var folder in theirs)
+                        {
+                            folder.Dispose();
+                        }
+                    }
                 }
             }
 
-            plan.Loaded.UnionWith(missing);
-            taken |= Leave(plan, now, report);
-            taken |= TrimToBudget(plan);
             taken |= TakeHistory(privateFolder, now, report);
             taken |= ReportOutside(now, report);
         }
@@ -95,6 +109,17 @@ public sealed partial class DataCopy
 
         return report.Result();
     }
+
+    /// <summary>
+    /// Whether an entry is the last good bytes of a brief leftover, which may make room in its budget: gone, after less than
+    /// <see cref="BriefStay"/> in the copy, not written by this Kiler, and listed by neither of its places (M2.7).
+    /// </summary>
+    private static bool IsBriefLeftover(KeyValuePair<Spot, CopyEntry> entry, HashSet<Spot> listed) =>
+        entry.Value.GoneAt is { } went
+        && went - entry.Value.Taken < BriefStay
+        && entry.Value.Kept is { Own: false }
+        && !listed.Contains(entry.Key)
+        && !listed.Contains(entry.Key with { InTrash = !entry.Key.InTrash });
 
     /// <summary>
     /// The name of a folder of a load in a report: the document folder, <c>null</c> for the root of the data folder, or its
@@ -144,7 +169,7 @@ public sealed partial class DataCopy
     /// (<paramref name="lineage"/>): the file, and the last good bytes beside it when it looks edited in place. A file that
     /// looks as Kiler wrote it counts the larger of the two, as it turns out a new version, the last good version again, or
     /// damaged (<see cref="Cost(CopyEntry)"/>). When it turns out at a version that is not after the last good one, it needs
-    /// both, and the load finds the room in what the plan left, or leaves it (<see cref="Plan.Slack"/>).
+    /// both, and the load finds the room in what the plan left, or leaves it (<see cref="Room.Spare"/>).
     /// </summary>
     private static long Planned(FileEntry file, CopyEntry? lineage)
     {
@@ -276,19 +301,16 @@ public sealed partial class DataCopy
     }
 
     /// <summary>
-    /// Lists the folders of the private folder of the current user (M2.7b), after those of the data folder, whose root the
-    /// load holds by then. A private folder that is not there, not made yet or gone, gives its folders as listed whole and
+    /// Lists the folders of the private folder of <paramref name="account"/>: of the current user (M2.7b), after those of
+    /// the data folder, whose root the load holds by then; or of another user, while the load holds the data folder and
+    /// <c>private\</c> (<see cref="DataFolder.HoldPrivateFolders"/>, M2.7c). A private folder that is not there, not made
+    /// yet or gone, gives its folders as listed whole and
     /// empty (<paramref name="missing"/>), so what the copy had of it is gone, with its last good bytes kept apart. One that
     /// cannot be opened or listed, such as one that is a link, is reported, and its documents stay as the copy has them; so
     /// does a folder of it that cannot be listed. Gives the private folder, or <c>null</c> when it was not listed.
     /// </summary>
-    private DataFolder? ListPrivate(List<DataFolder.ListedFolder> listed, List<FolderKey> missing, Report report)
+    private DataFolder? ListPrivate(string account, List<DataFolder.ListedFolder> listed, List<FolderKey> missing, Report report)
     {
-        if (_account is not { } account)
-        {
-            return null;
-        }
-
         try
         {
             var own = _share.OpenPrivate(account);
@@ -319,6 +341,73 @@ public sealed partial class DataCopy
     }
 
     /// <summary>
+    /// One pass of a load over listed folders, in the budget that counts their documents (<paramref name="cap"/>): what to
+    /// read, chosen for all of them at once (<see cref="Choose"/>), the reads and what they give (<see cref="TakeFolder"/>),
+    /// the documents that are no longer listed (<see cref="Leave"/>), and the budget kept (<see cref="TrimToBudget"/>). Each
+    /// folder is let go once it is taken. <paramref name="taken"/> says whether the index has changed, at each step, so a
+    /// fault of the code in a later folder still has the load write what it took before (<see cref="Load"/>).
+    /// </summary>
+    private void LoadFolders(List<DataFolder.ListedFolder> listed, List<FolderKey> missing, Cap cap, DateTimeOffset now, Report report, ref bool taken)
+    {
+        var plan = Choose(listed, missing, cap, now);
+        foreach (var folder in listed)
+        {
+            using (folder)
+            {
+                taken |= TakeFolder(folder, plan, now, report);
+            }
+        }
+
+        plan.Loaded.UnionWith(missing);
+        taken |= Leave(plan, now, report);
+        taken |= TrimToBudget(plan);
+    }
+
+    /// <summary>The budget of the user's own: the data folder and the private folder of the current user, in one (decided in M2.7b, by the user).</summary>
+    private Cap OwnCap => new(spot => IsOwn(spot.Key.Account), _limits.Bytes, _limits.Documents, null);
+
+    /// <summary>
+    /// The budget of the private folder of another user, within that of the private folders of all of them, those that the
+    /// copy is no longer given among them (decided in M2.7c, by the user).
+    /// </summary>
+    private Cap OtherCap(string account) => new(
+        spot => spot.Key.Account == account,
+        _limits.BytesPerOther,
+        _limits.DocumentsPerOther,
+        new Cap(spot => !IsOwn(spot.Key.Account), _limits.OtherBytes, _limits.OtherDocuments, null));
+
+    /// <summary>
+    /// Fills the room of a budget, empty, with what the index holds now. With <paramref name="planned"/>, an entry that the
+    /// plan sees leaving counts only the last good bytes that it keeps, as a gone document, a move, or nothing.
+    /// </summary>
+    private Room Fill(Room room, Plan? planned)
+    {
+        foreach (var (spot, entry) in _index)
+        {
+            if (room.Cap.Counts(spot))
+            {
+                if (planned is not null && planned.IsLeaving(spot, entry))
+                {
+                    if (entry.LastGood is { } lastGood)
+                    {
+                        room.Add(lastGood.Length, 1);
+                    }
+                }
+                else
+                {
+                    room.Add(Cost(entry), 1);
+                }
+            }
+            else if (room.Within is { } outer && outer.Cap.Counts(spot))
+            {
+                outer.Add(Cost(entry), 1);
+            }
+        }
+
+        return room;
+    }
+
+    /// <summary>
     /// What to read of the listed folders, chosen for all of them at once: the new documents and the changed ones, and those
     /// that moved to the trash or back, as far as the budget goes. A document moved when the copy has it in the other place,
     /// that place no longer lists it, or listed it no more less than 30 s ago, and this one lists it new or changed: it
@@ -332,11 +421,12 @@ public sealed partial class DataCopy
     /// To make them fit, the last good bytes of gone documents that were in the copy for less than <see cref="BriefStay"/>,
     /// that this Kiler did not write and that neither place lists, go, those that went first first, but only as many as it
     /// takes, and none when even all of them would not make it fit (<see cref="FolderPlan.Evicted"/>). The others go into
-    /// <see cref="FolderPlan.OverBudget"/>.
+    /// <see cref="FolderPlan.OverBudget"/>. The budget is that of the folders of the pass (<paramref name="cap"/>, M2.7c):
+    /// the user's own, or the private folder of another user within that of all of them, whose leftovers alone make room.
     /// </summary>
-    private Plan Choose(IReadOnlyList<DataFolder.ListedFolder> listed, IEnumerable<FolderKey> missing, DateTimeOffset now)
+    private Plan Choose(IReadOnlyList<DataFolder.ListedFolder> listed, IEnumerable<FolderKey> missing, Cap cap, DateTimeOffset now)
     {
-        var plan = new Plan();
+        var plan = new Plan(new Room(cap));
         plan.Whole.UnionWith(missing);
         foreach (var folder in listed.Where(folder => !folder.TooMany))
         {
@@ -347,55 +437,9 @@ public sealed partial class DataCopy
             }
         }
 
-        long bytes = 0;
-        var count = 0;
-        foreach (var (spot, entry) in _index)
-        {
-            // An entry that is no longer listed becomes gone with its last good bytes, or moves with them, or goes without any.
-            if (plan.IsLeaving(spot, entry))
-            {
-                if (entry.LastGood is { } lastGood)
-                {
-                    bytes += lastGood.Length;
-                    count++;
-                }
-            }
-            else
-            {
-                bytes += Cost(entry);
-                count++;
-            }
-        }
-
-        var evictable = new Queue<KeyValuePair<Spot, CopyEntry>>(_index
-            .Where(entry => entry.Value.GoneAt is { } went
-                && went - entry.Value.Taken < BriefStay
-                && entry.Value.Kept is { Own: false }
-                && !plan.Listed.Contains(entry.Key)
-                && !plan.Listed.Contains(entry.Key with { InTrash = !entry.Key.InTrash }))
-            .OrderBy(entry => entry.Value.GoneAt));
-        var evictableBytes = evictable.Sum(entry => Cost(entry.Value));
-
-        // Whether the copy has room for more bytes and documents, once as many brief leftovers as it takes have gone.
-        bool Fits(long more, int documents, FolderPlan folderPlan)
-        {
-            if (bytes + more - evictableBytes > _limits.Bytes || count + documents - evictable.Count > _limits.Documents)
-            {
-                return false;
-            }
-
-            while (bytes + more > _limits.Bytes || count + documents > _limits.Documents)
-            {
-                var gone = evictable.Dequeue();
-                bytes -= Cost(gone.Value);
-                evictableBytes -= Cost(gone.Value);
-                count--;
-                folderPlan.Evicted.Add(gone.Key);
-            }
-
-            return true;
-        }
-
+        // An entry that is no longer listed becomes gone with its last good bytes, or moves with them, or goes without any.
+        var room = Fill(plan.Room, plan);
+        room.MayEvict(_index.Where(entry => cap.Counts(entry.Key) && IsBriefLeftover(entry, plan.Listed)).OrderBy(entry => entry.Value.GoneAt));
         foreach (var folder in listed.Where(folder => !folder.TooMany))
         {
             var folderPlan = plan.For(folder);
@@ -418,10 +462,8 @@ public sealed partial class DataCopy
                     // fails after the plan leaves both, and an index over the budget would be no index (fourth security review).
                     var more = Planned(document.File, from) - (from.LastGood?.Length ?? 0);
                     var moreDocuments = from.LastGood is null ? 1 : 0;
-                    if (Fits(more, moreDocuments, folderPlan))
+                    if (room.Take(more, moreDocuments, folderPlan.Evicted))
                     {
-                        bytes += more;
-                        count += moreDocuments;
                         plan.Moves[spot] = other;
                         folderPlan.Read.Add(document);
                     }
@@ -436,10 +478,8 @@ public sealed partial class DataCopy
                 }
                 else if (changed)
                 {
-                    var more = Planned(document.File, entry) - Cost(entry);
-                    if (Fits(more, 0, folderPlan))
+                    if (room.Take(Planned(document.File, entry) - Cost(entry), 0, folderPlan.Evicted))
                     {
-                        bytes += more;
                         folderPlan.Read.Add(document);
                     }
                     else
@@ -451,10 +491,8 @@ public sealed partial class DataCopy
 
             foreach (var document in added)
             {
-                if (Fits(Cost(document.File.Size), 1, folderPlan))
+                if (room.Take(Cost(document.File.Size), 1, folderPlan.Evicted))
                 {
-                    bytes += Cost(document.File.Size);
-                    count++;
                     folderPlan.Read.Add(document);
                 }
                 else
@@ -464,7 +502,6 @@ public sealed partial class DataCopy
             }
         }
 
-        plan.Slack = Math.Max(0, _limits.Bytes - bytes);
         return plan;
     }
 
@@ -487,7 +524,7 @@ public sealed partial class DataCopy
         IReadOnlyList<LoadedFile> files;
         try
         {
-            files = folder.Source.ReadFolder(folder, folderPlan.Read, now);
+            files = folder.Source.ReadFolder(folder, folderPlan.Read, now, headsOnly: !IsOwn(folder.Account));
         }
         catch (Exception ex) when ((folder.Account is not null || folder.Folder is not null || folder.InTrash) && ex is IOException or UnauthorizedAccessException)
         {
@@ -545,7 +582,7 @@ public sealed partial class DataCopy
             }
 
             // A file that has gone since the listing is gone at the next one.
-            if (file.Read is not { } read)
+            if (file.Head is not { } head)
             {
                 continue;
             }
@@ -554,21 +591,22 @@ public sealed partial class DataCopy
             var lineageSpot = plan.Moves.GetValueOrDefault(spot, spot);
             _index.TryGetValue(lineageSpot, out var lineage);
             _index.TryGetValue(spot, out var replaced);
+            var damaged = head.Damage is not null;
             var seen = new Seen(
-                file.Listed.File.Stamp, read.Owner, read.Damage, read.Document?.Version ?? 0, read.IsDamaged ? null : Hash(file.Bytes), file.Bytes.Length, file.Listed.File.Stamp.LooksEditedInPlace);
+                file.Listed.File.Stamp, head.Owner, head.Damage, head.Version, damaged ? null : Hash(file.Bytes), file.Bytes.Length, file.Listed.File.Stamp.LooksEditedInPlace);
             var next = Next(spot, lineage, seen, now);
 
             // The cost that the plan did not foresee: a version that is not after the last good one, which keeps both.
             var extra = Cost(next) - Planned(file.Listed.File, lineage);
-            if (extra > plan.Slack)
+            if (extra > plan.Room.Spare)
             {
                 report.Skip(name, [file.Listed.File], SkipReason.OverBudget);
-                report.Given(spot, read);
+                Given(report, spot, file.Read);
                 continue;
             }
 
-            plan.Slack -= Math.Max(0, extra);
-            changes.Add(new Change(spot, lineageSpot, lineage, replaced, next, file, read));
+            plan.Room.Add(Math.Max(0, extra), 0);
+            changes.Add(new Change(spot, lineageSpot, lineage, replaced, next, file));
         }
 
         // A file that an earlier index stopped naming can be named again here; the guarded index must not delete it.
@@ -649,7 +687,7 @@ public sealed partial class DataCopy
             {
                 // A guarded entry stays as it was guarded, and its stamp makes the next load read the file again.
                 report.Skip(name, [change.File.Listed.File], SkipReason.NotCopied);
-                report.Given(change.Spot, change.Read);
+                Given(report, change.Spot, change.File.Read);
                 continue;
             }
 
@@ -658,19 +696,41 @@ public sealed partial class DataCopy
             {
                 _index.Remove(change.LineageSpot);
                 _reread.Remove(change.LineageSpot);
-                if (!change.LineageSpot.InTrash && !change.Lineage!.Gone)
+                if (!change.Lineage!.Gone)
                 {
-                    report.Gone.Add(change.LineageSpot.Key);
+                    Went(report, change.LineageSpot);
                 }
             }
 
             Stale(FilesOf(change.LineageSpot, change.Lineage).Concat(FilesOf(change.Spot, change.Replaced)), FilesOf(change.Spot, change.Next));
             _reread.Remove(change.Spot);
-            report.Given(change.Spot, change.Read);
+            Given(report, change.Spot, change.File.Read);
             taken = true;
         }
 
         return taken;
+    }
+
+    /// <summary>
+    /// Gives a read of a document to the upper layers, when there is one: a document of the private folder of another user is
+    /// read only for its head (<see cref="LoadedFile.Head"/>), so no document of it is ever made, nor given (M2.7c). One of
+    /// the trash is not given either.
+    /// </summary>
+    private static void Given(Report report, Spot spot, DocumentRead? read)
+    {
+        if (read is not null)
+        {
+            report.Given(spot, read);
+        }
+    }
+
+    /// <summary>Tells the upper layers that a document of the user's own has left its folder; one of the trash, or of another user, they never had (M2.7c).</summary>
+    private void Went(Report report, Spot spot)
+    {
+        if (!spot.InTrash && IsOwn(spot.Key.Account))
+        {
+            report.Gone.Add(spot.Key);
+        }
     }
 
     /// <summary>
@@ -685,7 +745,8 @@ public sealed partial class DataCopy
             return new ApartJob(LastGoodPath(change.LineageSpot, change.Lineage!), KeptPath(change.Spot), lastGood, null);
         }
 
-        if (change.Next.Outside is not null || change.Lineage?.LastGood is not { } previous || change.Next.Version <= previous.Version)
+        // The private folder of another user keeps no history in the copy (M2.7c).
+        if (!IsOwn(change.Spot.Key.Account) || change.Next.Outside is not null || change.Lineage?.LastGood is not { } previous || change.Next.Version <= previous.Version)
         {
             return default;
         }
@@ -752,11 +813,7 @@ public sealed partial class DataCopy
                 _index.Remove(spot);
                 Stale(FilesOf(spot, entry), []);
                 _reread.Remove(spot);
-                if (!spot.InTrash)
-                {
-                    report.Gone.Add(spot.Key);
-                }
-
+                Went(report, spot);
                 taken = true;
                 continue;
             }
@@ -788,11 +845,7 @@ public sealed partial class DataCopy
 
             Stale(FilesOf(spot, entry), FilesOf(spot, went));
             _reread.Remove(spot);
-            if (!spot.InTrash)
-            {
-                report.Gone.Add(spot.Key);
-            }
-
+            Went(report, spot);
             taken = true;
         }
 
@@ -803,31 +856,24 @@ public sealed partial class DataCopy
     /// Takes the copy back within its budget when a load ends above it. The evictions that the plan made for a folder that
     /// could not then be read are not done, so that its leftovers stay for it (M2.7), while the folders after it may have
     /// used the room that they would have made (fifth security review of M2.7a). The brief leftovers that a plan may evict
-    /// go, those that went first first, until the copy fits. Gives whether the index has changed.
+    /// go, those that went first first, until the copy fits: the budget of the pass, and the one that it is within, with the
+    /// leftovers of the pass alone (M2.7c). Gives whether the index has changed.
     /// </summary>
     private bool TrimToBudget(Plan plan)
     {
-        var bytes = _index.Values.Sum(Cost);
-        var count = _index.Count;
+        var cap = plan.Room.Cap;
+        var room = Fill(new Room(cap), planned: null);
         var taken = false;
-        foreach (var (spot, entry) in _index
-            .Where(entry => entry.Value.GoneAt is { } went
-                && went - entry.Value.Taken < BriefStay
-                && entry.Value.Kept is { Own: false }
-                && !plan.Listed.Contains(entry.Key)
-                && !plan.Listed.Contains(entry.Key with { InTrash = !entry.Key.InTrash }))
-            .OrderBy(entry => entry.Value.GoneAt)
-            .ToList())
+        foreach (var (spot, entry) in _index.Where(entry => cap.Counts(entry.Key) && IsBriefLeftover(entry, plan.Listed)).OrderBy(entry => entry.Value.GoneAt).ToList())
         {
-            if (bytes <= _limits.Bytes && count <= _limits.Documents)
+            if (!room.IsOver)
             {
                 break;
             }
 
             _index.Remove(spot);
             Stale(FilesOf(spot, entry), []);
-            bytes -= Cost(entry);
-            count--;
+            room.Add(-Cost(entry), -1);
             taken = true;
         }
 
@@ -855,7 +901,8 @@ public sealed partial class DataCopy
                 (spot.InTrash ? editedInTrash : edited).Add(spot.Key);
             }
 
-            if (entry.Outside is not { } reason || entry.Reported || report.Outside.Count >= _limits.Reports)
+            // A private folder of another user that the copy is not given stays as it is, unreported too (M2.7c).
+            if (entry.Outside is not { } reason || entry.Reported || report.Outside.Count >= _limits.Reports || !IsLoaded(spot.Key.Account))
             {
                 continue;
             }
@@ -891,5 +938,5 @@ public sealed partial class DataCopy
     private readonly record struct ApartJob(string? From, string? To, KeptCopy? LastGood, SlotKey? Slot);
 
     /// <summary>A file that a load read, with what the copy had of its document and the state it takes.</summary>
-    private sealed record Change(Spot Spot, Spot LineageSpot, CopyEntry? Lineage, CopyEntry? Replaced, CopyEntry Next, LoadedFile File, DocumentRead Read);
+    private sealed record Change(Spot Spot, Spot LineageSpot, CopyEntry? Lineage, CopyEntry? Replaced, CopyEntry Next, LoadedFile File);
 }
