@@ -53,6 +53,13 @@ public enum WriteOutcome
 
     /// <summary>The document is in the trash, and its version in its history slot (M2.5).</summary>
     Deleted,
+
+    /// <summary>
+    /// A write through the local copy while it is offline (<see cref="DataCopy.Offline"/>, M2.8a): the last load could not
+    /// reach the share, so the write was refused before it touched it (decided in M2.8a, by the user). Nothing was written;
+    /// the write can be tried again once the share is back.
+    /// </summary>
+    Offline,
 }
 
 /// <summary>The outcome of a write, with what the caller needs of it.</summary>

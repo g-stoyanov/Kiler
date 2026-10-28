@@ -7,9 +7,15 @@ namespace Kiler.Storage;
 /// (<see cref="DataFolder"/>) and then takes into the copy what it wrote, within the budget of the copy. The stamp and the
 /// owner of the file on the share stay unknown until a load reads it back (M2.3 and M2.6 notes). A write goes to the root
 /// of its key, the data folder or the private folder of the current user, and to no other (<see cref="RootOf"/>, M2.7b).
+/// While the copy is offline, a write is refused before it touches the share (<see cref="WriteOutcome.Offline"/>, M2.8a): it
+/// looks before the lock, so it does not wait for a load blocked on a share that has gone, and again under it, as the load
+/// that it waited for can have gone offline (decided in M2.8a, by the user).
 /// </summary>
 public sealed partial class DataCopy
 {
+    /// <summary>The refusal of a write while the copy is offline (M2.8a): nothing is written, and the share is not touched.</summary>
+    private static WriteResult Refused => WriteResult.Not(WriteOutcome.Offline);
+
     /// <summary>
     /// Creates a document on the share (<see cref="DataFolder.CreateDocument"/>) and, when it is written, takes the bytes it
     /// wrote into the copy, as this Kiler's own (decided in M2.7a, by the user). The size, the times and the owner of the file
@@ -19,8 +25,18 @@ public sealed partial class DataCopy
     /// </summary>
     public WriteResult Create(DocumentKey key, JsonObject content)
     {
+        if (_offline)
+        {
+            return Refused;
+        }
+
         lock (_gate)
         {
+            if (_offline)
+            {
+                return Refused;
+            }
+
             var result = RootOf(key).CreateDocument(key, content);
             if (result is { Outcome: WriteOutcome.Written, Bytes: { } bytes })
             {
@@ -42,8 +58,18 @@ public sealed partial class DataCopy
     /// </summary>
     public WriteResult Replace(DocumentKey key, int version, JsonObject content)
     {
+        if (_offline)
+        {
+            return Refused;
+        }
+
         lock (_gate)
         {
+            if (_offline)
+            {
+                return Refused;
+            }
+
             var result = RootOf(key).ReplaceDocument(key, version, content);
             if (result is { Outcome: WriteOutcome.Written, Bytes: { } bytes, Old: { } old })
             {
@@ -66,8 +92,18 @@ public sealed partial class DataCopy
     /// </summary>
     public WriteResult Delete(DocumentKey key, int version)
     {
+        if (_offline)
+        {
+            return Refused;
+        }
+
         lock (_gate)
         {
+            if (_offline)
+            {
+                return Refused;
+            }
+
             var result = RootOf(key).DeleteDocument(key, version);
             if (result is { Outcome: WriteOutcome.Deleted, Old: { } old })
             {
@@ -88,8 +124,18 @@ public sealed partial class DataCopy
     /// </summary>
     public WriteResult RestoreFromTrash(DocumentKey key)
     {
+        if (_offline)
+        {
+            return Refused;
+        }
+
         lock (_gate)
         {
+            if (_offline)
+            {
+                return Refused;
+            }
+
             var result = RootOf(key).RestoreFromTrash(key);
             if (result is { Outcome: WriteOutcome.Written, Bytes: { } bytes })
             {

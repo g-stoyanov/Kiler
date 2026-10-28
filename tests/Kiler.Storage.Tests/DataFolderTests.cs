@@ -334,6 +334,46 @@ public sealed class DataFolderTests : IDisposable
         Assert.Empty(Names(elsewhere));
     }
 
+    /// <summary>
+    /// The data folder swapped for a junction between the check of <c>CreatePrivate</c> and the create of a missing
+    /// <c>private\</c> (security review of M2.8a): the root is held as itself before the create, so nothing is made through
+    /// the link.
+    /// </summary>
+    [Fact]
+    public void CreatePrivate_WhenTheDataFolderBecomesAJunctionAfterItsCheck_IsRefusedAndMakesNothingThroughIt()
+    {
+        var files = new TestFileSystem();
+        var data = DataFolder.Create(_data, files);
+        Directory.Delete(Path.Combine(_data, "private"));
+        var elsewhere = Directory.CreateDirectory(Path.Combine(_test.Root, "elsewhere")).FullName;
+        TestFolder.SkipWithoutJunctions(_data);
+        var checkedRoot = false;
+        var swapped = false;
+        files.Before = (step, path) =>
+        {
+            if (swapped)
+            {
+                return;
+            }
+
+            if (checkedRoot)
+            {
+                swapped = true;
+                Directory.Move(_data, _data + "-moved");
+                TestFolder.CreateJunction(_data, elsewhere);
+            }
+            else if (step == nameof(IFileSystem.Attributes) && path == _data)
+            {
+                checkedRoot = true;
+            }
+        };
+
+        Assert.Throws<IOException>(() => data.CreatePrivate("demo.user"));
+
+        Assert.True(swapped, "The test did not swap the data folder.");
+        Assert.Empty(Names(elsewhere));
+    }
+
     [Fact]
     public void CreatePrivate_InAPrivateFolder_IsRefused()
     {

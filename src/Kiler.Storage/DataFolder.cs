@@ -76,8 +76,12 @@ public sealed partial class DataFolder
     }
 
     /// <summary>
-    /// Opens a data folder that exists. It creates nothing, so a wrong path never becomes a new data folder. The owners of its
-    /// files come from <paramref name="owners"/> (M2.6).
+    /// Opens a data folder that exists. It creates nothing, so a wrong path never becomes a new data folder. A folder that is
+    /// not there is a <see cref="DirectoryNotFoundException"/>, and a link or a file in its place an <see cref="IOException"/>.
+    /// One that cannot be looked at now, as when the share cannot be reached, is opened without the check, so a start works
+    /// from the local copy and its first load says offline (<see cref="DataCopy.Offline"/>, M2.8a, decided by the user after
+    /// the code review): every read and write holds the root as itself and refuses a link, as when a root became one after
+    /// the check (M2.3). The owners of its files come from <paramref name="owners"/> (M2.6).
     /// </summary>
     public static DataFolder Open(string path, IFileOwner owners)
     {
@@ -112,7 +116,17 @@ public sealed partial class DataFolder
     internal static DataFolder Open(string path, IFileSystem files)
     {
         var root = FullPath(path);
-        return FolderExists(files, root) ? new DataFolder(root, SharedLayout, files, account: null, identity: null) : throw new DirectoryNotFoundException($"The folder does not exist: {root}");
+        FileAttributes? attributes;
+        try
+        {
+            attributes = files.Attributes(root);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return new DataFolder(root, SharedLayout, files, account: null, identity: null);
+        }
+
+        return IsFolder(attributes, root) ? new DataFolder(root, SharedLayout, files, account: null, identity: null) : throw new DirectoryNotFoundException($"The folder does not exist: {root}");
     }
 
     /// <summary>
@@ -139,12 +153,10 @@ public sealed partial class DataFolder
     internal DataFolder CreatePrivate(string account, Action<FolderIdentity>? renamed)
     {
         var privateFolders = PrivateFolders(account);
-        if (!FolderExists(Files, privateFolders))
-        {
-            Files.CreateFolder(privateFolders);
-        }
 
-        using var folders = Hold(create: false, Private);
+        // A missing private\ is made in the call that holds it, once the root is held as itself: made by its path, it would be
+        // made through a data folder swapped for a link after the check (security review of M2.8a).
+        using var folders = Hold(create: true, Private);
         var root = Path.Combine(privateFolders, account);
         if (Files.Attributes(root) is not null)
         {
@@ -336,9 +348,12 @@ public sealed partial class DataFolder
     }
 
     /// <summary>Whether a folder is there. A link or a file in its place is an <see cref="IOException"/>.</summary>
-    private static bool FolderExists(IFileSystem files, string path)
+    private static bool FolderExists(IFileSystem files, string path) => IsFolder(files.Attributes(path), path);
+
+    /// <summary>Whether the attributes of a path, <c>null</c> when nothing is there, are of a folder. A link or a file is an <see cref="IOException"/>.</summary>
+    private static bool IsFolder(FileAttributes? found, string path)
     {
-        if (files.Attributes(path) is not { } attributes)
+        if (found is not { } attributes)
         {
             return false;
         }

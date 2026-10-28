@@ -30,9 +30,10 @@ namespace Kiler.Storage;
 /// copy are built only from the checked names of <see cref="DocumentKey"/>, also those that come from the index. Each private
 /// folder is compared with what the copy made or first saw of it, the owner and the id of its root, kept in the index: one that
 /// is not that folder any more is reported and neither loaded nor written, until its root is accepted
-/// (<see cref="AcceptPrivateFolder"/>, decided in M2.7d, by the user). Safe across threads (M2.8): each public member keeps
-/// one lock for its whole run, so a write of a request waits for a load of the watch (<see cref="DataWatch"/>) under way, and
-/// a load for a write.
+/// (<see cref="AcceptPrivateFolder"/>, decided in M2.7d, by the user). Safe across threads (M2.8): each public member but
+/// <see cref="Offline"/> keeps one lock for its whole run, so a write of a request waits for a load of the watch
+/// (<see cref="DataWatch"/>) under way, and a load for a write. A copy whose last load could not reach the share is offline,
+/// and refuses the writes before they touch it (<see cref="Offline"/>, M2.8a).
 /// </summary>
 public sealed partial class DataCopy
 {
@@ -130,6 +131,9 @@ public sealed partial class DataCopy
     /// (<see cref="DataWatch"/>) and the calls of a sign-in never meet in the copy (M2.8).
     /// </summary>
     private readonly Lock _gate = new();
+
+    /// <summary>Whether the last load could not reach the share (<see cref="Offline"/>, M2.8a): set by a load under the lock, read without it.</summary>
+    private volatile bool _offline;
 
     private DataCopy(DataFolder share, string? account, string folder, TimeProvider time, CopyLimits limits, Dictionary<Spot, CopyEntry> index, Dictionary<SlotKey, SlotEntry> history, Dictionary<string, FolderIdentity> roots)
     {
@@ -276,13 +280,26 @@ public sealed partial class DataCopy
     /// name before the first load is not taken for it (M2.7d). It keeps them once the folder is renamed to the name, also when
     /// the check after the rename refuses the folder there, which the next load then reports (review of M2.7d). A folder that
     /// is there already is refused before anything is made, as the create refuses it, and what the copy knew of the private
-    /// folder stays. A copy without an account is an <see cref="InvalidOperationException"/>.
+    /// folder stays. A copy without an account is an <see cref="InvalidOperationException"/>, and a copy that is offline an
+    /// <see cref="OfflineException"/>, before the share is touched (M2.8a).
     /// </summary>
     public void CreatePrivate()
     {
         var account = _account ?? throw new InvalidOperationException("A local copy without an account has no private folder to make.");
+
+        // Before the lock too, so a create while offline does not wait for a load blocked on the share (decided in M2.8a, by the user).
+        if (_offline)
+        {
+            throw new OfflineException();
+        }
+
         lock (_gate)
         {
+            if (_offline)
+            {
+                throw new OfflineException();
+            }
+
             try
             {
                 _share.CreatePrivate(account, made =>
@@ -297,6 +314,19 @@ public sealed partial class DataCopy
             }
         }
     }
+
+    /// <summary>
+    /// Whether the copy is offline (M2.8a, PLAN M2 step 8): the last load could not hold, list or read the root of the data
+    /// folder (<see cref="Load"/>), so the copy gives what it has and refuses the writes before they touch the share
+    /// (<see cref="WriteOutcome.Offline"/>, <see cref="OfflineException"/>). Only a load decides it: a write that cannot reach
+    /// the share throws as before, and the next load tells (decided by the user); a file or a private folder that cannot be
+    /// opened, or one that is not the folder that the copy knows, never does. A new copy is online until a load says
+    /// otherwise, and the next load that ends brings it back. Read without the lock of the copy, so it never waits for a load
+    /// under way; a write reads it before the lock too, so a write while offline does not wait up to about 60 s for a load
+    /// blocked on a share that has gone (decided in M2.8a, by the user). The watch says each change
+    /// (<see cref="DataWatch.OfflineChanged"/>).
+    /// </summary>
+    public bool Offline => _offline;
 
     /// <summary>
     /// Forgets what the private folder of an account was (M2.7d), the current user's or another's, so the next load, or write,

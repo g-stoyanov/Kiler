@@ -24,9 +24,10 @@ public sealed partial class DataCopy
     /// bytes that cannot be written into the copy are skipped and reported; the next load tries them again. A folder that
     /// cannot be listed, such as one that is a link, or that lists too many entries, is reported, and its documents stay as
     /// the copy has them, and so is the private folder (<see cref="ListPrivate"/>). The root of the data folder that cannot be
-    /// held or listed is an <see cref="IOException"/> or an <see cref="UnauthorizedAccessException"/>: the share cannot be
-    /// reached (M2.8a). Any other exception is a fault of the
-    /// code: what the load took before it is written into the index first, so a start gives it. The index is written once,
+    /// held, listed or read is an <see cref="IOException"/> or an <see cref="UnauthorizedAccessException"/>: the share cannot
+    /// be reached, and the copy is offline until a load ends (<see cref="Offline"/>, M2.8a). Any other exception is a fault of
+    /// the code, and leaves the copy online or offline as it was. Either way, what the load took before it threw is written
+    /// into the index first, so a start gives it. The index is written once,
     /// after the files, and before them only when the last good bytes of a document went apart and its file is overwritten.
     /// The old temporary files of the listings are deleted, on the clock given to
     /// <see cref="Open(DataFolder, string, TimeProvider, string?)"/>, which also times when the copy took a document and when it went,
@@ -83,8 +84,13 @@ public sealed partial class DataCopy
                 taken |= TakeHistory(privateFolder, now, report);
                 taken |= ReportOutside(now, report);
             }
-            catch
+            catch (Exception ex)
             {
+                if (IsUnreachable(ex))
+                {
+                    _offline = true;
+                }
+
                 if (taken || _indexBehind)
                 {
                     _indexBehind = !TryWriteIndex();
@@ -102,6 +108,8 @@ public sealed partial class DataCopy
                 _budget = null;
             }
 
+            _offline = false;
+
             // Once, after the files it names; one that cannot be written is tried again at the next load.
             if (taken || _indexBehind)
             {
@@ -115,6 +123,14 @@ public sealed partial class DataCopy
             return report.Result();
         }
     }
+
+    /// <summary>
+    /// Whether what a load threw is the share that cannot be reached (M2.8a): the root of the data folder that cannot be held,
+    /// listed or read, an <see cref="IOException"/> or an <see cref="UnauthorizedAccessException"/>, as nothing else that a
+    /// load meets on the share gets out of it. A <see cref="ForeignFolderException"/> is a folder that is not the one the copy
+    /// knows, never a share that has gone (M2.7d); any other exception is a fault of the code.
+    /// </summary>
+    internal static bool IsUnreachable(Exception ex) => ex is UnauthorizedAccessException || (ex is IOException and not ForeignFolderException);
 
     /// <summary>
     /// Whether an entry is the last good bytes of a brief leftover, which may make room in its budget: gone, after less than
