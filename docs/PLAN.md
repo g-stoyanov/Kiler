@@ -669,7 +669,8 @@ Rules:
    - a skill holds rules, not the history of the tasks, and the rules of one area are in a file of their own, read only for that area;
    - the module file holds the open tasks with the notes they need, and the done tasks are whole in `docs/tasks/log/`;
    - a repeat review pass sees only the fixes, a reviewer without critical or major points does no further pass, and at most two passes of a reviewer run in one session;
-   - the full check runs before the first review and before the commit; between the passes only the tests of the changed projects and `format.ps1` run;
+   - the full check runs before the first review and before the commit, and only when the task changes more than one project, the build, the scripts, CI or the UI; a task of one project runs `format.ps1` and that project's tests, and CI runs the full check on every push; between the passes, and after any fix, only the tests of the changed projects and `format.ps1` run (decided on 2026-10-28, after M2.9b);
+   - a broken guard runs only the test class that is meant to fail for it, not the whole test project;
    - `security-reviewer` judges by the threat model of design 7.8 in its agent file;
    - the reviewers leave the known internal terms to the `data-guard` hooks.
 
