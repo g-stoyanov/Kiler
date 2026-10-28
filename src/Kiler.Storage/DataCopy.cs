@@ -287,7 +287,7 @@ public sealed partial class DataCopy
     /// <see cref="LoadResult.Outside"/>, for a restore (M2.9). Each call takes the place of the last; an account that is no
     /// longer given, and every account before the first call, stays in the copy as the last load left it, neither loaded nor
     /// let go, so a sign-in that says otherwise, or a forged one, never costs the admin the last good bytes of others (decided
-    /// in M2.7c, by the user). The account of the current user stays the user's own. Which accounts, such as the users that
+    /// in M2.7c, by the user); only <see cref="ForgetPrivate"/> lets it go (M2.9). The account of the current user stays the user's own. Which accounts, such as the users that
     /// an admin sealed, is decided in M4; a private folder that is not on the list, as one that anyone makes in
     /// <c>private\</c>, is never copied. An account that fails the name check of <see cref="StorageName"/>, or a list of
     /// more than <see cref="MaxOthers"/> other accounts, is an <see cref="ArgumentException"/>, and the list stays as it was.

@@ -226,7 +226,7 @@ public sealed class TrashAndHistoryTests : IDisposable
     }
 
     /// <summary>
-    /// An older copy in the trash, as a document written back from the local copy can leave it (M2.9), has its version in
+    /// An older copy in the trash, as a document written back from the local copy can leave it (M2.9a), has its version in
     /// history, so the delete replaces it.
     /// </summary>
     [Fact]
@@ -579,7 +579,7 @@ public sealed class TrashAndHistoryTests : IDisposable
     /// <summary>
     /// Where a file server lets a folder that is not empty be made a mount point, the marker keeps nothing, and the move goes
     /// through the link. The check after the move refuses it: the delete or the restore is never given as done. The document
-    /// is then where the link pointed, and the slot of the delete stays, which M2.9 restores from.
+    /// is then where the link pointed, and the slot of the delete stays, which M2.9a restores from.
     /// </summary>
     [Theory]
     [InlineData(false)]
@@ -937,7 +937,7 @@ public sealed class TrashAndHistoryTests : IDisposable
         Assert.Null(data.Read(Record));
     }
 
-    /// <summary>A slot with other bytes is not the one the delete made; M2.9 decides how it is cleared (M2.4).</summary>
+    /// <summary>A slot with other bytes is not the one the delete made; M2.9a and M2.9b decide how it is cleared (M2.4).</summary>
     [Fact]
     public void RestoreFromTrash_LeavesASlotWithOtherBytes()
     {

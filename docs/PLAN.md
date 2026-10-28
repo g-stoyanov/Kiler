@@ -264,6 +264,8 @@ Design sections 5 and 7.10.
    - a folder is held with the right to read its owner only where it is read.
 10. Restore from the local copy (decided after M1.0b): the share keeps no automatic copies, so missing or damaged files in `data\` can be written back from the cache in `%LOCALAPPDATA%\Kiler`. Here it is the API; the admin screen is in M6. Decided at the start of M2: the cache follows the changes that Kiler makes (new versions, history, moves to `trash\`). A file that disappears outside the trash, is damaged, or was edited in place keeps its last good copy apart in the cache and is reported for restore; the upper layers see the share as it is. Decided in M2.7a: the last good copies are in `kept\` of the cache; a version that goes down, or the same version with other bytes, is a change outside Kiler too (decided by the user); a load reports each change outside Kiler once, and an edit in place only once it has settled.
 
+    Decided in M2.9 (by the user, before the code): the old M2.9 is split into the list and forgetting, which touch only the local copy (M2.9), writing back a document gone outside the trash (M2.9a), writing back over a file that is there (M2.9b), and the private folders of other users (M2.9c). The list is each reported change outside Kiler with the version of its last good bytes. Forgetting a document that the share still has takes its file as it is (one edited in place or out of order becomes the last good, a damaged one stays damaged), and a gone one leaves the copy. Forgetting the private folder of someone who left also stops copying it until the account is given again.
+
 **Tests** (the tests are written first):
 
 - atomic write with a simulated crash in the middle: the original stays intact;

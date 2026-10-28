@@ -182,7 +182,7 @@ public sealed partial class DataCopy
             }
 
             Budget.Commit(plan);
-            Forget(plan.Evicted);
+            ForgetSlots(plan.Evicted);
             var written = Workers.Run(fit, DataFolder.LoadReads, slot => TryWriteFile(SlotPath(new SlotKey(key, inTrash, slot.Slot.Version)), slot.Bytes));
             for (var i = 0; i < fit.Count; i++)
             {
@@ -308,7 +308,7 @@ public sealed partial class DataCopy
             return false;
         }
 
-        Forget(plan.Evicted);
+        ForgetSlots(plan.Evicted);
         _history[slot] = new SlotEntry(key.Account, key.Folder, key.Id, InTrash: false, version, Hash(bytes), bytes.Length, now, Own: true, FromShare: false);
         _indexBehind = true;
         return true;
@@ -318,7 +318,7 @@ public sealed partial class DataCopy
     /// Takes slots out of the history of the copy, each only while it is still the slot that was planned to go, as another
     /// can have taken its key since the budget was made (fourth security review of M2.7a); their files go with the next index.
     /// </summary>
-    private void Forget(IEnumerable<KeyValuePair<SlotKey, SlotEntry>> slots)
+    private void ForgetSlots(IEnumerable<KeyValuePair<SlotKey, SlotEntry>> slots)
     {
         foreach (var (slot, entry) in slots)
         {

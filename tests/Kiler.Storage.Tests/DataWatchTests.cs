@@ -55,6 +55,9 @@ public sealed class DataWatchTests : IDisposable
         CopyOthers,
         CreatePrivate,
         AcceptPrivateFolder,
+        ToRestore,
+        Forget,
+        ForgetPrivate,
         Load,
         Create,
         Replace,
@@ -276,6 +279,9 @@ public sealed class DataWatchTests : IDisposable
     [InlineData(Member.CopyOthers)]
     [InlineData(Member.CreatePrivate)]
     [InlineData(Member.AcceptPrivateFolder)]
+    [InlineData(Member.ToRestore)]
+    [InlineData(Member.Forget)]
+    [InlineData(Member.ForgetPrivate)]
     [InlineData(Member.Load)]
     [InlineData(Member.Create)]
     [InlineData(Member.Replace)]
@@ -425,6 +431,15 @@ public sealed class DataWatchTests : IDisposable
                 break;
             case Member.AcceptPrivateFolder:
                 _copy.AcceptPrivateFolder("demo.other");
+                break;
+            case Member.ToRestore:
+                _copy.ToRestore();
+                break;
+            case Member.Forget:
+                _copy.Forget([new OutsideChange(Record, InTrash: false, OutsideReason.Gone, LastGood: 1)]);
+                break;
+            case Member.ForgetPrivate:
+                _copy.ForgetPrivate("demo.other");
                 break;
             case Member.Load:
                 _copy.Load();

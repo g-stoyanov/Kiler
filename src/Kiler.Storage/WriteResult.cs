@@ -24,7 +24,7 @@ public enum WriteOutcome
 
     /// <summary>
     /// Replacing or deleting: the file on disk is damaged, so its version is unknown; restoring from the trash: the copy
-    /// there is damaged. Nothing was written; M2.9 restores it.
+    /// there is damaged. Nothing was written; M2.9b restores it.
     /// </summary>
     Damaged,
 

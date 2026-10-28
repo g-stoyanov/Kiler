@@ -136,8 +136,9 @@ public enum SkipReason
 }
 
 /// <summary>
-/// A document that a load found changed outside Kiler (M2.7a), whose last good bytes the local copy keeps apart for a restore
-/// (M2.9).
+/// A document that a load found changed outside Kiler (M2.7a), whose last good bytes the local copy keeps apart for a restore:
+/// the copy lists them (<see cref="DataCopy.ToRestore"/>), and forgets those that should not come back
+/// (<see cref="DataCopy.Forget(IEnumerable{OutsideChange})"/>, M2.9).
 /// </summary>
 /// <param name="Key">The document.</param>
 /// <param name="InTrash">Whether it is the copy of the document in the trash.</param>

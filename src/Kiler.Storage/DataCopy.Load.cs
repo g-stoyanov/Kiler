@@ -1043,7 +1043,7 @@ public sealed partial class DataCopy
         }
 
         Budget.Commit(plan);
-        Forget(plan.Evicted);
+        ForgetSlots(plan.Evicted);
         return new ApartJob(LastGoodPath(change.LineageSpot, change.Lineage!), SlotPath(slot), previous, slot);
     }
 

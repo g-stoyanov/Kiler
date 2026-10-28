@@ -65,6 +65,9 @@ public sealed class OfflineTests : IDisposable
         Trash,
         CopyOthers,
         AcceptPrivateFolder,
+        ToRestore,
+        Forget,
+        ForgetPrivate,
     }
 
     public void Dispose()
@@ -306,6 +309,9 @@ public sealed class OfflineTests : IDisposable
     [InlineData(Member.Trash)]
     [InlineData(Member.CopyOthers)]
     [InlineData(Member.AcceptPrivateFolder)]
+    [InlineData(Member.ToRestore)]
+    [InlineData(Member.Forget)]
+    [InlineData(Member.ForgetPrivate)]
     public void WhileOffline_ATryOfTheShare_DoesNotHoldTheCopy(Member member)
     {
         Create(Record, "record");
@@ -508,6 +514,15 @@ public sealed class OfflineTests : IDisposable
                 break;
             case Member.AcceptPrivateFolder:
                 _copy.AcceptPrivateFolder(Me);
+                break;
+            case Member.ToRestore:
+                Assert.Empty(_copy.ToRestore());
+                break;
+            case Member.Forget:
+                Assert.Equal(0, _copy.Forget([new OutsideChange(Record, InTrash: false, OutsideReason.Gone, LastGood: 1)]));
+                break;
+            case Member.ForgetPrivate:
+                _copy.ForgetPrivate("demo.other");
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(member));
