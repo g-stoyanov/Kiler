@@ -307,13 +307,15 @@ public sealed partial class DataCopy
     /// yet or gone, gives its folders as listed whole and
     /// empty (<paramref name="missing"/>), so what the copy had of it is gone, with its last good bytes kept apart. One that
     /// cannot be opened or listed, such as one that is a link, is reported, and its documents stay as the copy has them; so
-    /// does a folder of it that cannot be listed. Gives the private folder, or <c>null</c> when it was not listed.
+    /// does a folder of it that cannot be listed. One that is not the folder that the copy made or first saw, or a folder in
+    /// it of another owner, is reported as such (<see cref="SkipReason.ForeignFolder"/>, M2.7d), and its documents stay too.
+    /// Gives the private folder, or <c>null</c> when it was not listed.
     /// </summary>
     private DataFolder? ListPrivate(string account, List<DataFolder.ListedFolder> listed, List<FolderKey> missing, Report report)
     {
         try
         {
-            var own = _share.OpenPrivate(account);
+            var own = OpenPrivate(account);
             foreach (var (folder, inTrash) in FoldersOf(account))
             {
                 try
@@ -322,7 +324,7 @@ public sealed partial class DataCopy
                 }
                 catch (Exception ex) when ((folder is not null || inTrash) && ex is IOException or UnauthorizedAccessException)
                 {
-                    report.Skip(new SkippedEntry(FolderName(account, folder, inTrash), null, SkipReason.Unreadable));
+                    report.Skip(new SkippedEntry(FolderName(account, folder, inTrash), null, SkipReasonOf(ex)));
                 }
             }
 
@@ -335,10 +337,13 @@ public sealed partial class DataCopy
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            report.Skip(new SkippedEntry(RootName(account), null, SkipReason.Unreadable));
+            report.Skip(new SkippedEntry(RootName(account), null, SkipReasonOf(ex)));
             return null;
         }
     }
+
+    /// <summary>Why a folder of a private folder that could not be held or listed is skipped: another folder (M2.7d), or unreadable.</summary>
+    private static SkipReason SkipReasonOf(Exception ex) => ex is ForeignFolderException ? SkipReason.ForeignFolder : SkipReason.Unreadable;
 
     /// <summary>
     /// One pass of a load over listed folders, in the budget that counts their documents (<paramref name="cap"/>): what to

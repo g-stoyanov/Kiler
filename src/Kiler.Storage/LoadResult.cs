@@ -40,7 +40,8 @@ public sealed class LoadResult
 
     /// <summary>
     /// What the load skipped, to be reported: links, names that fail the check, what could not be read, what is over the
-    /// budget of the copy, and what could not be written into it. At most 1000 of them; <see cref="MoreSkipped"/> counts the
+    /// budget of the copy, what could not be written into it, and a private folder, or a folder in it, that is not the one the
+    /// copy knows (M2.7d). At most 1000 of them; <see cref="MoreSkipped"/> counts the
     /// rest, as anyone can put any number of names on the share.
     /// </summary>
     public IReadOnlyList<SkippedEntry> Skipped { get; }
@@ -102,6 +103,14 @@ public enum SkipReason
     /// the copy, which the next load writes again.
     /// </summary>
     NotCopied,
+
+    /// <summary>
+    /// A private folder, or a folder in it, that is not the one the copy knows (<see cref="ForeignFolderException"/>, M2.7d):
+    /// nothing of it is taken, its documents stay as the copy has them, and the writes to it are refused. A private folder
+    /// stays so until the folder at the name is accepted (<see cref="DataCopy.AcceptPrivateFolder"/>); a folder in it of
+    /// another owner than the private folder, until it is put right on the share.
+    /// </summary>
+    ForeignFolder,
 }
 
 /// <summary>

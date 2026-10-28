@@ -8,11 +8,19 @@ namespace Kiler.Storage;
 /// data folder or of a private folder (M2.7b): of the current user, or of another user, kept only for a restore (M2.7c). A format that Kiler does not know, such as the format 1
 /// of M2.7 or 2 of M2.7a, is no index, and the load reads everything again. Format 3 adds the account of an entry and of a
 /// slot (M2.7b), which a Kiler of format 2 would not read, and would take the private documents for those of the data folder.
+/// <see cref="Roots"/> (M2.7d) is what each private folder is, which no Kiler of format 3 before it wrote: an index without
+/// them makes the next load take each private folder as first seen.
 /// </summary>
-internal sealed record CopyIndex(int Format, string? Share, IReadOnlyList<CopyEntry?>? Files, IReadOnlyList<SlotEntry?>? History)
+internal sealed record CopyIndex(int Format, string? Share, IReadOnlyList<CopyEntry?>? Files, IReadOnlyList<SlotEntry?>? History, IReadOnlyList<RootEntry?>? Roots)
 {
     public const int CurrentFormat = 3;
 }
+
+/// <summary>
+/// What the private folder of an account is (M2.7d): the owner and the id of its root (<see cref="FolderIdentity"/>), as the
+/// copy made it or first saw it, which every later hold of it is compared with.
+/// </summary>
+internal sealed record RootEntry(string? Account, string? Owner, uint Volume, ulong Index);
 
 /// <summary>
 /// A document in the index of a local copy (M2.7), in its folder or in the trash (<see cref="InTrash"/>, M2.7a), of the data

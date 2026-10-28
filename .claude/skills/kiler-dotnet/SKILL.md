@@ -53,7 +53,7 @@ The exe is published with Native AOT, decided after the checks in the real envir
 
 The build enforces `.editorconfig` (M1.1): file-scoped namespaces, usings outside the namespace and no unnecessary ones, braces, explicit accessibility, readonly fields. Names: interfaces `IName`, private fields `_camelCase`, private constants and private static readonly fields `PascalCase`.
 
-Files keep the line endings they have in the working tree: LF for almost all, CRLF for the few that the .NET tools wrote (`.gitignore`, `Kiler.slnx`, `dotnet-tools.json`). A script that rewrites a file keeps them; Python on Windows writes CRLF in text mode (M1.6). Check them by the bytes: `grep` in Git Bash can show a wrong count.
+Files keep the line endings they have in the working tree: LF for almost all, CRLF for the few that the .NET tools wrote (`.gitignore`, `Kiler.slnx`, `dotnet-tools.json`). A script that rewrites a file keeps them; Python on Windows writes CRLF in text mode (M1.6). Check them by the bytes: `grep` in Git Bash can show a wrong count. Source files have no BOM: Windows PowerShell 5.1 adds one with `Set-Content -Encoding utf8` and `Out-File`, so a PowerShell script that rewrites a file uses `[IO.File]::WriteAllText` with `New-Object Text.UTF8Encoding $false` (M2.7d).
 
 The rest are general good practices, not project decisions. If a task asks for something else, the task wins.
 

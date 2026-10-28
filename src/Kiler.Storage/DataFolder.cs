@@ -35,12 +35,13 @@ public sealed partial class DataFolder
 
     private readonly Layout _layout;
 
-    private DataFolder(string root, Layout layout, IFileSystem files, string? account)
+    private DataFolder(string root, Layout layout, IFileSystem files, string? account, FolderIdentity? identity)
     {
         Root = root;
         _layout = layout;
         Files = files;
         Account = account;
+        Identity = identity;
     }
 
     /// <summary>The full path of the root, without a trailing separator.</summary>
@@ -53,6 +54,12 @@ public sealed partial class DataFolder
 
     /// <summary>The account of a private folder, or <c>null</c> for the data folder: the keys of its listings carry it (M2.7b).</summary>
     internal string? Account { get; }
+
+    /// <summary>
+    /// What a private folder is, the owner and the id of its root, which every hold of it is compared with (M2.7d), or
+    /// <c>null</c> for the data folder.
+    /// </summary>
+    internal FolderIdentity? Identity { get; }
 
     private string Kind => IsPrivate ? "private folder" : "data folder";
 
@@ -99,10 +106,14 @@ public sealed partial class DataFolder
         }
 
         MakeFolders(root, SharedLayout, files);
-        return new DataFolder(root, SharedLayout, files, account: null);
+        return new DataFolder(root, SharedLayout, files, account: null, identity: null);
     }
 
-    internal static DataFolder Open(string path, IFileSystem files) => OpenRoot(FullPath(path), SharedLayout, files, account: null);
+    internal static DataFolder Open(string path, IFileSystem files)
+    {
+        var root = FullPath(path);
+        return FolderExists(files, root) ? new DataFolder(root, SharedLayout, files, account: null, identity: null) : throw new DirectoryNotFoundException($"The folder does not exist: {root}");
+    }
 
     /// <summary>
     /// Makes the private folder of an account (design 7.10). A folder that exists, even an empty one, is refused: anyone
@@ -114,9 +125,18 @@ public sealed partial class DataFolder
     /// its id, and have the owner it had then, both read through the handles of the folders, else it is refused after the
     /// rename, and the folder at the name is left as it is (decided in M2.6). An owner that cannot be read, and an id that
     /// tells nothing (index 0), are refused before the rename. The data folder and <c>private\</c> are held for the whole create, and <c>private\</c>
-    /// is made too when it is missing. How an account maps to a folder name is decided in M4.
+    /// is made too when it is missing. The owner and the id are what the folder that it gives compares every later hold with,
+    /// and the local copy keeps them (<see cref="Identity"/>, M2.7d). How an account maps to a folder name is decided in M4.
     /// </summary>
-    public DataFolder CreatePrivate(string account)
+    public DataFolder CreatePrivate(string account) => CreatePrivate(account, renamed: null);
+
+    /// <summary>
+    /// Makes the private folder of an account as <see cref="CreatePrivate(string)"/> does, and gives what the folder it made
+    /// is to <paramref name="renamed"/> once it has been renamed to the name, before the check after the rename: a folder
+    /// that the check then refuses is not the one made, and the local copy keeps what was made, so it never takes that folder
+    /// as first seen (review of M2.7d).
+    /// </summary>
+    internal DataFolder CreatePrivate(string account, Action<FolderIdentity>? renamed)
     {
         var privateFolders = PrivateFolders(account);
         if (!FolderExists(Files, privateFolders))
@@ -150,20 +170,35 @@ public sealed partial class DataFolder
 
         folders.ThrowIfLink();
         Files.MoveFolder(temporary, root);
-        using (var renamed = Files.HoldFolder(root, readOwner: true))
+        var identity = new FolderIdentity(owner, made);
+        renamed?.Invoke(identity);
+        using (var atTheName = Files.HoldFolder(root, readOwner: true))
         {
             folders.ThrowIfLink();
-            if (Files.Id(renamed) != made || Files.Owner(renamed) != owner)
+            if (Files.Id(atTheName) != made || Files.Owner(atTheName) != owner)
             {
                 throw new IOException($"The private folder is not the one Kiler made: another folder, or another owner: {root}");
             }
         }
 
-        return new DataFolder(root, PrivateLayout, Files, account);
+        return new DataFolder(root, PrivateLayout, Files, account, identity);
     }
 
-    /// <summary>Opens the private folder of an account that exists. It creates nothing.</summary>
-    public DataFolder OpenPrivate(string account)
+    /// <summary>
+    /// Opens the private folder of an account that exists, as it is now: the owner and the id of its root, read through its
+    /// handle, are what every later hold of it is compared with (<see cref="Identity"/>, M2.7d), so another folder put at the
+    /// name, or an owner changed, after the open is a <see cref="ForeignFolderException"/>. It creates nothing. A folder whose
+    /// owner cannot be read, or whose id tells nothing (index 0), is an <see cref="IOException"/>: it cannot be checked.
+    /// </summary>
+    public DataFolder OpenPrivate(string account) => OpenPrivate(account, expected: null);
+
+    /// <summary>
+    /// Opens the private folder of an account as <see cref="OpenPrivate(string)"/> does, as what the local copy knows of it
+    /// (<paramref name="expected"/>, M2.7d), which its first hold compares, as each hold does: another owner or another id is
+    /// a <see cref="ForeignFolderException"/> there, and the open itself holds nothing. Without it, the folder is taken as it
+    /// is now, as first seen.
+    /// </summary>
+    internal DataFolder OpenPrivate(string account, FolderIdentity? expected)
     {
         var privateFolders = PrivateFolders(account);
         if (!FolderExists(Files, privateFolders))
@@ -171,7 +206,19 @@ public sealed partial class DataFolder
             throw new DirectoryNotFoundException($"The folder of the private folders does not exist: {privateFolders}");
         }
 
-        return OpenRoot(Path.Combine(privateFolders, account), PrivateLayout, Files, account);
+        var root = Path.Combine(privateFolders, account);
+        if (!FolderExists(Files, root))
+        {
+            throw new DirectoryNotFoundException($"The folder does not exist: {root}");
+        }
+
+        if (expected is null)
+        {
+            using var holds = new Holds();
+            expected = HoldPrivateRoot(Files, holds, root);
+        }
+
+        return new DataFolder(root, PrivateLayout, Files, account, expected);
     }
 
     public string DocumentPath(DocumentKey key) => Path.Combine(Root, Known(key).Folder ?? "", key.Id + Extension);
@@ -206,11 +253,21 @@ public sealed partial class DataFolder
     /// the files and their attributes come with it. Links, and <c>.json</c> files whose name fails the check, are skipped
     /// and given apart to be reported. Other files and folders are not documents and are left out. The folder that is
     /// listed is checked first, so a link in its place is not listed: one request for the folder, not one per file. The
-    /// temporary files of the layer's writes are given apart, so the old ones can be deleted.
+    /// temporary files of the layer's writes are given apart, so the old ones can be deleted. A folder of a private folder is
+    /// listed while it is held, as a load holds it (<see cref="ListFolder"/>), so what the private folder is gets checked
+    /// (M2.7d, security review): another is a <see cref="ForeignFolderException"/>.
     /// </summary>
     internal FolderListing List(string? folder)
     {
         var path = FolderPath(folder);
+        if (Account is not null)
+        {
+            using var held = folder is null ? Hold(create: false) : Hold(create: false, folder);
+            var listing = Sort(folder, Files.List(path));
+            held.ThrowIfLink();
+            return listing;
+        }
+
         if (!FolderExists(Files, path))
         {
             throw new DirectoryNotFoundException($"The folder does not exist: {path}");
@@ -277,9 +334,6 @@ public sealed partial class DataFolder
 
         return Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
     }
-
-    private static DataFolder OpenRoot(string root, Layout layout, IFileSystem files, string? account) =>
-        FolderExists(files, root) ? new DataFolder(root, layout, files, account) : throw new DirectoryNotFoundException($"The folder does not exist: {root}");
 
     /// <summary>Whether a folder is there. A link or a file in its place is an <see cref="IOException"/>.</summary>
     private static bool FolderExists(IFileSystem files, string path)

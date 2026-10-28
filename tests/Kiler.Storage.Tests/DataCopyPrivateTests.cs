@@ -505,7 +505,7 @@ public sealed class DataCopyPrivateTests : IDisposable
     /// <summary>
     /// Puts a junction at <c>private\</c> of the share, to where the folder goes, at the first step that <paramref name="at"/>
     /// takes after the step that <paramref name="after"/> names, as someone could between the check of
-    /// <see cref="DataFolder.OpenPrivate"/> and the holds (security review of M2.7b), and gives the private folder of the
+    /// <see cref="DataFolder.OpenPrivate(string)"/> and the holds (security review of M2.7b), and gives the private folder of the
     /// account there to <paramref name="plant"/>. The test calls <see cref="TestFolder.SkipWithoutJunctions"/> first.
     /// </summary>
     private void SwapPrivateForALink(Func<string, string, bool> after, Func<string, string, bool> at, Action<string> plant)

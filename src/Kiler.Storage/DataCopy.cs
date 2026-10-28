@@ -27,7 +27,10 @@ namespace Kiler.Storage;
 /// puts on the share makes the memory or the disk of a Kiler grow without a bound; the last good bytes of documents that were
 /// in the copy only briefly make room for the documents of the share (decided after the reviews of M2.7, by the user), and the
 /// oldest slots for the new ones, those of this Kiler only for each other (decided in M2.7a, by the user). The paths in the
-/// copy are built only from the checked names of <see cref="DocumentKey"/>, also those that come from the index. Not safe
+/// copy are built only from the checked names of <see cref="DocumentKey"/>, also those that come from the index. Each private
+/// folder is compared with what the copy made or first saw of it, the owner and the id of its root, kept in the index: one that
+/// is not that folder any more is reported and neither loaded nor written, until its root is accepted
+/// (<see cref="AcceptPrivateFolder"/>, decided in M2.7d, by the user). Not safe
 /// across threads: the start, the writes and one loop of loads use it, and M2.8 keeps them apart.
 /// </summary>
 public sealed partial class DataCopy
@@ -112,7 +115,10 @@ public sealed partial class DataCopy
     /// <summary>The accounts of the other users whose private folders the loads copy, in order (<see cref="CopyOthers"/>, M2.7c).</summary>
     private SortedSet<string> _others = new(StringComparer.Ordinal);
 
-    private DataCopy(DataFolder share, string? account, string folder, TimeProvider time, CopyLimits limits, Dictionary<Spot, CopyEntry> index, Dictionary<SlotKey, SlotEntry> history)
+    /// <summary>What the private folder of each account is, as the copy made it or first saw it (M2.7d).</summary>
+    private readonly Dictionary<string, FolderIdentity> _roots;
+
+    private DataCopy(DataFolder share, string? account, string folder, TimeProvider time, CopyLimits limits, Dictionary<Spot, CopyEntry> index, Dictionary<SlotKey, SlotEntry> history, Dictionary<string, FolderIdentity> roots)
     {
         _share = share;
         _account = account;
@@ -121,6 +127,7 @@ public sealed partial class DataCopy
         _limits = limits;
         _index = index;
         _history = history;
+        _roots = roots;
         _edits = new InPlaceEdits(time);
         _trashEdits = new InPlaceEdits(time);
     }
@@ -147,8 +154,9 @@ public sealed partial class DataCopy
     /// With <paramref name="account"/>, the private folder of that account, the current user's, goes into the copy too, in
     /// the same budget (decided in M2.7b, by the user); <c>null</c> takes none. The entries of another private folder stay
     /// in the index as the private folder of another user, never given, as an admin keeps them for a restore, and as they
-    /// were until the copy is given that account (<see cref="CopyOthers"/>, M2.7c). An account that fails the name check of
-    /// <see cref="StorageName"/> is an <see cref="ArgumentException"/>.
+    /// were until the copy is given that account (<see cref="CopyOthers"/>, M2.7c). What each private folder is, as the copy
+    /// made it or first saw it (M2.7d), is kept for that of the current user and for each that the copy keeps documents of.
+    /// An account that fails the name check of <see cref="StorageName"/> is an <see cref="ArgumentException"/>.
     /// </summary>
     public static DataCopy Open(DataFolder share, string folder, TimeProvider time, string? account = null) => Open(share, folder, time, CopyLimits.Default, account);
 
@@ -181,8 +189,8 @@ public sealed partial class DataCopy
             throw new DirectoryNotFoundException($"The folder of the local copy does not exist: {root}");
         }
 
-        var (index, history) = ReadIndex(share, root, limits, account);
-        var copy = new DataCopy(share, account, root, time, limits, index, history);
+        var (index, history, roots) = ReadIndex(share, root, limits, account);
+        var copy = new DataCopy(share, account, root, time, limits, index, history, roots);
         copy.DeleteFilesNotNamed();
         return copy;
     }
@@ -235,13 +243,59 @@ public sealed partial class DataCopy
     }
 
     /// <summary>
+    /// Makes the private folder of the current user on the share (<see cref="DataFolder.CreatePrivate(string)"/>) and keeps
+    /// what it is, the owner and the id of the folder that it made, read through its handles, so another folder put at the
+    /// name before the first load is not taken for it (M2.7d). It keeps them once the folder is renamed to the name, also when
+    /// the check after the rename refuses the folder there, which the next load then reports (review of M2.7d). A folder that
+    /// is there already is refused before anything is made, as the create refuses it, and what the copy knew of the private
+    /// folder stays. A copy without an account is an <see cref="InvalidOperationException"/>.
+    /// </summary>
+    public void CreatePrivate()
+    {
+        var account = _account ?? throw new InvalidOperationException("A local copy without an account has no private folder to make.");
+        try
+        {
+            _share.CreatePrivate(account, made =>
+            {
+                _roots[account] = made;
+                _indexBehind = true;
+            });
+        }
+        finally
+        {
+            FlushIndex();
+        }
+    }
+
+    /// <summary>
+    /// Forgets what the private folder of an account was (M2.7d), the current user's or another's, so the next load, or write,
+    /// takes the folder at the name as it is then, as first seen: after the copy reported it as another folder
+    /// (<see cref="SkipReason.ForeignFolder"/>) and someone chose to take it, such as after IT moved the share or restored the
+    /// folder from a backup. It takes whatever folder is at the name then, not the one that was reported. The documents that
+    /// the copy had of it and that the folder at the name does not have are then gone, with their last good bytes kept apart
+    /// for a restore. It covers only the root: a folder in it of another owner than the root stays refused, as it is compared
+    /// with the owner of the root, and is put right on the share (decided by the user after the review of M2.7d). Who may
+    /// accept it is decided in M4 and M6. An account that fails the name check of <see cref="StorageName"/> is an
+    /// <see cref="ArgumentException"/>.
+    /// </summary>
+    public void AcceptPrivateFolder(string account)
+    {
+        if (_roots.Remove(StorageName.Check(account)))
+        {
+            _indexBehind = true;
+            FlushIndex();
+        }
+    }
+
+    /// <summary>
     /// The index of the copy, or an empty one when there is none that can be taken (<see cref="Open(DataFolder, string, TimeProvider, string?)"/>).
     /// An index that is there and cannot be read now throws.
     /// </summary>
-    private static (Dictionary<Spot, CopyEntry> Index, Dictionary<SlotKey, SlotEntry> History) ReadIndex(DataFolder share, string folder, CopyLimits limits, string? account)
+    private static (Dictionary<Spot, CopyEntry> Index, Dictionary<SlotKey, SlotEntry> History, Dictionary<string, FolderIdentity> Roots) ReadIndex(DataFolder share, string folder, CopyLimits limits, string? account)
     {
         var index = new Dictionary<Spot, CopyEntry>();
         var history = new Dictionary<SlotKey, SlotEntry>();
+        var roots = new Dictionary<string, FolderIdentity>(StringComparer.Ordinal);
         CopyIndex? read;
         try
         {
@@ -251,7 +305,7 @@ public sealed partial class DataCopy
         catch (Exception ex) when (ex is FileNotFoundException or JsonException)
         {
             // None yet, or a damaged one.
-            return (index, history);
+            return (index, history, roots);
         }
 
         // The budget keeps the index within its counts, the user's own and those of the private folders of other users apart
@@ -262,7 +316,7 @@ public sealed partial class DataCopy
             || (read.History?.Count ?? 0) > 2 * limits.HistorySlots
             || !string.Equals(read.Share, share.Root, StringComparison.OrdinalIgnoreCase))
         {
-            return (index, history);
+            return (index, history, roots);
         }
 
         // The private folders of other users alone over their bound leave only themselves out: the entries that became another
@@ -286,7 +340,20 @@ public sealed partial class DataCopy
             }
         }
 
-        return (index, history);
+        // What a private folder is stays while the copy keeps something of it, or it is the current user's (M2.7d): so the
+        // entries bound them, and one of another user that the copy has nothing of is seen first again, as there is nothing of
+        // it to keep for a restore.
+        var kept = index.Keys.Select(spot => spot.Key.Account).OfType<string>().ToHashSet(StringComparer.Ordinal);
+        foreach (var root in read.Roots ?? [])
+        {
+            // The current account passed the name check, and so did the accounts of the keys.
+            if (root is { Account: { } name, Owner: { } owner, Index: not 0 } && (name == account || kept.Contains(name)))
+            {
+                roots[name] = new FolderIdentity(owner, new FileId(root.Volume, root.Index));
+            }
+        }
+
+        return (index, history, roots);
     }
 
     /// <summary>
@@ -521,6 +588,24 @@ public sealed partial class DataCopy
     private bool IsLoaded(string? account) => IsOwn(account) || (account is not null && _others.Contains(account));
 
     /// <summary>
+    /// Opens the private folder of an account on the share, compared with what the copy made or first saw of it (M2.7d):
+    /// another folder or another owner is a <see cref="ForeignFolderException"/>. One that the copy has not seen yet is
+    /// taken as it is now, and the copy keeps what it is, for the index to be written with the load or the write.
+    /// </summary>
+    private DataFolder OpenPrivate(string account)
+    {
+        _roots.TryGetValue(account, out var known);
+        var folder = _share.OpenPrivate(account, known);
+        if (known is null && folder.Identity is { } seen)
+        {
+            _roots[account] = seen;
+            _indexBehind = true;
+        }
+
+        return folder;
+    }
+
+    /// <summary>
     /// The document of an entry, from the copy: damaged as the share gave it, or read from its file, with the owner of the
     /// entry. No read when the file is not the one the entry says: missing, damaged, or with other bytes; and to be read
     /// <see cref="CopyRead.Again"/> from the share when it cannot be read now.
@@ -571,7 +656,8 @@ public sealed partial class DataCopy
     /// </summary>
     private bool TryWriteIndex()
     {
-        var index = new CopyIndex(CopyIndex.CurrentFormat, _share.Root, [.. _index.Values], [.. _history.Values]);
+        RootEntry[] roots = [.. _roots.OrderBy(root => root.Key, StringComparer.Ordinal).Select(root => new RootEntry(root.Key, root.Value.Owner, root.Value.Id.Volume, root.Value.Id.Index))];
+        var index = new CopyIndex(CopyIndex.CurrentFormat, _share.Root, [.. _index.Values], [.. _history.Values], roots);
         if (!TryWriteFile(Path.Combine(_folder, IndexName), JsonSerializer.SerializeToUtf8Bytes(index, StorageJsonContext.Default.CopyIndex), flush: true))
         {
             return false;

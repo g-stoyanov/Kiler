@@ -169,7 +169,7 @@ public sealed partial class DataFolder
 
     /// <summary>
     /// A name that is never a document's or an account's, as <see cref="StorageName"/> refuses the ending:
-    /// <c>&lt;name&gt;.&lt;8 hex digits&gt;.tmp</c>. The writes name their temporary files so, <see cref="CreatePrivate"/> its
+    /// <c>&lt;name&gt;.&lt;8 hex digits&gt;.tmp</c>. The writes name their temporary files so, <see cref="CreatePrivate(string)"/> its
     /// temporary folder, and the local copy its own temporary files (M2.7).
     /// </summary>
     internal static string TemporaryName(string name) =>
@@ -487,18 +487,15 @@ public sealed partial class DataFolder
             foreach (var folder in folders)
             {
                 path = Path.Combine(path, folder);
-                PinnedFolder held;
                 try
                 {
-                    held = Files.HoldFolder(path);
+                    HoldBelow(holds, path, create: false);
                 }
                 catch (DirectoryNotFoundException)
                 {
                     holds.Dispose();
                     return null;
                 }
-
-                holds.Add(held);
             }
 
             return holds;
@@ -513,7 +510,8 @@ public sealed partial class DataFolder
     /// <summary>
     /// Holds the root and then each folder below it on the way down, each opened as itself through the folders held above
     /// it, so none of them can be renamed or deleted until they are let go. With <paramref name="create"/>, a missing folder
-    /// below the root is made first, one at a time, in the same call that holds it (M2.5).
+    /// below the root is made first, one at a time, in the same call that holds it (M2.5). In a private folder, each must
+    /// have the owner of the root (<see cref="HoldBelow"/>, M2.7d).
     /// </summary>
     private Holds Hold(bool create, params ReadOnlySpan<string> folders)
     {
@@ -524,7 +522,7 @@ public sealed partial class DataFolder
             foreach (var folder in folders)
             {
                 path = Path.Combine(path, folder);
-                holds.Add(create ? HoldOrCreate(path) : Files.HoldFolder(path));
+                HoldBelow(holds, path, create);
             }
 
             return holds;
@@ -538,37 +536,89 @@ public sealed partial class DataFolder
 
     /// <summary>
     /// Holds the root, the first of <paramref name="holds"/>, and gives its path. A private folder is held from the data
-    /// folder down, through <c>private\</c>, each opened as itself, as <see cref="CreatePrivate"/> holds them: opened by its
+    /// folder down, through <c>private\</c>, each opened as itself, as <see cref="CreatePrivate(string)"/> holds them: opened by its
     /// path alone, its root would be reached through a <c>private\</c> that anyone could swap for a link to another folder
-    /// between the check of <see cref="OpenPrivate"/> and the hold (security review of M2.7b).
+    /// between the check of <see cref="OpenPrivate(string)"/> and the hold (security review of M2.7b). Its root must still
+    /// be the folder that it was opened as, by its owner and its id (<see cref="Identity"/>, M2.7d): else a
+    /// <see cref="ForeignFolderException"/>, before anything is read or written there.
     /// </summary>
     private string HoldRoot(Holds holds)
     {
-        if (Account is not null)
+        if (Account is null)
         {
-            var privateFolders = Path.GetDirectoryName(Root)!;
-            holds.Add(Files.HoldFolder(Path.GetDirectoryName(privateFolders)!));
-            holds.Add(Files.HoldFolder(privateFolders));
+            holds.Add(Files.HoldFolder(Root));
+        }
+        else if (HoldPrivateRoot(Files, holds, Root) != Identity)
+        {
+            throw new ForeignFolderException($"The private folder is not the one Kiler knows: another folder, or another owner: {Root}");
         }
 
-        holds.Add(Files.HoldFolder(Root));
         return Root;
     }
 
     /// <summary>
-    /// A folder that is there is opened as it was before M2.5; only a missing one goes through the create, which on a file
-    /// server may ask for the right to make a folder in the one above even when the folder is there (not measured, M2.11).
-    /// The create also holds a folder that someone made in between.
+    /// Holds a folder below the root and adds it to <paramref name="holds"/>. With <paramref name="create"/>, a folder that is
+    /// there is opened as it was before M2.5, and only a missing one goes through the create, which on a file server may ask
+    /// for the right to make a folder in the one above even when the folder is there (not measured, M2.11); the create also
+    /// holds a folder that someone made in between. Without it, a missing folder is a <see cref="DirectoryNotFoundException"/>.
+    /// In a private folder, the folder must have the owner of the root (<see cref="ThrowIfForeign"/>, M2.7d).
     /// </summary>
-    private PinnedFolder HoldOrCreate(string path)
+    private void HoldBelow(Holds holds, string path, bool create)
     {
+        var readOwner = Account is not null;
+        PinnedFolder held;
         try
         {
-            return Files.HoldFolder(path);
+            held = Files.HoldFolder(path, readOwner);
         }
-        catch (DirectoryNotFoundException)
+        catch (DirectoryNotFoundException) when (create)
         {
-            return Files.HoldOrCreateFolder(path);
+            held = Files.HoldOrCreateFolder(path, readOwner);
+        }
+
+        holds.Add(held);
+        ThrowIfForeign(held);
+    }
+
+    /// <summary>
+    /// Holds the root of a private folder from the data folder down, through <c>private\</c>, each opened as itself, adds
+    /// them to <paramref name="holds"/>, and gives what the root is: its owner and its id, read through its handle (M2.7d).
+    /// An owner that cannot be read, or an id that tells nothing (index 0), is an <see cref="IOException"/>: the folder cannot
+    /// be checked.
+    /// </summary>
+    private static FolderIdentity HoldPrivateRoot(IFileSystem files, Holds holds, string root)
+    {
+        var privateFolders = Path.GetDirectoryName(root)!;
+        holds.Add(files.HoldFolder(Path.GetDirectoryName(privateFolders)!));
+        holds.Add(files.HoldFolder(privateFolders));
+        var held = files.HoldFolder(root, readOwner: true);
+        holds.Add(held);
+        var owner = files.Owner(held) ?? throw new IOException($"Kiler cannot read the owner of the private folder, which it checks: {root}");
+        var id = files.Id(held);
+        return id.Index != 0 ? new FolderIdentity(owner, id) : throw new IOException($"The file system gives the private folder no id, which Kiler checks: {root}");
+    }
+
+    /// <summary>
+    /// In a private folder, a <see cref="ForeignFolderException"/> when a folder held below its root has another owner than
+    /// the root (M2.7d): <c>CreatePrivate</c> makes them new, but someone could rename one away and put their own in its place
+    /// (third security review of M2.6), and the history and the trash get their folders from the first write that needs them,
+    /// by the user. An owner that cannot be read is an <see cref="IOException"/>. Nothing in the data folder. Accepting the
+    /// private folder does not clear such a folder, as it is compared with the owner of the root, whatever root is accepted:
+    /// it is put right on the share by its owner or by IT: a folder of the history or the trash is deleted, and the next write
+    /// that needs it makes it again; <c>records\</c>, which only the create makes, is put back as a folder of the user
+    /// (decided by the user after the review of M2.7d).
+    /// </summary>
+    private void ThrowIfForeign(PinnedFolder held)
+    {
+        if (Account is null)
+        {
+            return;
+        }
+
+        var owner = Files.Owner(held) ?? throw new IOException($"Kiler cannot read the owner of a folder of the private folder, which it checks: {held.HeldPath}");
+        if (owner != Identity?.Owner)
+        {
+            throw new ForeignFolderException($"A folder of the private folder has another owner than the private folder: {held.HeldPath}");
         }
     }
 

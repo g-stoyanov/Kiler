@@ -49,7 +49,8 @@ public sealed partial class DataFolder
     /// characters long, the listing keeps at most <paramref name="maxReported"/> of each, as a report gives no more, and counts
     /// the rest (<see cref="ListedFolder.Untold"/>): a load holds the listings of all its folders at once (security review of
     /// M2.7a). A root that cannot be held or listed, or a folder that is a link, is an <see cref="IOException"/> or an
-    /// <see cref="UnauthorizedAccessException"/>.
+    /// <see cref="UnauthorizedAccessException"/>; in a private folder, a root or a folder that is not the one Kiler knows is a
+    /// <see cref="ForeignFolderException"/>, an <see cref="IOException"/> too (M2.7d).
     /// </summary>
     internal ListedFolder ListFolder(string? folder, bool inTrash, int maxEntries, int maxReported)
     {

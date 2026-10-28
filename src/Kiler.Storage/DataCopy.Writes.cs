@@ -91,10 +91,11 @@ public sealed partial class DataCopy
 
     /// <summary>
     /// The root that a write of a document goes to (M2.7b): the data folder, or the private folder of the current user,
-    /// opened for the write; one that is not there is a <see cref="DirectoryNotFoundException"/>, and one that is a link an
-    /// <see cref="IOException"/>, before anything is written. A key of another private folder, or of any private folder in a
-    /// copy without an account, is an <see cref="ArgumentException"/>: the copy takes no other private folder, and its user
-    /// writes no other.
+    /// opened for the write; one that is not there is a <see cref="DirectoryNotFoundException"/>, one that is a link an
+    /// <see cref="IOException"/>, and one that is not the folder that the copy made or first saw a
+    /// <see cref="ForeignFolderException"/> (M2.7d), before anything is written. A key of another private folder, or of any
+    /// private folder in a copy without an account, is an <see cref="ArgumentException"/>: the copy takes no other private
+    /// folder, and its user writes no other.
     /// </summary>
     private DataFolder RootOf(DocumentKey key)
     {
@@ -105,7 +106,7 @@ public sealed partial class DataCopy
         }
 
         return key.Account == _account
-            ? _share.OpenPrivate(key.Account)
+            ? OpenPrivate(key.Account)
             : throw new ArgumentException("A write through the local copy goes only to the data folder or to the private folder of its user.", nameof(key));
     }
 

@@ -120,7 +120,7 @@ public sealed partial class DataCopy
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                report.Skip(new SkippedEntry(name, null, SkipReason.Unreadable));
+                report.Skip(new SkippedEntry(name, null, SkipReasonOf(ex)));
                 _historyFailed.Add(key);
                 continue;
             }
