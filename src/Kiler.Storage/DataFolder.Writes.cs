@@ -187,6 +187,9 @@ public sealed partial class DataFolder
         return !name.AsSpan(name.Length - suffix + 1, TemporaryDigits).ContainsAnyExcept(LowerHex) && StorageName.IsValid(name[..^suffix]);
     }
 
+    /// <summary>The name that <see cref="TemporaryName"/> made a name of, or <c>null</c> for a name that it does not make (M2.7e).</summary>
+    internal static string? TemporaryStem(string name) => IsTemporaryName(name) ? name[..^(1 + TemporaryDigits + StorageName.TemporaryEnding.Length)] : null;
+
     /// <summary>
     /// Whether a step was refused because someone holds the file open, or it is read-only: access denied or a sharing
     /// violation.

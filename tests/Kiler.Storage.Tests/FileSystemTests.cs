@@ -660,6 +660,86 @@ public sealed class FileSystemTests : IDisposable
         Assert.Equal("another", File.ReadAllText(path));
     }
 
+    /// <summary>A folder held to be deleted reads its owner, cannot be renamed while held, and goes through its handle (M2.7e).</summary>
+    [Fact]
+    public void DeleteHeldFolder_DeletesTheFolderThatHoldFolderToDeleteHolds()
+    {
+        var folder = Directory.CreateDirectory(Path.Combine(_test.Root, "records")).FullName;
+
+        using (var held = Files.HoldFolderToDelete(folder))
+        {
+            Assert.Equal(TestOwners.Me, Files.Owner(held));
+            Assert.Throws<IOException>(() => Directory.Move(folder, folder + "-moved"));
+
+            Files.DeleteHeldFolder(held);
+        }
+
+        Assert.False(Path.Exists(folder));
+    }
+
+    /// <summary>The file system refuses to delete a folder that is not empty, so what is put in it after a check stays (M2.7e).</summary>
+    [Fact]
+    public void DeleteHeldFolder_OfAFolderThatIsNotEmpty_IsRefused_AndKeepsIt()
+    {
+        var folder = Directory.CreateDirectory(Path.Combine(_test.Root, "records")).FullName;
+        var file = Path.Combine(folder, "notes.txt");
+
+        using (var held = Files.HoldFolderToDelete(folder))
+        {
+            File.WriteAllText(file, "made up");
+
+            Assert.Throws<IOException>(() => Files.DeleteHeldFolder(held));
+        }
+
+        Assert.Equal("made up", File.ReadAllText(file));
+    }
+
+    [Fact]
+    public void HoldFolderToDelete_OfAJunction_IsRefused()
+    {
+        var elsewhere = Directory.CreateDirectory(Path.Combine(_test.Root, "elsewhere")).FullName;
+        var link = Path.Combine(_test.Root, "records");
+        TestFolder.CreateJunction(link, elsewhere);
+
+        Assert.Throws<IOException>(() => Files.HoldFolderToDelete(link));
+
+        Assert.True(File.GetAttributes(link).HasFlag(FileAttributes.ReparsePoint), "The junction is gone.");
+        Assert.True(Directory.Exists(elsewhere));
+    }
+
+    /// <summary>Every hold of the layer shares no delete, so a folder that the layer holds is never deleted by another of its holds.</summary>
+    [Fact]
+    public void HoldFolderToDelete_OfAFolderThatAnotherHoldHolds_IsRefused()
+    {
+        var folder = Directory.CreateDirectory(Path.Combine(_test.Root, "records")).FullName;
+        using var other = Files.HoldFolder(folder);
+
+        Assert.Throws<IOException>(() => Files.HoldFolderToDelete(folder));
+    }
+
+    /// <summary>
+    /// An empty folder made a mount point in place after it was held goes as the link: what the mount point names stays
+    /// (measured in M2.7e).
+    /// </summary>
+    [Fact]
+    public void DeleteHeldFolder_OfAFolderMadeAMountPointInPlace_DeletesTheLink_AndNotWhatItNames()
+    {
+        var folder = Directory.CreateDirectory(Path.Combine(_test.Root, "trash")).FullName;
+        var elsewhere = Directory.CreateDirectory(Path.Combine(_test.Root, "elsewhere")).FullName;
+        var file = Path.Combine(elsewhere, "notes.txt");
+        File.WriteAllText(file, "made up");
+
+        using (var held = Files.HoldFolderToDelete(folder))
+        {
+            TestFolder.MakeMountPoint(folder, elsewhere);
+
+            Files.DeleteHeldFolder(held);
+        }
+
+        Assert.False(Path.Exists(folder));
+        Assert.Equal("made up", File.ReadAllText(file));
+    }
+
     [Fact]
     public void MoveFolder_OntoAFolderThatExists_IsRefusedAndReplacesNothing()
     {

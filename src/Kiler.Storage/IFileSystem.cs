@@ -152,6 +152,21 @@ internal interface IFileSystem
     /// </summary>
     void DeleteHeldFile(HeldFile file);
 
+    /// <summary>
+    /// Holds a folder as <see cref="HoldFolder"/> does with <c>readOwner</c>, opened also to be deleted through its handle
+    /// (<see cref="DeleteHeldFolder"/>, M2.7e). A folder that someone holds open without sharing the delete, as every hold of
+    /// the layer does, or that may not be deleted, is an <see cref="IOException"/>.
+    /// </summary>
+    PinnedFolder HoldFolderToDelete(string path);
+
+    /// <summary>
+    /// Deletes a folder that <see cref="HoldFolderToDelete"/> holds, through its handle, so the folder that was held goes,
+    /// never what a link names: one made a mount point in place goes as the link (measured in M2.7e). It goes when the hold is
+    /// let go. A folder that is not empty is an <see cref="IOException"/>, as the file system refuses it, so anything put in
+    /// it after a check stops the delete.
+    /// </summary>
+    void DeleteHeldFolder(PinnedFolder folder);
+
     /// <summary>Waits between two tries of a step. The tests count the waits instead.</summary>
     void Wait(TimeSpan time);
 }

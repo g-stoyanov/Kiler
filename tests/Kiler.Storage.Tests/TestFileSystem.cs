@@ -282,6 +282,19 @@ internal sealed class TestFileSystem : IFileSystem
         _real.DeleteHeldFile(file);
     }
 
+    public PinnedFolder HoldFolderToDelete(string path)
+    {
+        Step(nameof(HoldFolderToDelete), path);
+        return _real.HoldFolderToDelete(path);
+    }
+
+    /// <summary><see cref="IFileSystem.DeleteHeldFolder"/>; the step gives the path where the folder was held.</summary>
+    public void DeleteHeldFolder(PinnedFolder folder)
+    {
+        Step(nameof(DeleteHeldFolder), folder.HeldPath);
+        _real.DeleteHeldFolder(folder);
+    }
+
     public IDisposable? CreateMarker(string path)
     {
         Step(nameof(CreateMarker), path);

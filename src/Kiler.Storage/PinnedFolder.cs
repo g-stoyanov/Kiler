@@ -46,6 +46,12 @@ public sealed class PinnedFolder : IDisposable
     internal static PinnedFolder? CreateNew(string path, bool readOwner = false) =>
         NativeFiles.CreateNewFolder(path, readOwner) is { } handle ? new(handle, path) : null;
 
+    /// <summary>
+    /// Holds the folder as <see cref="Open(string)"/> does, with its owner, and opened to be deleted through the handle
+    /// (M2.7e): the hold still shares no delete, so no one else can rename or delete it while it is held.
+    /// </summary>
+    internal static PinnedFolder OpenToDelete(string path) => new(NativeFiles.OpenFolder(path, readOwner: true, toDelete: true), path);
+
     /// <summary>Where the folder was held.</summary>
     internal string HeldPath => _path;
 

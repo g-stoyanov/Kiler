@@ -40,8 +40,9 @@ public sealed class LoadResult
 
     /// <summary>
     /// What the load skipped, to be reported: links, names that fail the check, what could not be read, what is over the
-    /// budget of the copy, what could not be written into it, and a private folder, or a folder in it, that is not the one the
-    /// copy knows (M2.7d). At most 1000 of them; <see cref="MoreSkipped"/> counts the
+    /// budget of the copy, what could not be written into it, a private folder, or a folder in it, that is not the one the
+    /// copy knows (M2.7d), and the stopped creates of the private folder that stay (M2.7e). At most 1000 of them;
+    /// <see cref="MoreSkipped"/> counts the
     /// rest, as anyone can put any number of names on the share.
     /// </summary>
     public IReadOnlyList<SkippedEntry> Skipped { get; }
@@ -63,7 +64,8 @@ public sealed record LoadedDocument(DocumentKey Key, DocumentRead Read);
 /// folder there, such as <c>trash\records</c>, <c>trash</c> or <c>history\records\8f3a1c</c> (M2.7a); in the private folder of
 /// the current user, the same after <c>private\&lt;account&gt;</c>, such as <c>private\demo.user\records</c>, and
 /// <c>private\demo.user</c> alone for its root, or for the whole private folder when it cannot be opened (M2.7b); the same
-/// for the private folder of another user that an admin's copy is given (M2.7c).
+/// for the private folder of another user that an admin's copy is given (M2.7c). <c>private</c> for a stopped create of the
+/// private folder of the current user (M2.7e).
 /// </param>
 /// <param name="Name">
 /// The escaped name of the file, or <c>null</c> for the whole folder: one that could not be listed, or one that lists too
@@ -111,6 +113,16 @@ public enum SkipReason
     /// another owner than the private folder, until it is put right on the share.
     /// </summary>
     ForeignFolder,
+
+    /// <summary>
+    /// An old temporary folder that a create of the private folder of the current user left in <c>private\</c>, by its name
+    /// (<c>&lt;account&gt;.&lt;8 hex digits&gt;.tmp</c>, M2.7e), which the load did not delete: it holds more than the empty
+    /// folders of a new private folder, a link among them; it or a folder in it has another owner than the private folder
+    /// that the copy knows, or the copy knows none yet; the delete failed; or a link or a file is at the name. Nothing in it
+    /// is deleted or followed, and it is never taken for a private folder. The next look tries it again, and the copy reports
+    /// it at each look until it goes or is put right on the share.
+    /// </summary>
+    StoppedCreate,
 }
 
 /// <summary>

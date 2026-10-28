@@ -118,6 +118,9 @@ public sealed partial class DataCopy
     /// <summary>What the private folder of each account is, as the copy made it or first saw it (M2.7d).</summary>
     private readonly Dictionary<string, FolderIdentity> _roots;
 
+    /// <summary>When a load last looked for the stopped creates of the private folder of the current user (M2.7e).</summary>
+    private DateTimeOffset? _stoppedCreatesAt;
+
     private DataCopy(DataFolder share, string? account, string folder, TimeProvider time, CopyLimits limits, Dictionary<Spot, CopyEntry> index, Dictionary<SlotKey, SlotEntry> history, Dictionary<string, FolderIdentity> roots)
     {
         _share = share;

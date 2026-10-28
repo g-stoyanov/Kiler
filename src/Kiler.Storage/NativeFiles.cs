@@ -120,17 +120,19 @@ internal static partial class NativeFiles
     /// which a rename needs. While the handle is open, Windows refuses to rename or delete the folder or a folder above it,
     /// also over SMB (M1.11). It does not stop anyone who can write the folder from making an empty one a mount point in
     /// place (measured in M2.3), which <see cref="IsLink"/> sees through the handle. With <paramref name="readOwner"/>, the
-    /// handle can read the owner of the folder too (M2.6). A missing folder is a <see cref="DirectoryNotFoundException"/>; a
-    /// link or a file in its place, or a folder that cannot be opened, an <see cref="IOException"/>.
+    /// handle can read the owner of the folder too (M2.6); with <paramref name="toDelete"/>, it can delete the folder
+    /// (<see cref="DeleteOnClose"/>, M2.7e), which a folder that someone holds open without sharing the delete refuses. A
+    /// missing folder is a <see cref="DirectoryNotFoundException"/>; a link or a file in its place, or a folder that cannot be
+    /// opened, an <see cref="IOException"/>.
     /// </summary>
-    public static SafeFileHandle OpenFolder(string path, bool readOwner = false)
+    public static SafeFileHandle OpenFolder(string path, bool readOwner = false, bool toDelete = false)
     {
         if (!OperatingSystem.IsWindows())
         {
             throw NotWindows();
         }
 
-        var access = ListDirectory | ReadAttributes | (readOwner ? ReadControl : 0);
+        var access = ListDirectory | ReadAttributes | (readOwner ? ReadControl : 0) | (toDelete ? Delete : 0);
         var handle = CreateFile(
             Extended(path), access, (uint)(FileShare.Read | FileShare.Write), 0, OpenExisting, BackupSemantics | OpenReparsePoint | AnonymousToPipes, 0);
         if (handle.IsInvalid)
@@ -288,7 +290,8 @@ internal static partial class NativeFiles
     /// deletes since Windows 10 (POSIX semantics, measured in M2.4). A file system that does not take them, as a file
     /// server may answer with any error, gets the classic delete: the file goes when the last handle to it is closed, and
     /// until then its name stays taken. A file that may not be deleted, such as a read-only one, is an
-    /// <see cref="UnauthorizedAccessException"/>.
+    /// <see cref="UnauthorizedAccessException"/>. A folder goes so too (M2.7e), and one that is not empty is an
+    /// <see cref="IOException"/> with ERROR_DIR_NOT_EMPTY: the file system refuses it in both ways.
     /// </summary>
     public static void DeleteOnClose(SafeFileHandle handle)
     {
@@ -313,8 +316,8 @@ internal static partial class NativeFiles
 
         var error = Marshal.GetLastPInvokeError();
         throw error == ErrorAccessDenied
-            ? new UnauthorizedAccessException($"Kiler cannot delete the file: {new Win32Exception(error).Message}")
-            : new IOException($"Kiler cannot delete the file: {new Win32Exception(error).Message}", HResult(error));
+            ? new UnauthorizedAccessException($"Kiler cannot delete the file or folder: {new Win32Exception(error).Message}")
+            : new IOException($"Kiler cannot delete the file or folder: {new Win32Exception(error).Message}", HResult(error));
     }
 
     /// <summary>Opens a file that exists, as itself, as <see cref="OpenFileToRead"/> says.</summary>

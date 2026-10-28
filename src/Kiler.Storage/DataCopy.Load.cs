@@ -18,7 +18,9 @@ public sealed partial class DataCopy
     /// reported. A document that
     /// the copy had and the share no longer lists, and that did not move, also when its folder has gone, is gone: its last
     /// good bytes are kept apart. The history folder of each document that has changed is then listed, and its new slots
-    /// taken (decided in M2.7a). Links, names that fail the check, files that cannot be read, documents over the budget and
+    /// taken (decided in M2.7a). After the pass of the user's own, at most once in 10 minutes, the old stopped creates of the
+    /// private folder of the current user are deleted, and those that stay reported (<see cref="DeleteStoppedCreates"/>,
+    /// M2.7e). Links, names that fail the check, files that cannot be read, documents over the budget and
     /// bytes that cannot be written into the copy are skipped and reported; the next load tries them again. A folder that
     /// cannot be listed, such as one that is a link, or that lists too many entries, is reported, and its documents stay as
     /// the copy has them, and so is the private folder (<see cref="ListPrivate"/>). The root of the data folder that cannot be
@@ -54,6 +56,7 @@ public sealed partial class DataCopy
 
             var privateFolder = _account is { } account ? ListPrivate(account, listed, missing, report) : null;
             LoadFolders(listed, missing, OwnCap, now, report, ref taken);
+            DeleteStoppedCreates(now, report);
             using (var held = _others.Count > 0 ? _share.HoldPrivateFolders() : null)
             {
                 foreach (var other in _others)
@@ -339,6 +342,37 @@ public sealed partial class DataCopy
         {
             report.Skip(new SkippedEntry(RootName(account), null, SkipReasonOf(ex)));
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Deletes the old stopped creates of the private folder of the current user (<see cref="DataFolder.DeleteStoppedCreates"/>,
+    /// M2.7e) at most once in <see cref="DataFolder.TemporaryFileAge"/> on the clock of the copy, the first load of the copy
+    /// among them, as each costs a listing of <c>private\</c> (decided by the user). The owner that they must have is that of
+    /// the private folder that the copy knows, so none goes while it knows none. Those that stay are reported
+    /// (<see cref="SkipReason.StoppedCreate"/>) at each look. A <c>private\</c> that cannot be held or listed reports nothing
+    /// here, as the pass of the private folder holds it too and reports it.
+    /// </summary>
+    private void DeleteStoppedCreates(DateTimeOffset now, Report report)
+    {
+        // A clock put back looks again at once, rather than wait until it is past the last look again.
+        if (_account is not { } account || (_stoppedCreatesAt is { } last && now >= last && now - last < DataFolder.TemporaryFileAge))
+        {
+            return;
+        }
+
+        _stoppedCreatesAt = now;
+        try
+        {
+            var owner = _roots.TryGetValue(account, out var known) ? known.Owner : null;
+            foreach (var name in _share.DeleteStoppedCreates(account, owner, now, _limits.Listed))
+            {
+                report.Skip(new SkippedEntry(DataFolder.Private, StorageName.Escape(name), SkipReason.StoppedCreate));
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The next look tries again.
         }
     }
 

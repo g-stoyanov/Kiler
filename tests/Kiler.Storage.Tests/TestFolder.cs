@@ -173,12 +173,14 @@ internal sealed class TestFolder : IDisposable
     }
 
     /// <summary>
-    /// Sets the creation and write times of a file as raw FILETIME values, also those after the year 9999 that a
-    /// <see cref="DateTime"/> cannot hold, as anyone on the share can set them through Windows (third security review of M2.7).
+    /// Sets the creation and write times of a file or a folder (M2.7e) as raw FILETIME values, also those after the year 9999
+    /// that a <see cref="DateTime"/> cannot hold, as anyone on the share can set them through Windows (third security review of
+    /// M2.7).
     /// </summary>
     public static void SetRawTimes(string path, long creation, long lastWrite)
     {
-        using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+        using var handle = CreateFileW(path, GenericWrite, FileShare.ReadWrite | FileShare.Delete, 0, FileMode.Open, BackupSemantics, 0);
+        Assert.False(handle.IsInvalid, $"The file could not be opened to write: error {Marshal.GetLastPInvokeError()}");
         var access = lastWrite;
         Assert.True(SetFileTime(handle, ref creation, ref access, ref lastWrite), $"Windows did not set the times: error {Marshal.GetLastPInvokeError()}");
     }
