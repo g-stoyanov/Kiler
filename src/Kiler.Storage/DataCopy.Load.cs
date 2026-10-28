@@ -25,7 +25,7 @@ public sealed partial class DataCopy
     /// cannot be listed, such as one that is a link, or that lists too many entries, is reported, and its documents stay as
     /// the copy has them, and so is the private folder (<see cref="ListPrivate"/>). The root of the data folder that cannot be
     /// held or listed is an <see cref="IOException"/> or an <see cref="UnauthorizedAccessException"/>: the share cannot be
-    /// reached (M2.8). Any other exception is a fault of the
+    /// reached (M2.8a). Any other exception is a fault of the
     /// code: what the load took before it is written into the index first, so a start gives it. The index is written once,
     /// after the files, and before them only when the last good bytes of a document went apart and its file is overwritten.
     /// The old temporary files of the listings are deleted, on the clock given to
@@ -34,83 +34,86 @@ public sealed partial class DataCopy
     /// </summary>
     public LoadResult Load()
     {
-        var now = _time.GetUtcNow();
-        var report = new Report(_limits.Reports);
-        var listed = new List<DataFolder.ListedFolder>();
-        var missing = new List<FolderKey>();
-        var taken = false;
-        _budget = null;
-        try
+        lock (_gate)
         {
-            foreach (var (folder, inTrash) in FoldersOf(null))
+            var now = _time.GetUtcNow();
+            var report = new Report(_limits.Reports);
+            var listed = new List<DataFolder.ListedFolder>();
+            var missing = new List<FolderKey>();
+            var taken = false;
+            _budget = null;
+            try
             {
-                try
+                foreach (var (folder, inTrash) in FoldersOf(null))
                 {
-                    listed.Add(_share.ListFolder(folder, inTrash, _limits.Listed, _limits.Reports));
-                }
-                catch (Exception ex) when ((folder is not null || inTrash) && ex is IOException or UnauthorizedAccessException)
-                {
-                    report.Skip(new SkippedEntry(FolderName(null, folder, inTrash), null, SkipReason.Unreadable));
-                }
-            }
-
-            var privateFolder = _account is { } account ? ListPrivate(account, listed, missing, report) : null;
-            LoadFolders(listed, missing, OwnCap, now, report, ref taken);
-            DeleteStoppedCreates(now, report);
-            using (var held = _others.Count > 0 ? _share.HoldPrivateFolders() : null)
-            {
-                foreach (var other in _others)
-                {
-                    var theirs = new List<DataFolder.ListedFolder>();
-                    var theirsMissing = new List<FolderKey>();
                     try
                     {
-                        ListPrivate(other, theirs, theirsMissing, report);
-                        LoadFolders(theirs, theirsMissing, OtherCap(other), now, report, ref taken);
+                        listed.Add(_share.ListFolder(folder, inTrash, _limits.Listed, _limits.Reports));
                     }
-                    finally
+                    catch (Exception ex) when ((folder is not null || inTrash) && ex is IOException or UnauthorizedAccessException)
                     {
-                        foreach (var folder in theirs)
+                        report.Skip(new SkippedEntry(FolderName(null, folder, inTrash), null, SkipReason.Unreadable));
+                    }
+                }
+
+                var privateFolder = _account is { } account ? ListPrivate(account, listed, missing, report) : null;
+                LoadFolders(listed, missing, OwnCap, now, report, ref taken);
+                DeleteStoppedCreates(now, report);
+                using (var held = _others.Count > 0 ? _share.HoldPrivateFolders() : null)
+                {
+                    foreach (var other in _others)
+                    {
+                        var theirs = new List<DataFolder.ListedFolder>();
+                        var theirsMissing = new List<FolderKey>();
+                        try
                         {
-                            folder.Dispose();
+                            ListPrivate(other, theirs, theirsMissing, report);
+                            LoadFolders(theirs, theirsMissing, OtherCap(other), now, report, ref taken);
+                        }
+                        finally
+                        {
+                            foreach (var folder in theirs)
+                            {
+                                folder.Dispose();
+                            }
                         }
                     }
                 }
+
+                taken |= TakeHistory(privateFolder, now, report);
+                taken |= ReportOutside(now, report);
+            }
+            catch
+            {
+                if (taken || _indexBehind)
+                {
+                    _indexBehind = !TryWriteIndex();
+                }
+
+                throw;
+            }
+            finally
+            {
+                foreach (var folder in listed)
+                {
+                    folder.Dispose();
+                }
+
+                _budget = null;
             }
 
-            taken |= TakeHistory(privateFolder, now, report);
-            taken |= ReportOutside(now, report);
-        }
-        catch
-        {
+            // Once, after the files it names; one that cannot be written is tried again at the next load.
             if (taken || _indexBehind)
             {
                 _indexBehind = !TryWriteIndex();
+                if (_indexBehind)
+                {
+                    report.Skip(new SkippedEntry(null, null, SkipReason.NotCopied));
+                }
             }
 
-            throw;
+            return report.Result();
         }
-        finally
-        {
-            foreach (var folder in listed)
-            {
-                folder.Dispose();
-            }
-
-            _budget = null;
-        }
-
-        // Once, after the files it names; one that cannot be written is tried again at the next load.
-        if (taken || _indexBehind)
-        {
-            _indexBehind = !TryWriteIndex();
-            if (_indexBehind)
-            {
-                report.Skip(new SkippedEntry(null, null, SkipReason.NotCopied));
-            }
-        }
-
-        return report.Result();
     }
 
     /// <summary>
@@ -350,29 +353,37 @@ public sealed partial class DataCopy
     /// M2.7e) at most once in <see cref="DataFolder.TemporaryFileAge"/> on the clock of the copy, the first load of the copy
     /// among them, as each costs a listing of <c>private\</c> (decided by the user). The owner that they must have is that of
     /// the private folder that the copy knows, so none goes while it knows none. Those that stay are reported
-    /// (<see cref="SkipReason.StoppedCreate"/>) at each look. A <c>private\</c> that cannot be held or listed reports nothing
-    /// here, as the pass of the private folder holds it too and reports it.
+    /// (<see cref="SkipReason.StoppedCreate"/>) by the look, and by every load after it until the next look (M2.8), so the
+    /// skipped entries of each load are those of the share as the copy knows it. A <c>private\</c> that cannot be held or
+    /// listed reports nothing here until the next look, as the pass of the private folder holds it too and reports it.
     /// </summary>
     private void DeleteStoppedCreates(DateTimeOffset now, Report report)
     {
-        // A clock put back looks again at once, rather than wait until it is past the last look again.
-        if (_account is not { } account || (_stoppedCreatesAt is { } last && now >= last && now - last < DataFolder.TemporaryFileAge))
+        if (_account is not { } account)
         {
             return;
         }
 
-        _stoppedCreatesAt = now;
-        try
+        // A clock put back looks again at once, rather than wait until it is past the last look again.
+        if (_stoppedCreatesAt is not { } last || now < last || now - last >= DataFolder.TemporaryFileAge)
         {
-            var owner = _roots.TryGetValue(account, out var known) ? known.Owner : null;
-            foreach (var name in _share.DeleteStoppedCreates(account, owner, now, _limits.Listed))
+            _stoppedCreatesAt = now;
+            _stoppedCreates = [];
+            try
             {
-                report.Skip(new SkippedEntry(DataFolder.Private, StorageName.Escape(name), SkipReason.StoppedCreate));
+                var owner = _roots.TryGetValue(account, out var known) ? known.Owner : null;
+                _stoppedCreates = [.. _share.DeleteStoppedCreates(account, owner, now, _limits.Listed)
+                    .Select(name => new SkippedEntry(DataFolder.Private, StorageName.Escape(name), SkipReason.StoppedCreate))];
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // The next look tries again.
             }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+
+        foreach (var entry in _stoppedCreates)
         {
-            // The next look tries again.
+            report.Skip(entry);
         }
     }
 
@@ -763,10 +774,22 @@ public sealed partial class DataCopy
         }
     }
 
-    /// <summary>Tells the upper layers that a document of the user's own has left its folder; one of the trash, or of another user, they never had (M2.7c).</summary>
+    /// <summary>
+    /// Tells the upper layers that a document of the user's own has left its folder, or that the trash changed when it left
+    /// the trash (M2.8); one of another user they never had (M2.7c).
+    /// </summary>
     private void Went(Report report, Spot spot)
     {
-        if (!spot.InTrash && IsOwn(spot.Key.Account))
+        if (!IsOwn(spot.Key.Account))
+        {
+            return;
+        }
+
+        if (spot.InTrash)
+        {
+            report.LeftTheTrash();
+        }
+        else
         {
             report.Gone.Add(spot.Key);
         }

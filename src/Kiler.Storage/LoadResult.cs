@@ -4,13 +4,14 @@ namespace Kiler.Storage;
 public sealed class LoadResult
 {
     internal LoadResult(
-        IReadOnlyList<LoadedDocument> changed, IReadOnlyList<DocumentKey> gone, IReadOnlyList<OutsideChange> outside, IReadOnlyList<SkippedEntry> skipped, int moreSkipped)
+        IReadOnlyList<LoadedDocument> changed, IReadOnlyList<DocumentKey> gone, IReadOnlyList<OutsideChange> outside, IReadOnlyList<SkippedEntry> skipped, int moreSkipped, bool trashChanged)
     {
         Changed = changed;
         Gone = gone;
         Outside = outside;
         Skipped = skipped;
         MoreSkipped = moreSkipped;
+        TrashChanged = trashChanged;
     }
 
     /// <summary>
@@ -49,6 +50,13 @@ public sealed class LoadResult
 
     /// <summary>How many skipped entries there were beyond those in <see cref="Skipped"/>.</summary>
     public int MoreSkipped { get; }
+
+    /// <summary>
+    /// Whether the documents in the trash that the copy gives (<see cref="DataCopy.Trash"/>) changed in this load: one came,
+    /// changed or went, also damaged or moved back (decided in M2.8, by the user), so the upper layers read the trash again
+    /// only then. Not those of the private folders of other users, which are never given.
+    /// </summary>
+    public bool TrashChanged { get; }
 }
 
 /// <summary>A document of the local copy or of a load (M2.7): where it is, and what its file gave, with its owner.</summary>
@@ -119,8 +127,8 @@ public enum SkipReason
     /// (<c>&lt;account&gt;.&lt;8 hex digits&gt;.tmp</c>, M2.7e), which the load did not delete: it holds more than the empty
     /// folders of a new private folder, a link among them; it or a folder in it has another owner than the private folder
     /// that the copy knows, or the copy knows none yet; the delete failed; or a link or a file is at the name. Nothing in it
-    /// is deleted or followed, and it is never taken for a private folder. The next look tries it again, and the copy reports
-    /// it at each look until it goes or is put right on the share.
+    /// is deleted or followed, and it is never taken for a private folder. The next look tries it again, at most once in 10
+    /// minutes, and every load reports what the last look left (M2.8), until it goes or is put right on the share.
     /// </summary>
     StoppedCreate,
 }

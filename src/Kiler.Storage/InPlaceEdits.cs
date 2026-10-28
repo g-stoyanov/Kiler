@@ -6,7 +6,7 @@ namespace Kiler.Storage;
 /// that had the name in the last 15 s (NTFS file tunneling). Until the second time is set, the file looks edited in place,
 /// and another machine can go on seeing that for about 10 s through its SMB cache. So a document is reported only when the
 /// same size and times, with a write time later than the creation time, have been seen for <see cref="SettleTime"/> on the
-/// clock of this machine. Not safe across threads: one watching loop uses it (M2.8).
+/// clock of this machine. Not safe across threads: the local copy uses it under its lock (M2.8).
 /// </summary>
 internal sealed class InPlaceEdits(TimeProvider time)
 {

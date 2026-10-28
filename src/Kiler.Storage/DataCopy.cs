@@ -30,8 +30,9 @@ namespace Kiler.Storage;
 /// copy are built only from the checked names of <see cref="DocumentKey"/>, also those that come from the index. Each private
 /// folder is compared with what the copy made or first saw of it, the owner and the id of its root, kept in the index: one that
 /// is not that folder any more is reported and neither loaded nor written, until its root is accepted
-/// (<see cref="AcceptPrivateFolder"/>, decided in M2.7d, by the user). Not safe
-/// across threads: the start, the writes and one loop of loads use it, and M2.8 keeps them apart.
+/// (<see cref="AcceptPrivateFolder"/>, decided in M2.7d, by the user). Safe across threads (M2.8): each public member keeps
+/// one lock for its whole run, so a write of a request waits for a load of the watch (<see cref="DataWatch"/>) under way, and
+/// a load for a write.
 /// </summary>
 public sealed partial class DataCopy
 {
@@ -121,6 +122,15 @@ public sealed partial class DataCopy
     /// <summary>When a load last looked for the stopped creates of the private folder of the current user (M2.7e).</summary>
     private DateTimeOffset? _stoppedCreatesAt;
 
+    /// <summary>The stopped creates that the last look left, which every load reports until the next look (M2.8).</summary>
+    private List<SkippedEntry> _stoppedCreates = [];
+
+    /// <summary>
+    /// Kept by each public member of the copy for its whole run, so the writes of the requests, the loads of the watch
+    /// (<see cref="DataWatch"/>) and the calls of a sign-in never meet in the copy (M2.8).
+    /// </summary>
+    private readonly Lock _gate = new();
+
     private DataCopy(DataFolder share, string? account, string folder, TimeProvider time, CopyLimits limits, Dictionary<Spot, CopyEntry> index, Dictionary<SlotKey, SlotEntry> history, Dictionary<string, FolderIdentity> roots)
     {
         _share = share;
@@ -206,10 +216,22 @@ public sealed partial class DataCopy
     /// One that cannot be read now, as when another program holds it, is left out and read again from the share too, but
     /// keeps its entry. The documents that the share no longer lists are not given; their last good bytes stay in the copy.
     /// </summary>
-    public IReadOnlyList<LoadedDocument> Documents() => Give(inTrash: false);
+    public IReadOnlyList<LoadedDocument> Documents()
+    {
+        lock (_gate)
+        {
+            return Give(inTrash: false);
+        }
+    }
 
     /// <summary>The documents in the trash of the share as the last load saw them, from the local copy, as <see cref="Documents"/> gives the others (M2.7a, for M6).</summary>
-    public IReadOnlyList<LoadedDocument> Trash() => Give(inTrash: true);
+    public IReadOnlyList<LoadedDocument> Trash()
+    {
+        lock (_gate)
+        {
+            return Give(inTrash: true);
+        }
+    }
 
     /// <summary>
     /// Gives the copy the accounts of the other users whose private folders it copies, for an admin after the sign-in (M4):
@@ -242,7 +264,10 @@ public sealed partial class DataCopy
             throw new ArgumentException($"A local copy takes the private folders of at most {MaxOthers} other users.", nameof(accounts));
         }
 
-        _others = others;
+        lock (_gate)
+        {
+            _others = others;
+        }
     }
 
     /// <summary>
@@ -256,17 +281,20 @@ public sealed partial class DataCopy
     public void CreatePrivate()
     {
         var account = _account ?? throw new InvalidOperationException("A local copy without an account has no private folder to make.");
-        try
+        lock (_gate)
         {
-            _share.CreatePrivate(account, made =>
+            try
             {
-                _roots[account] = made;
-                _indexBehind = true;
-            });
-        }
-        finally
-        {
-            FlushIndex();
+                _share.CreatePrivate(account, made =>
+                {
+                    _roots[account] = made;
+                    _indexBehind = true;
+                });
+            }
+            finally
+            {
+                FlushIndex();
+            }
         }
     }
 
@@ -283,10 +311,14 @@ public sealed partial class DataCopy
     /// </summary>
     public void AcceptPrivateFolder(string account)
     {
-        if (_roots.Remove(StorageName.Check(account)))
+        var name = StorageName.Check(account);
+        lock (_gate)
         {
-            _indexBehind = true;
-            FlushIndex();
+            if (_roots.Remove(name))
+            {
+                _indexBehind = true;
+                FlushIndex();
+            }
         }
     }
 

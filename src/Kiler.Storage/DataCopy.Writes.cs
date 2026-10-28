@@ -19,14 +19,17 @@ public sealed partial class DataCopy
     /// </summary>
     public WriteResult Create(DocumentKey key, JsonObject content)
     {
-        var result = RootOf(key).CreateDocument(key, content);
-        if (result is { Outcome: WriteOutcome.Written, Bytes: { } bytes })
+        lock (_gate)
         {
-            Wrote(new Spot(key, InTrash: false), bytes, result.Version, historyFrom: null, slotTaken: false);
-            FlushIndex();
-        }
+            var result = RootOf(key).CreateDocument(key, content);
+            if (result is { Outcome: WriteOutcome.Written, Bytes: { } bytes })
+            {
+                Wrote(new Spot(key, InTrash: false), bytes, result.Version, historyFrom: null, slotTaken: false);
+                FlushIndex();
+            }
 
-        return result;
+            return result;
+        }
     }
 
     /// <summary>
@@ -39,18 +42,21 @@ public sealed partial class DataCopy
     /// </summary>
     public WriteResult Replace(DocumentKey key, int version, JsonObject content)
     {
-        var result = RootOf(key).ReplaceDocument(key, version, content);
-        if (result is { Outcome: WriteOutcome.Written, Bytes: { } bytes, Old: { } old })
+        lock (_gate)
         {
-            var spot = new Spot(key, InTrash: false);
-            _index.TryGetValue(spot, out var entry);
-            var slotTaken = TakeOwnSlot(key, version, SlotBytes(spot, entry, version, old), _time.GetUtcNow());
-            int? from = entry?.LastGood is { } lastGood && lastGood.Version < version ? lastGood.Version : null;
-            Wrote(spot, bytes, result.Version, from, slotTaken);
-            FlushIndex();
-        }
+            var result = RootOf(key).ReplaceDocument(key, version, content);
+            if (result is { Outcome: WriteOutcome.Written, Bytes: { } bytes, Old: { } old })
+            {
+                var spot = new Spot(key, InTrash: false);
+                _index.TryGetValue(spot, out var entry);
+                var slotTaken = TakeOwnSlot(key, version, SlotBytes(spot, entry, version, old), _time.GetUtcNow());
+                int? from = entry?.LastGood is { } lastGood && lastGood.Version < version ? lastGood.Version : null;
+                Wrote(spot, bytes, result.Version, from, slotTaken);
+                FlushIndex();
+            }
 
-        return result;
+            return result;
+        }
     }
 
     /// <summary>
@@ -60,17 +66,20 @@ public sealed partial class DataCopy
     /// </summary>
     public WriteResult Delete(DocumentKey key, int version)
     {
-        var result = RootOf(key).DeleteDocument(key, version);
-        if (result is { Outcome: WriteOutcome.Deleted, Old: { } old })
+        lock (_gate)
         {
-            var spot = new Spot(key, InTrash: false);
-            _index.TryGetValue(spot, out var entry);
-            TakeOwnSlot(key, version, SlotBytes(spot, entry, version, old), _time.GetUtcNow());
-            Moved(spot, new Spot(key, InTrash: true), old, version);
-            FlushIndex();
-        }
+            var result = RootOf(key).DeleteDocument(key, version);
+            if (result is { Outcome: WriteOutcome.Deleted, Old: { } old })
+            {
+                var spot = new Spot(key, InTrash: false);
+                _index.TryGetValue(spot, out var entry);
+                TakeOwnSlot(key, version, SlotBytes(spot, entry, version, old), _time.GetUtcNow());
+                Moved(spot, new Spot(key, InTrash: true), old, version);
+                FlushIndex();
+            }
 
-        return result;
+            return result;
+        }
     }
 
     /// <summary>
@@ -79,14 +88,17 @@ public sealed partial class DataCopy
     /// </summary>
     public WriteResult RestoreFromTrash(DocumentKey key)
     {
-        var result = RootOf(key).RestoreFromTrash(key);
-        if (result is { Outcome: WriteOutcome.Written, Bytes: { } bytes })
+        lock (_gate)
         {
-            Moved(new Spot(key, InTrash: true), new Spot(key, InTrash: false), bytes, result.Version);
-            FlushIndex();
-        }
+            var result = RootOf(key).RestoreFromTrash(key);
+            if (result is { Outcome: WriteOutcome.Written, Bytes: { } bytes })
+            {
+                Moved(new Spot(key, InTrash: true), new Spot(key, InTrash: false), bytes, result.Version);
+                FlushIndex();
+            }
 
-        return result;
+            return result;
+        }
     }
 
     /// <summary>

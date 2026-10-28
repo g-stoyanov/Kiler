@@ -143,14 +143,27 @@ public sealed partial class DataCopy
 
         public List<OutsideChange> Outside { get; } = [];
 
-        /// <summary>Gives a read of a document in its folder to the upper layers; those of the trash are not given.</summary>
+        /// <summary>Whether the documents in the trash that the copy gives changed (M2.8).</summary>
+        public bool TrashChanged { get; private set; }
+
+        /// <summary>
+        /// Gives a read of a document in its folder to the upper layers; one of the trash is not given, and says that the trash
+        /// changed.
+        /// </summary>
         public void Given(Spot spot, DocumentRead read)
         {
-            if (!spot.InTrash)
+            if (spot.InTrash)
+            {
+                TrashChanged = true;
+            }
+            else
             {
                 Changed.Add(new LoadedDocument(spot.Key, read));
             }
         }
+
+        /// <summary>A document of the user's own has gone from the trash.</summary>
+        public void LeftTheTrash() => TrashChanged = true;
 
         public void Skip(SkippedEntry entry)
         {
@@ -176,6 +189,6 @@ public sealed partial class DataCopy
         /// <summary>Counts skipped entries that a listing did not keep, beyond what a report gives.</summary>
         public void Untold(int count) => _more += count;
 
-        public LoadResult Result() => new(Changed, Gone, Outside, _skipped, _more);
+        public LoadResult Result() => new(Changed, Gone, Outside, _skipped, _more, TrashChanged);
     }
 }

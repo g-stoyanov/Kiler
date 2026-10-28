@@ -207,6 +207,34 @@ public sealed class DataCopyFollowTests : IDisposable
         Assert.Equal(Keys([OtherRecord, Record]), Keys(Open().Documents()));
     }
 
+    /// <summary>
+    /// A load says when the trash that the copy gives changed (decided in M2.8, by the user), so the upper layers read it again
+    /// only then: a delete, a restore, a document gone from the trash, a document changed or damaged there.
+    /// </summary>
+    [Fact]
+    public void Load_SaysWhenTheTrashChanged_AndOnlyThen()
+    {
+        Create(Record, "record");
+        Create(OtherRecord, "other");
+        var copy = OpenAt();
+        Assert.False(copy.Load().TrashChanged, "The first load of a share without a trash says that the trash changed.");
+        Assert.Equal(WriteOutcome.Deleted, _share.DeleteDocument(Record, 1).Outcome);
+
+        Assert.True(copy.Load().TrashChanged, "A delete does not change the trash.");
+        Assert.False(copy.Load().TrashChanged, "A load that saw nothing says that the trash changed.");
+        Replace(OtherRecord, 1, "changed");
+        Create(ThirdRecord, "new");
+        Assert.False(copy.Load().TrashChanged, "A change of the documents in their folders changes the trash.");
+        Assert.Equal(WriteOutcome.Written, _share.RestoreFromTrash(Record).Outcome);
+        Assert.True(copy.Load().TrashChanged, "A restore does not change the trash.");
+        Assert.Equal(WriteOutcome.Deleted, _share.DeleteDocument(OtherRecord, 2).Outcome);
+        copy.Load();
+        TestFolder.WriteAsKiler(_share.TrashPath(OtherRecord), "{"u8.ToArray());
+        Assert.True(copy.Load().TrashChanged, "A document damaged in the trash does not change the trash.");
+        File.Delete(_share.TrashPath(OtherRecord));
+        Assert.True(copy.Load().TrashChanged, "A document gone from the trash does not change the trash.");
+    }
+
     [Fact]
     public void Load_ADocumentThatGoesFromTheTrashWithoutComingBack_KeepsItsLastGoodBytesApart()
     {

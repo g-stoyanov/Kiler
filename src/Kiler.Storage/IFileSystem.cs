@@ -3,7 +3,7 @@ namespace Kiler.Storage;
 /// <summary>
 /// The file operations of the data layer. <see cref="FileSystem"/> does them on System.IO and, to open a path as itself,
 /// on Windows (<see cref="NativeFiles"/>). The tests put a fake in its place to make one step fail (M2.3), count the reads at
-/// a time (M2.7) or take the shared folder away (M2.8). The operations are synchronous: the open of a file, which is what
+/// a time (M2.7) or take the shared folder away (M2.8a). The operations are synchronous: the open of a file, which is what
 /// costs over SMB, is synchronous in Windows anyway, and a write runs to its end once started (decided in M2.3).
 /// </summary>
 internal interface IFileSystem

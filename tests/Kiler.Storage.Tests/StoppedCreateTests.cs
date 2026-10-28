@@ -407,6 +407,28 @@ public sealed class StoppedCreateTests : IDisposable
         Assert.Equal(2, listings);
     }
 
+    /// <summary>
+    /// A load reports the stopped creates that the last look left until the next look (M2.8), so the skipped entries of each
+    /// load are those of the share as it is then, and an event of a load between two looks does not drop them.
+    /// </summary>
+    [Fact]
+    public void Load_BetweenTwoLooks_ReportsTheStoppedCreatesThatTheLastLookLeft()
+    {
+        var stopped = StopACreate(Me);
+        var copy = OpenAt(Me);
+        _clock.Advance(Old);
+        Assert.Equal([Reported(stopped)], copy.Load().Skipped);
+        _clock.Advance(DataFolder.TemporaryFileAge - TimeSpan.FromSeconds(1));
+
+        Assert.Equal([Reported(stopped)], copy.Load().Skipped);
+        copy.CreatePrivate();
+        _clock.Advance(TimeSpan.FromSeconds(1));
+
+        Assert.Empty(copy.Load().Skipped);
+        Assert.False(Directory.Exists(stopped), "The old stopped create is still there.");
+        Assert.Empty(copy.Load().Skipped);
+    }
+
     /// <summary>The file system refuses to delete a folder that is not empty, so a file put in one after its listing stays.</summary>
     [Fact]
     public void Load_AFilePutInAFolderOfAStoppedCreateRightBeforeItsDelete_StopsTheDelete_AndStays()
