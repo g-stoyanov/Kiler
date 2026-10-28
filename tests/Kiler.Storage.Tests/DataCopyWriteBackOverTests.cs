@@ -660,10 +660,10 @@ public sealed class DataCopyWriteBackOverTests : IDisposable
         var damaged = Encoding.UTF8.GetBytes("{");
         var reads = _files.Reads;
 
-        Assert.Throws<ArgumentException>(() => _share.WriteBackOver(Record, inTrash: false, damaged, 100, _ => true));
-        Assert.Throws<ArgumentException>(() => _share.WriteBackOver(Record, inTrash: false, DocumentFormat.New(DocumentKey.InFolder(DataFolder.Records, "b72e09"), Content("other")), 100, _ => true));
-        Assert.Throws<ArgumentException>(() => _share.WriteBack(Record, inTrash: false, damaged, 100));
-        Assert.Throws<ArgumentNullException>(() => _share.WriteBackOver(Record, inTrash: false, bytes, 100, null!));
+        Assert.Throws<ArgumentException>(() => _share.WriteBackOver(Record, inTrash: false, damaged, 100, _ => true, makeFolders: true));
+        Assert.Throws<ArgumentException>(() => _share.WriteBackOver(Record, inTrash: false, DocumentFormat.New(DocumentKey.InFolder(DataFolder.Records, "b72e09"), Content("other")), 100, _ => true, makeFolders: true));
+        Assert.Throws<ArgumentException>(() => _share.WriteBack(Record, inTrash: false, damaged, 100, makeFolders: true));
+        Assert.Throws<ArgumentNullException>(() => _share.WriteBackOver(Record, inTrash: false, bytes, 100, null!, makeFolders: true));
 
         Assert.Equal(reads, _files.Reads);
         Assert.Equal(bytes, File.ReadAllBytes(path));

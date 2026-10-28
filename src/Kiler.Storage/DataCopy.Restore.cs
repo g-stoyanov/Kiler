@@ -7,7 +7,7 @@ namespace Kiler.Storage;
 /// (<see cref="ToRestore"/>), and forgetting those that should not come back (<see cref="Forget"/>), such as the private
 /// folder of someone who has left (<see cref="ForgetPrivate"/>, design 7.9). None of them touches the share, so they work
 /// while the copy is offline too. Writing back (<see cref="WriteBack"/>) a document gone outside the trash (M2.9a), or over a
-/// file that is there (M2.9b), is a write through the copy; into the private folder of another user it is M2.9c. The screen
+/// file that is there (M2.9b), also into the private folder of another user (M2.9c), is a write through the copy. The screen
 /// is M6, and the check that only an admin restores is M4.
 /// </summary>
 public sealed partial class DataCopy
@@ -184,18 +184,21 @@ public sealed partial class DataCopy
     /// other bytes, as the copy did not see versions that other Kilers wrote (<see cref="WriteOutcome.Behind"/>); and while
     /// the copy is offline (<see cref="WriteOutcome.Offline"/>), as for the other writes through the copy. The limit (decided
     /// by the user): a copy that missed only the last version of the share writes back the one before it, as the slot of that
-    /// version has its bytes, and a copy that saw the last one reports the document out of order, with its last good bytes. A
-    /// change of the private folder of another user is an <see cref="ArgumentException"/> until M2.9c, before anything is
-    /// looked at.
+    /// version has its bytes, and a copy that saw the last one reports the document out of order, with its last good bytes.
+    /// A change of the private folder of another user, in an admin's copy (M2.7c), is written back into that folder with the
+    /// same rules, through a write of its own (M2.9c), as the other writes through the copy go only to the data folder and to
+    /// the private folder of the user. It makes no folder there, as one would have the SID of the admin, and the Kiler of the
+    /// owner would refuse it for good (M2.7d). A missing document folder or folder of the trash, or a missing history folder
+    /// for the lock of a write back over a file (M2.9b; a document never changed has none), is
+    /// <see cref="WriteOutcome.NoFolder"/>, and the Kiler of the owner writes such a change back itself, from its own copy, as
+    /// the owner. A private folder that has gone whole is a <see cref="DirectoryNotFoundException"/>, as for the other
+    /// writes: the Kiler of the owner makes it again (<see cref="CreatePrivate"/>), the admin accepts it
+    /// (<see cref="AcceptPrivateFolder"/>), and then writes the documents back into it (decided by the user). The file
+    /// written back is the admin's.
     /// </summary>
     public WriteResult WriteBack(OutsideChange change)
     {
         ArgumentNullException.ThrowIfNull(change.Key, nameof(change));
-        if (!IsOwn(change.Key.Account))
-        {
-            throw new ArgumentException("A write through the local copy goes only to the data folder or to the private folder of its user.", nameof(change));
-        }
-
         if (_offline)
         {
             return Refused;
@@ -219,10 +222,13 @@ public sealed partial class DataCopy
                 return WriteResult.Not(kept == Keep.Lost ? WriteOutcome.Missing : WriteOutcome.Busy);
             }
 
-            var root = RootOf(change.Key);
+            // The writes through the copy go to the data folder and to the private folder of the user (RootOf); a write back goes
+            // to that of another user too, and makes no folder there (M2.9c).
+            var other = change.Key.Account is { } account && !IsOwn(account) ? account : null;
+            var root = other is null ? RootOf(change.Key) : OpenPrivate(other);
             var result = change.Reason == OutsideReason.Gone
-                ? root.WriteBack(change.Key, spot.InTrash, bytes, _limits.Listed)
-                : WriteBackOver(root, spot, entry, bytes);
+                ? root.WriteBack(change.Key, spot.InTrash, bytes, _limits.Listed, makeFolders: other is null)
+                : WriteBackOver(root, spot, entry, bytes, makeFolders: other is null);
             if (result.Outcome == WriteOutcome.Written)
             {
                 WroteBack(spot, entry, lastGood, bytes);
@@ -239,7 +245,7 @@ public sealed partial class DataCopy
     /// those bytes, it does not know the file there, so it is <see cref="WriteOutcome.Busy"/>: the next load reads it again
     /// (<see cref="WithoutCurrent"/>).
     /// </summary>
-    private WriteResult WriteBackOver(DataFolder root, Spot spot, CopyEntry entry, byte[] bytes)
+    private WriteResult WriteBackOver(DataFolder root, Spot spot, CopyEntry entry, byte[] bytes, bool makeFolders)
     {
         Func<byte[]?, bool> isListed;
         if (entry.Outside == OutsideReason.Damaged)
@@ -255,7 +261,7 @@ public sealed partial class DataCopy
             return WriteResult.Not(WriteOutcome.Busy);
         }
 
-        return root.WriteBackOver(spot.Key, spot.InTrash, bytes, _limits.Listed, isListed);
+        return root.WriteBackOver(spot.Key, spot.InTrash, bytes, _limits.Listed, isListed, makeFolders);
     }
 
     /// <summary>

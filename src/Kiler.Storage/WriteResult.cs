@@ -84,6 +84,17 @@ public enum WriteOutcome
     /// versions are in it, and in the copies that saw them (decided in M2.9a, by the user).
     /// </summary>
     Behind,
+
+    /// <summary>
+    /// Writing back from the local copy into the private folder of another user (M2.9c): a folder that the write back needs
+    /// is missing there, <c>records\</c>, the folder of the trash, or, over a good document at a version that is not before
+    /// the one written back, the history folder of the document, which a document never changed does not have. A write back
+    /// makes no folder in the private folder of another user, as one would have the SID of the admin, and the Kiler of the
+    /// owner would refuse it for good (decided by the user). Nothing was written. The folder comes from the Kiler of the
+    /// owner, as the owner: such as by a write back of the same change from the owner's own copy, which reports it too
+    /// (M2.9a, M2.9b), or a later write of the owner there; or the change is forgotten.
+    /// </summary>
+    NoFolder,
 }
 
 /// <summary>The outcome of a write, with what the caller needs of it.</summary>

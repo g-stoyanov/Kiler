@@ -947,6 +947,8 @@ public sealed class DataCopyRestoreTests : IDisposable
         Assert.Equal(WriteOutcome.NotListed, copy.WriteBack(gone with { LastGood = 2 }).Outcome);
         Assert.Equal(WriteOutcome.NotListed, copy.WriteBack(gone with { InTrash = true }).Outcome);
         Assert.Equal(WriteOutcome.NotListed, copy.WriteBack(gone with { Key = OtherRecord }).Outcome);
+        Assert.Equal(WriteOutcome.NotListed, copy.WriteBack(gone with { Key = TheirRecord }).Outcome);
+        Assert.Throws<ArgumentNullException>(() => copy.WriteBack(default));
 
         // Back, and gone again for less than the settle time: it can be a move that the SMB cache shows late (M2.7a).
         TestFolder.WriteAsKiler(path, good);
@@ -995,21 +997,6 @@ public sealed class DataCopyRestoreTests : IDisposable
 
         Assert.False(File.Exists(_share.DocumentPath(Record)), "The document was written back while its bytes could not be read.");
         Assert.Equal(WriteOutcome.Written, copy.WriteBack(gone).Outcome);
-    }
-
-    /// <summary>
-    /// Writing back into the private folder of another user comes with M2.9c; until then it is refused before anything is
-    /// looked at. Writing back over a file that is there is M2.9b (<see cref="DataCopyWriteBackOverTests"/>).
-    /// </summary>
-    [Theory]
-    [InlineData(OutsideReason.Gone)]
-    [InlineData(OutsideReason.Damaged)]
-    public void WriteBack_AChangeOfThePrivateFolderOfAnotherUser_IsRefused(OutsideReason reason)
-    {
-        var copy = OpenAt(Me);
-
-        Assert.Throws<ArgumentException>(() => copy.WriteBack(new OutsideChange(TheirRecord, InTrash: false, reason, LastGood: 1)));
-        Assert.Throws<ArgumentNullException>(() => copy.WriteBack(default));
     }
 
     private static JsonObject Content(string name) => new() { ["name"] = name };

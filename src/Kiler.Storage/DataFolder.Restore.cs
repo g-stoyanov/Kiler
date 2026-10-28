@@ -4,7 +4,10 @@ namespace Kiler.Storage;
 /// The writes back from the local copy (M2.9a, M2.9b, PLAN M2 step 10): the last good bytes of a document that the copy keeps
 /// go back on the share as they are, through a write of their own, as <see cref="CreateDocument"/> refuses an id with a
 /// history (M2.5) and a document gone outside the trash keeps its history, and <see cref="ReplaceDocument"/> writes the next
-/// version of a good document, never the same one over a file that is damaged or was changed outside Kiler.
+/// version of a good document, never the same one over a file that is damaged or was changed outside Kiler. Into the private
+/// folder of another user (M2.9c) they make no folder: one would have the SID of whoever writes back, the admin, which the
+/// Kiler of the owner refuses for good (M2.7d), so a folder that is missing there is <see cref="WriteOutcome.NoFolder"/>
+/// (decided by the user).
 /// </summary>
 public sealed partial class DataFolder
 {
@@ -19,11 +22,12 @@ public sealed partial class DataFolder
     /// did not see, and the document back at this version would meet those slots and block its writes for good (M2.4). The
     /// slots stay as they are; one of their version with their bytes, as a delete or a crash leaves it, is taken over by the
     /// next write (M2.4), or deleted by a restore from the trash (M2.5). A document folder or a folder of the trash that has
-    /// gone with its documents is made again, as itself (M2.5). Bytes that are not a good document of the key are an
-    /// <see cref="ArgumentException"/>, before anything is looked at; only their head is read, as an admin's copy never
-    /// parses the content of the private folders of other users (M2.7c).
+    /// gone with its documents is made again, as itself (M2.5); without <paramref name="makeFolders"/>, as in the private
+    /// folder of another user, it is <see cref="WriteOutcome.NoFolder"/> (M2.9c). Bytes that are not a good document of the
+    /// key are an <see cref="ArgumentException"/>, before anything is looked at; only their head is read, as an admin's copy
+    /// never parses the content of the private folders of other users (M2.7c).
     /// </summary>
-    internal WriteResult WriteBack(DocumentKey key, bool inTrash, byte[] bytes, int maxEntries)
+    internal WriteResult WriteBack(DocumentKey key, bool inTrash, byte[] bytes, int maxEntries, bool makeFolders)
     {
         ArgumentNullException.ThrowIfNull(bytes);
         var head = DocumentFormat.ReadHead(Known(key), bytes);
@@ -33,7 +37,12 @@ public sealed partial class DataFolder
         }
 
         var path = inTrash ? TrashPath(key) : DocumentPath(key);
-        using var folders = HoldWriteBackFolders(key, inTrash);
+        using var folders = HoldWriteBackFolders(key, inTrash, makeFolders);
+        if (folders is null)
+        {
+            return WriteResult.Not(WriteOutcome.NoFolder);
+        }
+
         if (Files.Attributes(path) is not null || Files.Attributes(inTrash ? DocumentPath(key) : TrashPath(key)) is not null)
         {
             return WriteResult.Not(WriteOutcome.Exists);
@@ -74,14 +83,16 @@ public sealed partial class DataFolder
     /// <c>null</c> for a file over <see cref="DocumentFormat.MaxSize"/>): else, as when it has gone or another entry is at its
     /// name, <see cref="WriteOutcome.NotListed"/>. One held open by someone without sharing the delete, or read-only, is
     /// <see cref="WriteOutcome.Busy"/>. A good document there at a version that is not before theirs is locked as every write
-    /// of that version locks it, at the name of its slot (<see cref="TakeLock"/>). Then it is deleted through the hold and is not kept
+    /// of that version locks it, at the name of its slot (<see cref="TakeLock"/>); without <paramref name="makeFolders"/>, as in
+    /// the private folder of another user, a history folder of the document that is missing is not made, and the write back is
+    /// <see cref="WriteOutcome.NoFolder"/> (M2.9c). Then it is deleted through the hold and is not kept
     /// (decided by the user), and the temporary file is renamed to its name without replacing
     /// (<see cref="MoveIntoFreedName"/>), so a write of another Kiler meanwhile is refused and loses nothing; one at an older
     /// version that the hold refused deletes its own slot. A failure after the delete leaves the document gone, which a load
     /// reports, and which <see cref="WriteBack"/> brings back. Bytes that are not a good document of the key are an
     /// <see cref="ArgumentException"/>, before anything is looked at.
     /// </summary>
-    internal WriteResult WriteBackOver(DocumentKey key, bool inTrash, byte[] bytes, int maxEntries, Func<byte[]?, bool> isListed)
+    internal WriteResult WriteBackOver(DocumentKey key, bool inTrash, byte[] bytes, int maxEntries, Func<byte[]?, bool> isListed, bool makeFolders)
     {
         ArgumentNullException.ThrowIfNull(bytes);
         ArgumentNullException.ThrowIfNull(isListed);
@@ -135,14 +146,16 @@ public sealed partial class DataFolder
                 return WriteResult.Not(WriteOutcome.Behind);
             }
 
-            return WriteOver(key, path, version, bytes, onDisk, there, held, folders);
+            return WriteOver(key, path, version, bytes, onDisk, there, held, folders, makeFolders);
         }
     }
 
     /// <summary>
     /// The steps of <see cref="WriteBackOver"/> once the file there is checked: the temporary file, the lock, when
     /// <paramref name="onDisk"/> gives the version of the file there (<see cref="TakeLock"/>), the delete of the file there
-    /// through its hold, and the rename into its name. The lock goes when it is let go, whatever the end. Only a good document
+    /// through its hold, and the rename into its name. The folders of the lock come first: made where they are missing, as
+    /// the user, and only with <paramref name="makeFolders"/>, else <see cref="WriteOutcome.NoFolder"/> before anything is
+    /// written (M2.9c). The lock goes when it is let go, whatever the end. Only a good document
     /// in its folder at a version that is not before the one written back is locked: a write of such a version by another
     /// Kiler, which the hold refuses and which tries its rename or its move again for about 1.6 s, would otherwise act on the
     /// restored file once the write back is done, and a delete would leave its slot, at or after that version, which blocks the
@@ -151,24 +164,26 @@ public sealed partial class DataFolder
     /// older version is written by a write that the hold stops, and that deletes its own slot, or, done after the write back,
     /// makes a version that is not after it, which the copies report out of order, or moves the restored file to the trash.
     /// </summary>
-    private WriteResult WriteOver(DocumentKey key, string path, int version, byte[] bytes, int? onDisk, byte[]? there, HeldFile held, Holds folders)
+    private WriteResult WriteOver(DocumentKey key, string path, int version, byte[] bytes, int? onDisk, byte[]? there, HeldFile held, Holds folders, bool makeFolders)
     {
+        using var historyFolders = onDisk is null ? null : makeFolders ? HoldHistoryFolders(key) : HoldIfThere(HistoryFolders(key));
+        if (onDisk is not null && historyFolders is null)
+        {
+            return WriteResult.Not(WriteOutcome.NoFolder);
+        }
+
         // First, as its write time is the time of the write back on the clock of the file server, against which a leftover
         // slot is old (M2.4).
         using var file = WriteTemporaryWithTimes(Path.GetDirectoryName(path)!, key.Id, bytes, out var written);
-        Holds? historyFolders = null;
         IDisposable? lockFile = null;
         try
         {
-            if (onDisk is { } locked)
+            // A version there comes with the folders of its lock (above), and the file there is a good document whenever it
+            // has a version (WriteBackOver).
+            if (onDisk is { } locked && !TakeLock(key, locked, bytes, there!, written.LastWriteTime, folders, historyFolders!, out lockFile))
             {
-                historyFolders = HoldHistoryFolders(key);
-                // The file there is a good document whenever it has a version (WriteBackOver).
-                if (!TakeLock(key, locked, bytes, there!, written.LastWriteTime, folders, historyFolders, out lockFile))
-                {
-                    Discard(file);
-                    return WriteResult.Not(WriteOutcome.Busy);
-                }
+                Discard(file);
+                return WriteResult.Not(WriteOutcome.Busy);
             }
 
             folders.ThrowIfLink();
@@ -201,7 +216,6 @@ public sealed partial class DataFolder
         finally
         {
             lockFile?.Dispose();
-            historyFolders?.Dispose();
         }
     }
 
@@ -290,17 +304,14 @@ public sealed partial class DataFolder
     private string[] FoldersOf(DocumentKey key) => Known(key).Folder is { } folder ? [folder] : [];
 
     /// <summary>
-    /// The folders that a write back holds: those of the trash, or the document folder, each made again when it has gone, as
-    /// the user (M2.9a); the root alone for a document at the root.
+    /// The folders that a write back holds: those of the trash, or the document folder; the root alone for a document at the
+    /// root. With <paramref name="makeFolders"/>, each is made again when it has gone, as the user (M2.9a); without, as in the
+    /// private folder of another user, none is made, and <c>null</c> when one is missing (M2.9c).
     /// </summary>
-    private Holds HoldWriteBackFolders(DocumentKey key, bool inTrash)
+    private Holds? HoldWriteBackFolders(DocumentKey key, bool inTrash, bool makeFolders)
     {
-        if (inTrash)
-        {
-            return Hold(create: true, TrashFolders(key));
-        }
-
-        return key.Folder is { } folder ? Hold(create: true, folder) : Hold(create: false);
+        var folders = inTrash ? TrashFolders(key) : FoldersOf(key);
+        return makeFolders ? Hold(create: true, folders) : HoldIfThere(folders);
     }
 
     /// <summary>

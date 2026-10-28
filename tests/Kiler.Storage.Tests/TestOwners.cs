@@ -38,6 +38,9 @@ internal sealed class TestOwners : IFileOwner
         _owners[NativeFiles.Id(handle)] = owner;
     }
 
+    /// <summary>Gives the file or the folder of an id an owner, as one made through a handle that the test does not hold.</summary>
+    public void Set(FileId id, string? owner) => _owners[id] = owner;
+
     public string? Of(SafeFileHandle file)
     {
         if ((GrantedAccess(file) & ReadControl) == 0)

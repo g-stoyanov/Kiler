@@ -16,10 +16,30 @@ internal sealed class TestFileSystem : IFileSystem
     private int _readsNow;
     private int _mostReadsAtOnce;
 
-    public TestFileSystem() => _real = new FileSystem(Owners);
+    public TestFileSystem()
+        : this(new TestOwners())
+    {
+    }
+
+    /// <summary>
+    /// The file operations of another process on the same files, with the same owners, such as the Kiler of another user
+    /// (M2.9c), whose new files and folders get its own SID (<see cref="Maker"/>).
+    /// </summary>
+    public TestFileSystem(TestOwners owners)
+    {
+        Owners = owners;
+        _real = new FileSystem(Owners);
+    }
 
     /// <summary>The owners that the files and folders have, by default <see cref="TestOwners.Me"/>.</summary>
-    public TestOwners Owners { get; } = new();
+    public TestOwners Owners { get; }
+
+    /// <summary>
+    /// The owner of the files and folders that the layer makes through this file system, as Windows gives them the SID of the
+    /// process that makes them; <c>null</c> gives them none of their own, so they have <see cref="TestOwners.Default"/>. A
+    /// marker gets none, as no test reads its owner.
+    /// </summary>
+    public string? Maker { get; init; }
 
     public int AttributeRequests
     {
@@ -120,6 +140,10 @@ internal sealed class TestFileSystem : IFileSystem
         Step(nameof(CreateFolder), path);
         BeforeCreate?.Invoke(path);
         _real.CreateFolder(path);
+        if (Maker is not null)
+        {
+            Owners.Set(path, Maker);
+        }
     }
 
     public void MoveFolder(string from, string to)
@@ -138,7 +162,14 @@ internal sealed class TestFileSystem : IFileSystem
     public PinnedFolder HoldOrCreateFolder(string path, bool readOwner = false)
     {
         Step(nameof(HoldOrCreateFolder), path);
-        return _real.HoldOrCreateFolder(path, readOwner);
+        var made = Maker is not null && !Path.Exists(path);
+        var held = _real.HoldOrCreateFolder(path, readOwner);
+        if (made)
+        {
+            Owners.Set(NativeFiles.Id(held.Handle), Maker);
+        }
+
+        return held;
     }
 
     /// <summary><see cref="IFileSystem.HoldNewFolder"/>, after <see cref="BeforeCreate"/> too, as it makes a folder.</summary>
@@ -146,7 +177,13 @@ internal sealed class TestFileSystem : IFileSystem
     {
         Step(nameof(HoldNewFolder), path);
         BeforeCreate?.Invoke(path);
-        return _real.HoldNewFolder(path, readOwner);
+        var held = _real.HoldNewFolder(path, readOwner);
+        if (held is not null && Maker is not null)
+        {
+            Owners.Set(NativeFiles.Id(held.Handle), Maker);
+        }
+
+        return held;
     }
 
     public FileId Id(PinnedFolder folder)
@@ -247,6 +284,11 @@ internal sealed class TestFileSystem : IFileSystem
         if (file is not null && WriteTakes > TimeSpan.Zero)
         {
             File.SetLastWriteTimeUtc(file.Handle, File.GetLastWriteTimeUtc(file.Handle) + WriteTakes);
+        }
+
+        if (file is not null && Maker is not null)
+        {
+            Owners.Set(NativeFiles.Id(file.Handle), Maker);
         }
 
         return file;
