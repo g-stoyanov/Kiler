@@ -250,7 +250,7 @@ Design sections 5 and 7.10.
    - Only the current user's private folder is loaded and watched.
    - An admin's exe also copies into its cache the private folders of the other users that it is given, reading only the head of each document, so they can be restored (step 10; decided in M2.7c).
 
-   Decided in M2.8 (by the user, before the code): the old M2.8 is split into the watching (M2.8), working offline (M2.8a, step 8) and the cost of the loads (M2.8b). Each load goes to the upper layers as one event in the process with what it gave, and a load that throws as another; a load says whether the trash changed; a file that cannot be read is reported without a cause. Decided in the task: a load runs 10 s after the end of the last one, on a thread of its own, and the local copy keeps one lock for each call, so a write waits for a load under way.
+   Decided in M2.8 (by the user, before the code): the old M2.8 is split into the watching (M2.8), working offline (M2.8a, step 8) and the cost of the loads (M2.8b, split again by the user into the back-offs, M2.8b, and the other private folders with the tries offline, M2.8c). Each load goes to the upper layers as one event in the process with what it gave, and a load that throws as another; a load says whether the trash changed; a file that cannot be read is reported without a cause. Decided in the task: a load runs 10 s after the end of the last one, on a thread of its own, and the local copy keeps one lock for each call, so a write waits for a load under way.
 8. Resilience:
    - a corrupted JSON file is skipped and reported, without a crash;
    - when the network is unavailable, the application works from the cache and shows this.

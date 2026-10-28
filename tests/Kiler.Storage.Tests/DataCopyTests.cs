@@ -779,12 +779,13 @@ public sealed class DataCopyTests : IDisposable
     }
 
     [Fact]
-    public void Load_ADocumentWhoseBytesHaveNotChanged_IsNotWrittenIntoTheCopyAgain()
+    public void Load_ADocumentWhoseBytesHaveNotChanged_IsNotWrittenIntoTheCopyAgain_NorGivenAgain()
     {
         Write(Record, "record");
         var copy = Open();
         copy.Load();
         File.SetLastWriteTimeUtc(_share.DocumentPath(Record), DateTime.UtcNow.AddMinutes(1));
+        _files.Reads = 0;
         LoadResult load;
 
         // Held without delete sharing, the file of the copy cannot be replaced, so a write would be reported.
@@ -793,7 +794,9 @@ public sealed class DataCopyTests : IDisposable
             load = copy.Load();
         }
 
-        Assert.Equal(Record, Assert.Single(load.Changed).Key);
+        // Read again, with the bytes and the owner that the copy has: nothing to give (M2.8b).
+        Assert.Equal(1, _files.Reads);
+        Assert.Empty(load.Changed);
         Assert.Empty(load.Skipped);
         Assert.Empty(copy.Load().Changed);
     }

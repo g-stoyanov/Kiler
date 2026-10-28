@@ -300,7 +300,7 @@ public sealed class DataCopyPrivateTests : IDisposable
     {
         var mine = _share.CreatePrivate(Me);
         Create(mine, Record, "first");
-        var copy = Open(Me);
+        var copy = OpenAt(Me);
         copy.Load();
         Replace(mine, Record, 1, "second");
         Replace(mine, Record, 2, "third");
@@ -312,7 +312,8 @@ public sealed class DataCopyPrivateTests : IDisposable
                 throw new IOException("Made up.");
             }
         };
-        Assert.Contains(new SkippedEntry(@"private\demo.user\history\records\8f3a1c", null, SkipReason.Unreadable), copy.Load().Skipped);
+        var unlisted = new SkippedEntry(@"private\demo.user\history\records\8f3a1c", null, SkipReason.Unreadable);
+        Assert.Contains(unlisted, copy.Load().Skipped);
         _files.Before = (step, path) =>
         {
             if (step == nameof(IFileSystem.Attributes) && path == mine.Root)
@@ -320,10 +321,12 @@ public sealed class DataCopyPrivateTests : IDisposable
                 throw new IOException("Made up.");
             }
         };
+        _clock.Advance(BackOff.First);
 
         var load = copy.Load();
 
-        Assert.Equal(new SkippedEntry(@"private\demo.user", null, SkipReason.Unreadable), Assert.Single(load.Skipped));
+        // The history folder that waits is reported as its last try left it (M2.8b).
+        Assert.Equal([new SkippedEntry(@"private\demo.user", null, SkipReason.Unreadable), unlisted], load.Skipped);
         Assert.Empty(load.Gone);
         Assert.False(File.Exists(PrivateSlotPath(Me, Record, 2)), "The slot was taken while its folder could not be opened.");
         _files.Before = null;

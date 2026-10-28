@@ -20,13 +20,28 @@ public sealed partial class DataCopy
     /// </summary>
     internal const long SlotBytesPerListing = 8L * 1024 * 1024;
 
-    /// <summary>The documents whose history folder or slots failed at the last try, listed after the others.</summary>
-    private readonly HashSet<DocumentKey> _historyFailed = [];
+    /// <summary>
+    /// The documents whose history folder or slots failed at the last try, listed after the others once their back-off is due,
+    /// with what that try reported, which every load reports until the next try (M2.8b).
+    /// </summary>
+    private readonly Dictionary<DocumentKey, HistoryRetry> _historyFailed = [];
 
     /// <summary>The budget of the history in one load, made at its first use.</summary>
     private HistoryBudget? _budget;
 
     private HistoryBudget Budget => _budget ??= new HistoryBudget(_history, _limits);
+
+    /// <summary>For the tests: the skipped entries that the history folders that wait keep for the loads until their next try (M2.8b).</summary>
+    internal int HistorySkipsKept
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _historyFailed.Values.Sum(retry => retry.Skipped.Length);
+            }
+        }
+    }
 
     /// <summary>
     /// The name of the history folder of a document in a report: <c>history\records\8f3a1c</c>, <c>history\settings</c>,
@@ -47,7 +62,10 @@ public sealed partial class DataCopy
     /// comes from those bytes once a new version replaces it, as anyone can put a slot of it there first (second security
     /// review of M2.7a). A slot that the copy has is not read again, one that has gone from the share stays in the copy, and a
     /// damaged one is skipped. A history folder that cannot be listed, or a slot that cannot be read or written, is reported,
-    /// and the next load lists the folder again, after those that have not failed. One load lists at most
+    /// and listed again with a back-off (<see cref="BackOff"/>, M2.8b, decided by the user), after those that have not failed;
+    /// meanwhile, and while the caps or another rule leave it out, every load reports the failures of its last try, as the
+    /// skipped entries of a load are the state of the share as the copy knows it (M2.8); its slots over the budget, and a
+    /// listing of too many entries, are reported once, by the try. One load lists at most
     /// <see cref="CopyLimits.HistoryListings"/> history folders and reads at most <see cref="CopyLimits.HistoryReads"/> of
     /// slots, as anyone can make every document change and every slot unreadable; the others wait for the next load. The
     /// history of a document of the private folder waits too when this load did not list that folder (<paramref name="privateFolder"/>,
@@ -60,16 +78,27 @@ public sealed partial class DataCopy
             .Where(entry => entry.Value.HistoryFrom is not null && IsOwn(entry.Key.Key.Account))
             .Select(entry => entry.Key.Key)
             .Distinct()
-            .OrderBy(_historyFailed.Contains)
+            .OrderBy(_historyFailed.ContainsKey)
             .ToList();
 
         // A document that has left the index is not tried again (third security review of M2.7a).
-        _historyFailed.IntersectWith(keys);
+        foreach (var gone in _historyFailed.Keys.Except(keys).ToList())
+        {
+            _historyFailed.Remove(gone);
+        }
+
+        HashSet<DocumentKey> tried = [];
         var taken = false;
         var listings = 0;
         long read = 0;
         foreach (var key in keys)
         {
+            // It waits without taking the place of another in the caps of the load.
+            if (_historyFailed.TryGetValue(key, out var retry) && !retry.BackOff.IsDue(now))
+            {
+                continue;
+            }
+
             if (listings == _limits.HistoryListings || read >= _limits.HistoryReads)
             {
                 break;
@@ -91,6 +120,8 @@ public sealed partial class DataCopy
             }
 
             listings++;
+            tried.Add(key);
+            List<SkippedEntry> failed = [];
             var from = entries.Min(entry => entry?.HistoryFrom ?? int.MaxValue);
 
             // The version of a file that is not a version that Kiler made says nothing.
@@ -120,8 +151,8 @@ public sealed partial class DataCopy
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                report.Skip(new SkippedEntry(name, null, SkipReasonOf(ex)));
-                _historyFailed.Add(key);
+                failed.Add(new SkippedEntry(name, null, SkipReasonOf(ex)));
+                Failed(key, failed, report, now);
                 continue;
             }
 
@@ -132,15 +163,13 @@ public sealed partial class DataCopy
                 report.Skip(new SkippedEntry(name, null, SkipReason.OverBudget));
             }
 
-            var again = false;
             var plan = Budget.Plan();
             var fit = new List<LoadedSlot>();
             foreach (var slot in load.Slots)
             {
                 if (slot.Unreadable)
                 {
-                    report.Skip(name, [slot.Slot.File], SkipReason.Unreadable);
-                    again = true;
+                    failed.Add(new SkippedEntry(name, StorageName.Escape(slot.Slot.File.Name), SkipReason.Unreadable));
                 }
                 else if (slot.Good && plan.Fits(slot.Bytes.Length, own: false))
                 {
@@ -164,22 +193,21 @@ public sealed partial class DataCopy
                 }
                 else
                 {
-                    report.Skip(name, [slot.Slot.File], SkipReason.NotCopied);
+                    failed.Add(new SkippedEntry(name, StorageName.Escape(slot.Slot.File.Name), SkipReason.NotCopied));
                     Budget.Release(slot.Bytes.Length);
-                    again = true;
                 }
             }
 
-            if (again)
+            if (failed.Count > 0)
             {
-                _historyFailed.Add(key);
+                Failed(key, failed, report, now);
             }
             else
             {
                 _historyFailed.Remove(key);
             }
 
-            if (!again && !cut)
+            if (failed.Count == 0 && !cut)
             {
                 foreach (var spot in (Spot[])[new(key, InTrash: false), new(key, InTrash: true)])
                 {
@@ -193,7 +221,38 @@ public sealed partial class DataCopy
             taken = true;
         }
 
+        foreach (var (key, retry) in _historyFailed)
+        {
+            if (!tried.Contains(key))
+            {
+                foreach (var entry in retry.Skipped)
+                {
+                    report.Skip(entry);
+                }
+
+                report.Untold(retry.Untold);
+            }
+        }
+
         return taken;
+    }
+
+    /// <summary>
+    /// Reports what the try of a history folder that failed left, and keeps it until the next try, which waits one time more
+    /// (M2.8b). All the history folders that wait keep at most as many skipped entries as one load gives, and count the rest,
+    /// as anyone can make every slot unreadable.
+    /// </summary>
+    private void Failed(DocumentKey key, List<SkippedEntry> skipped, Report report, DateTimeOffset now)
+    {
+        foreach (var entry in skipped)
+        {
+            report.Skip(entry);
+        }
+
+        _historyFailed.Remove(key, out var last);
+        var room = Math.Max(0, _limits.Reports - _historyFailed.Values.Sum(retry => retry.Skipped.Length));
+        SkippedEntry[] kept = [.. skipped.Take(room)];
+        _historyFailed[key] = new HistoryRetry((last?.BackOff ?? default).Again(now), kept, skipped.Count - kept.Length);
     }
 
     /// <summary>
@@ -270,6 +329,12 @@ public sealed partial class DataCopy
             }
         }
     }
+
+    /// <summary>
+    /// A history folder that failed at its last try (M2.8b): when it is tried again, and what that try reported, with how many
+    /// skipped entries it did not keep.
+    /// </summary>
+    private sealed record HistoryRetry(BackOff BackOff, SkippedEntry[] Skipped, int Untold);
 
     /// <summary>
     /// The budget of the history of the copy (decided in M2.7a, by the user): what its slots take, and which go first to make

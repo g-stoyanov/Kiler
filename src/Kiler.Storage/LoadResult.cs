@@ -18,7 +18,9 @@ public sealed class LoadResult
     /// The documents that are new or changed since the local copy last saw them, each read from the share now: a new
     /// <see cref="Document"/>, or why the file is damaged. A document whose bytes could not be written into the copy is here
     /// too, as the share has it (<see cref="SkipReason.NotCopied"/>), and so is one that turned out, once read, to need more
-    /// room than the budget has left (<see cref="SkipReason.OverBudget"/>). The documents of the trash are not here; the
+    /// room than the budget has left (<see cref="SkipReason.OverBudget"/>). A document whose times alone changed, read again
+    /// with the bytes and the owner that the copy has, is not here, as nothing of it changed (M2.8b); one whose owner changed,
+    /// or could not be read, is. The documents of the trash are not here; the
     /// copy gives them (<see cref="DataCopy.Trash"/>). Nor are those of the private folders of other users, which an admin's
     /// copy keeps only for a restore (<see cref="DataCopy.CopyOthers"/>, M2.7c).
     /// </summary>

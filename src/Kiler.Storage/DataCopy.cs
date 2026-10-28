@@ -101,8 +101,17 @@ public sealed partial class DataCopy
     private readonly Dictionary<Spot, CopyEntry> _index;
     private readonly Dictionary<SlotKey, SlotEntry> _history;
 
-    /// <summary>The documents whose file in the copy could not be read at the start, or written, which the next load reads again from the share.</summary>
+    /// <summary>
+    /// The documents whose file in the copy could not be read at the start, or that a load gave without taking them (M2.8b),
+    /// which the next load reads again from the share, gives, and writes into the copy, also with the bytes it has.
+    /// </summary>
     private readonly HashSet<Spot> _reread = [];
+
+    /// <summary>
+    /// The documents whose times changed with the bytes that the copy has, and how long the next change of their times waits
+    /// before it is read (M2.8b, <see cref="Waits"/>).
+    /// </summary>
+    private readonly Dictionary<Spot, BackOff> _touched = [];
 
     /// <summary>The edits in place of the documents in their folders, and of those in the trash, until they have settled (M2.3).</summary>
     private readonly InPlaceEdits _edits;

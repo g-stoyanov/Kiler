@@ -21,7 +21,8 @@ public sealed partial class DataCopy
     /// taken (decided in M2.7a). After the pass of the user's own, at most once in 10 minutes, the old stopped creates of the
     /// private folder of the current user are deleted, and those that stay reported (<see cref="DeleteStoppedCreates"/>,
     /// M2.7e). Links, names that fail the check, files that cannot be read, documents over the budget and
-    /// bytes that cannot be written into the copy are skipped and reported; the next load tries them again. A folder that
+    /// bytes that cannot be written into the copy are skipped and reported; the next load tries them again. A document whose
+    /// times change with the same bytes, and a history folder that fails, are tried again with a back-off (M2.8b). A folder that
     /// cannot be listed, such as one that is a link, or that lists too many entries, is reported, and its documents stay as
     /// the copy has them, and so is the private folder (<see cref="ListPrivate"/>). The root of the data folder that cannot be
     /// held, listed or read is an <see cref="IOException"/> or an <see cref="UnauthorizedAccessException"/>: the share cannot
@@ -83,6 +84,7 @@ public sealed partial class DataCopy
 
                 taken |= TakeHistory(privateFolder, now, report);
                 taken |= ReportOutside(now, report);
+                ForgetTouched();
             }
             catch (Exception ex)
             {
@@ -185,6 +187,74 @@ public sealed partial class DataCopy
     /// listing of a move that the SMB cache shows late leaves the document for a while in both places.
     /// </summary>
     private static bool IsLateListing(CopyEntry entry, DateTimeOffset now) => now - entry.Taken < InPlaceEdits.SettleTime && !entry.Reported;
+
+    /// <summary>
+    /// Whether a document whose times changed waits before it is read (M2.8b, decided by the user): the copy has it good, with
+    /// a stamp that a listing gave, it is listed at the same size, the copy has no file of it to read again, and its last reads
+    /// gave the bytes that the copy has (<see cref="Touched"/>), up to its back-off. So a change of other bytes of the same size
+    /// waits too, at most <see cref="BackOff.Longest"/>; one of another size, a write of this Kiler, and any other document are
+    /// read at once.
+    /// </summary>
+    private bool Waits(Spot spot, CopyEntry entry, FileEntry file, DateTimeOffset now) =>
+        entry is { Outside: null, Copied: > 0 }
+        && entry.CreationTime != CopyEntry.Unseen
+        && entry.Size == file.Size
+        && !_reread.Contains(spot)
+        && _touched.TryGetValue(spot, out var backOff)
+        && !backOff.IsDue(now);
+
+    /// <summary>
+    /// Whether a read gave the bytes that the copy has of a document in the same place, read for a stamp that a listing gave
+    /// (M2.8b): not after a write of this Kiler, nor to write the file of the copy again (<paramref name="reread"/>). Its times
+    /// changed, and nothing else did but maybe its owner.
+    /// </summary>
+    private static bool SameBytes(Change change, bool reread) =>
+        !reread
+        && change.LineageSpot == change.Spot
+        && change.Lineage is { Hash: { } hash } lineage
+        && lineage.CreationTime != CopyEntry.Unseen
+        && hash == change.Next.Hash;
+
+    /// <summary>
+    /// Keeps the back-off of a document that a load read (M2.8b): one more time when the read gave the bytes that the copy has
+    /// (<see cref="SameBytes"/>), so the next change of its times waits while the copy has it good (<see cref="Waits"/>); any
+    /// other read ends it.
+    /// </summary>
+    private void Touched(Change change, bool reread, DateTimeOffset now)
+    {
+        if (SameBytes(change, reread))
+        {
+            _touched[change.Spot] = _touched.GetValueOrDefault(change.Spot).Again(now);
+        }
+        else
+        {
+            _touched.Remove(change.Spot);
+        }
+    }
+
+    /// <summary>For the tests: the documents whose back-off the copy keeps (M2.8b).</summary>
+    internal int TouchesKept
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _touched.Count;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Forgets the back-offs of the documents that have left the index, so they take no memory; one that the copy has, but not
+    /// good, waits for nothing (<see cref="Waits"/>) until a read ends it (M2.8b).
+    /// </summary>
+    private void ForgetTouched()
+    {
+        foreach (var spot in _touched.Keys.Where(spot => !_index.ContainsKey(spot)).ToList())
+        {
+            _touched.Remove(spot);
+        }
+    }
 
     /// <summary>
     /// What the plan counts a document at once a listed file of it is read, from what the copy has of it
@@ -484,7 +554,8 @@ public sealed partial class DataCopy
     /// bytes of those that are no longer listed. A changed document, one that is listed again after it went, one that moved,
     /// and one whose file in the copy could not be read at the start, are read when they fit at what the plan counts them
     /// (<see cref="Planned"/>), else they keep what the copy has; a new one when it fits and the copy has room for one more.
-    /// To make them fit, the last good bytes of gone documents that were in the copy for less than <see cref="BriefStay"/>,
+    /// A changed one whose last reads gave the bytes that the copy has keeps it until its back-off is due (<see cref="Waits"/>,
+    /// M2.8b). To make them fit, the last good bytes of gone documents that were in the copy for less than <see cref="BriefStay"/>,
     /// that this Kiler did not write and that neither place lists, go, those that went first first, but only as many as it
     /// takes, and none when even all of them would not make it fit (<see cref="FolderPlan.Evicted"/>). The others go into
     /// <see cref="FolderPlan.OverBudget"/>. The budget is that of the folders of the pass (<paramref name="cap"/>, M2.7c):
@@ -516,6 +587,13 @@ public sealed partial class DataCopy
                 var other = spot with { InTrash = !spot.InTrash };
                 _index.TryGetValue(spot, out var entry);
                 var changed = entry is not null && (entry.Gone || entry.Stamp != document.File.Stamp || _reread.Contains(spot));
+
+                // It stayed still: its next change is read at once (M2.8b).
+                if (entry is not null && !changed)
+                {
+                    _touched.Remove(spot);
+                }
+
                 // At most one move of a document a load: two that cross would each take the other's entry. A gone document that
                 // its own place lists again is no move.
                 if (_index.TryGetValue(other, out var from)
@@ -542,7 +620,7 @@ public sealed partial class DataCopy
                 {
                     added.Add(document);
                 }
-                else if (changed)
+                else if (changed && !Waits(spot, entry, document.File, now))
                 {
                     if (room.Take(Planned(document.File, entry) - Cost(entry), 0, folderPlan.Evicted))
                     {
@@ -633,7 +711,8 @@ public sealed partial class DataCopy
     /// on the developer machine, at once about 1 s), then the entries; the files that no entry names any more go with the
     /// next index. A document that moved leaves its other place. A file that cannot be written, or a document that turns out
     /// to need more room than the budget has left, keeps its entry as it was, so the next load reads it again, and is given
-    /// all the same. Gives whether the index has changed.
+    /// all the same. One read again with the bytes that the copy has, and with the same owner, is not given, and its next
+    /// change of the times waits longer (<see cref="Touched"/>, M2.8b). Gives whether the index has changed.
     /// </summary>
     private bool Take(DataFolder.ListedFolder folder, IReadOnlyList<LoadedFile> files, Plan plan, DateTimeOffset now, Report report)
     {
@@ -667,7 +746,7 @@ public sealed partial class DataCopy
             if (extra > plan.Room.Spare)
             {
                 report.Skip(name, [file.Listed.File], SkipReason.OverBudget);
-                Given(report, spot, file.Read);
+                GivenUntaken(report, spot, file.Read);
                 continue;
             }
 
@@ -753,10 +832,11 @@ public sealed partial class DataCopy
             {
                 // A guarded entry stays as it was guarded, and its stamp makes the next load read the file again.
                 report.Skip(name, [change.File.Listed.File], SkipReason.NotCopied);
-                Given(report, change.Spot, change.File.Read);
+                GivenUntaken(report, change.Spot, change.File.Read);
                 continue;
             }
 
+            var reread = _reread.Contains(change.Spot);
             _index[change.Spot] = change.Next;
             if (change.LineageSpot != change.Spot)
             {
@@ -770,7 +850,15 @@ public sealed partial class DataCopy
 
             Stale(FilesOf(change.LineageSpot, change.Lineage).Concat(FilesOf(change.Spot, change.Replaced)), FilesOf(change.Spot, change.Next));
             _reread.Remove(change.Spot);
-            Given(report, change.Spot, change.File.Read);
+            Touched(change, reread, now);
+
+            // The bytes that the upper layers have, with the owner they have, tell them nothing new (M2.8b, decided by the user);
+            // an owner that cannot be read is never the same.
+            if (!SameBytes(change, reread) || change.Lineage!.Owner is null || change.Lineage.Owner != change.Next.Owner)
+            {
+                Given(report, change.Spot, change.File.Read);
+            }
+
             taken = true;
         }
 
@@ -787,6 +875,20 @@ public sealed partial class DataCopy
         if (read is not null)
         {
             report.Given(spot, read);
+        }
+    }
+
+    /// <summary>
+    /// Gives a read that the copy could not take, as it was over the budget or its bytes could not be written: the upper layers
+    /// then have bytes that the copy does not, so the next read of the document is given and written whatever its bytes, also
+    /// those that the copy has (<see cref="_reread"/>, code review of M2.8b).
+    /// </summary>
+    private void GivenUntaken(Report report, Spot spot, DocumentRead? read)
+    {
+        Given(report, spot, read);
+        if (read is not null && _index.ContainsKey(spot))
+        {
+            _reread.Add(spot);
         }
     }
 

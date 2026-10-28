@@ -363,10 +363,10 @@ public sealed class DataCopyFollowTests : IDisposable
     }
 
     [Fact]
-    public void Load_AHistoryFolderThatCannotBeListed_IsReported_AndListedAgainByTheNextLoad()
+    public void Load_AHistoryFolderThatCannotBeListed_IsReported_AndListedAgainOnceItsBackOffIsDue()
     {
         Create(Record, "first");
-        var copy = Open();
+        var copy = OpenAt();
         copy.Load();
         Replace(Record, 1, "second");
         Replace(Record, 2, "third");
@@ -384,6 +384,7 @@ public sealed class DataCopyFollowTests : IDisposable
         Assert.Equal(new SkippedEntry(@"history\records\8f3a1c", null, SkipReason.Unreadable), Assert.Single(load.Skipped));
         Assert.Equal(["v1.json"], SlotCopies(Record));
         _files.Before = null;
+        _clock.Advance(BackOff.First);
         Assert.Empty(copy.Load().Skipped);
         Assert.Equal(["v1.json", "v2.json"], SlotCopies(Record));
     }
@@ -520,7 +521,10 @@ public sealed class DataCopyFollowTests : IDisposable
         Assert.True(File.Exists(KeptPath(Record)), "The last good bytes that this Kiler wrote made room.");
     }
 
-    /// <summary>A version that is not after the last good one keeps both; it is read, and left when the budget has no room for both.</summary>
+    /// <summary>
+    /// A version that is not after the last good one keeps both; it is read, and left when the budget has no room for both. The
+    /// bytes that the copy has, when they come back, are given again, as the upper layers have the others (code review of M2.8b).
+    /// </summary>
     [Fact]
     public void Load_ADocumentThatTurnsOutToNeedRoomForBoth_IsGiven_AndLeftWhenTheBudgetHasNone()
     {
@@ -539,6 +543,10 @@ public sealed class DataCopyFollowTests : IDisposable
         Assert.Empty(load.Outside);
         Assert.Equal(good, File.ReadAllBytes(CopyPath(Record)));
         Assert.False(File.Exists(KeptPath(Record)), "The copy went over its budget.");
+        TestFolder.WriteAsKiler(_share.DocumentPath(Record), good);
+
+        Assert.Equal("second", Name(Assert.Single(copy.Load().Changed)));
+        Assert.Empty(copy.Load().Changed);
     }
 
     [Fact]
@@ -758,10 +766,10 @@ public sealed class DataCopyFollowTests : IDisposable
     }
 
     [Fact]
-    public void Load_ASlotThatCannotBeRead_IsReported_AndReadAgainByTheNextLoad()
+    public void Load_ASlotThatCannotBeRead_IsReported_AndReadAgainOnceItsBackOffIsDue()
     {
         Create(Record, "v1");
-        var copy = Open();
+        var copy = OpenAt();
         copy.Load();
         Replace(Record, 1, "v2");
         Replace(Record, 2, "v3");
@@ -777,6 +785,7 @@ public sealed class DataCopyFollowTests : IDisposable
         }
 
         Assert.Equal(new SkippedEntry(@"history\records\8f3a1c", "v2.json", SkipReason.Unreadable), Assert.Single(load.Skipped));
+        _clock.Advance(BackOff.First);
         Assert.Empty(copy.Load().Skipped);
         Assert.Equal(["v1.json", "v2.json"], SlotCopies(Record));
     }
