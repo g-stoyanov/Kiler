@@ -458,6 +458,7 @@ public sealed class PrivateFolderOwnerTests : IDisposable
         copy.CopyOthers([Other]);
         copy.Load();
         Make(Change.AnotherOwner, theirs.Root);
+        _clock.Advance(DataCopy.OthersInterval);
         Assert.Equal(SkipReason.ForeignFolder, Assert.Single(copy.Load().Skipped).Reason);
         var again = OpenAt(Me);
         again.CopyOthers([Other]);

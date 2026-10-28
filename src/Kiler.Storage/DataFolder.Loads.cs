@@ -88,6 +88,13 @@ public sealed partial class DataFolder
     }
 
     /// <summary>
+    /// Holds the root and lets it go, as a load of a local copy that is offline tries the share before it takes the lock of the
+    /// copy (M2.8c): the one request that blocks, up to about 60 s over SMB, while a file server has gone. A root that cannot be
+    /// held is an <see cref="IOException"/> or an <see cref="UnauthorizedAccessException"/>, as for a listing.
+    /// </summary>
+    internal void Reach() => Hold(create: false).Dispose();
+
+    /// <summary>
     /// Holds the data folder and <c>private\</c> while a load lists the private folders of other users (M2.7c), as the load
     /// of the user's own holds the root while it lists their private folder (M2.7b): a data folder that has gone, or a
     /// <c>private\</c> renamed in between, is never taken for private folders that have gone. A <c>private\</c> that is not

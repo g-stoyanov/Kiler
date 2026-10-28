@@ -42,7 +42,7 @@ public sealed class DataCopyOthersTests : IDisposable
         Create(other, Record, "other");
         Create(other, Key, "key");
         Create(_share.CreatePrivate(Third), Record, "third");
-        var copy = Open(Me);
+        var copy = OpenAt(Me);
         copy.CopyOthers([Other]);
 
         var load = copy.Load();
@@ -57,9 +57,11 @@ public sealed class DataCopyOthersTests : IDisposable
         Assert.Equal(Keys([Record, Record.InPrivate(Me)]), Keys(copy.Documents()));
         Assert.Equal(Keys([Record, Record.InPrivate(Me)]), Keys(Open(Me).Documents()));
 
-        // The next load compares them by their listing, as those of the user.
+        // The next load that takes them compares them by their listing, as those of the user.
         _files.Reads = 0;
-        Assert.Empty(copy.Load().Changed);
+        var listed = ListedUnder(other.Root);
+        Assert.Empty(LoadAMinuteLater(copy).Changed);
+        Assert.NotEmpty(listed);
         Assert.Equal(0, _files.Reads);
     }
 
@@ -102,7 +104,7 @@ public sealed class DataCopyOthersTests : IDisposable
         var good = File.ReadAllBytes(other.DocumentPath(Record));
         File.Delete(other.DocumentPath(Record));
 
-        var load = copy.Load();
+        var load = LoadAMinuteLater(copy);
 
         Assert.Empty(load.Gone);
         Assert.Equal(good, File.ReadAllBytes(PrivateKeptPath(Other, Record)));
@@ -116,14 +118,14 @@ public sealed class DataCopyOthersTests : IDisposable
     {
         var other = _share.CreatePrivate(Other);
         Create(other, Record, "other");
-        var copy = Open(Me);
+        var copy = OpenAt(Me);
         copy.CopyOthers([Other]);
         copy.Load();
         var good = File.ReadAllBytes(other.DocumentPath(Record));
 
         // A name twice deep in the content, which only a check of the whole file finds.
         TestFolder.WriteAsKiler(other.DocumentPath(Record), """{"id": "8f3a1c", "version": 2, "private": {"a": 1, "a": 2}}"""u8.ToArray());
-        var load = copy.Load();
+        var load = LoadAMinuteLater(copy);
 
         Assert.Equal(new OutsideChange(TheirRecord, InTrash: false, OutsideReason.Damaged, LastGood: 1), Assert.Single(load.Outside));
         Assert.Equal(good, File.ReadAllBytes(PrivateKeptPath(Other, Record)));
@@ -136,7 +138,7 @@ public sealed class DataCopyOthersTests : IDisposable
         var other = _share.CreatePrivate(Other);
         Create(other, Record, "first");
         Create(other, OtherRecord, "deleted");
-        var copy = Open(Me);
+        var copy = OpenAt(Me);
         copy.CopyOthers([Other]);
         copy.Load();
         Replace(other, Record, 1, "second");
@@ -144,7 +146,7 @@ public sealed class DataCopyOthersTests : IDisposable
         Assert.Equal(WriteOutcome.Deleted, other.DeleteDocument(OtherRecord, 1).Outcome);
         var listed = ListedUnder(other.Root);
 
-        var load = copy.Load();
+        var load = LoadAMinuteLater(copy);
 
         Assert.Empty(load.Changed);
         Assert.Empty(load.Gone);
@@ -251,13 +253,13 @@ public sealed class DataCopyOthersTests : IDisposable
         var third = _share.CreatePrivate(Third);
         Create(third, Record, "third");
         var full = new FileInfo(other.DocumentPath(Record)).Length + new FileInfo(third.DocumentPath(Record)).Length;
-        var copy = Open(Me, DataCopyTests.Limits(otherBytes: full));
+        var copy = OpenAt(Me, DataCopyTests.Limits(otherBytes: full));
         copy.CopyOthers([Other, Third]);
         copy.Load();
 
         // Version 1 again, no larger: the plan fits, and only the read finds that the last good bytes stay too.
         TestFolder.WriteAsKiler(other.DocumentPath(Record), DocumentFormat.New(Record, Content("x")));
-        var load = copy.Load();
+        var load = LoadAMinuteLater(copy);
 
         Assert.Equal(new SkippedEntry(@"private\demo.other\records", "8f3a1c.json", SkipReason.OverBudget), Assert.Single(load.Skipped));
         Assert.Empty(load.Outside);
@@ -273,18 +275,18 @@ public sealed class DataCopyOthersTests : IDisposable
         copy.CopyOthers([Other, Third]);
         copy.Load();
         File.Delete(other.DocumentPath(Record));
-        copy.Load();
+        LoadAMinuteLater(copy);
         Assert.True(File.Exists(PrivateKeptPath(Other, Record)), "The last good bytes of the gone document are not kept.");
         Create(third, Record, "third");
 
-        var load = copy.Load();
+        var load = LoadAMinuteLater(copy);
 
         Assert.Equal(new SkippedEntry(@"private\demo.third\records", "8f3a1c.json", SkipReason.OverBudget), Assert.Single(load.Skipped));
         Assert.True(File.Exists(PrivateKeptPath(Other, Record)), "The leftover of one private folder made room for another.");
 
         // In its own folder, it makes room.
         Create(other, OtherRecord, "other again");
-        load = copy.Load();
+        load = LoadAMinuteLater(copy);
 
         Assert.Equal(new SkippedEntry(@"private\demo.third\records", "8f3a1c.json", SkipReason.OverBudget), Assert.Single(load.Skipped));
         Assert.True(File.Exists(PrivateCopyPath(Other, OtherRecord)), "The new document of the private folder is not in the copy.");
@@ -396,7 +398,7 @@ public sealed class DataCopyOthersTests : IDisposable
             }
         };
 
-        var load = copy.Load();
+        var load = LoadAMinuteLater(copy);
 
         Assert.False(renamed, "private\\ could be renamed while the load listed the private folders of other users.");
         Assert.Empty(load.Skipped);
@@ -447,7 +449,7 @@ public sealed class DataCopyOthersTests : IDisposable
         copy.CopyOthers([Other]);
         copy.Load();
         File.Delete(other.DocumentPath(Record));
-        copy.Load();
+        LoadAMinuteLater(copy);
         copy.CopyOthers([]);
         _clock.Advance(InPlaceEdits.SettleTime);
 
@@ -489,7 +491,7 @@ public sealed class DataCopyOthersTests : IDisposable
 
         // The leftover of the third user went first, then those of the user, then those of the other.
         File.Delete(third.DocumentPath(Record));
-        copy.Load();
+        LoadAMinuteLater(copy);
         _clock.Advance(TimeSpan.FromMinutes(1));
         File.Delete(_share.DocumentPath(Record));
         File.Delete(_share.DocumentPath(OtherRecord));
@@ -633,7 +635,7 @@ public sealed class DataCopyOthersTests : IDisposable
     [Fact]
     public void Load_AnotherPrivateFolderThatIsNotThere_GivesNothing_AndOneMadeLater_IsCopied()
     {
-        var copy = Open(Me);
+        var copy = OpenAt(Me);
         copy.CopyOthers([Other]);
 
         var first = copy.Load();
@@ -641,7 +643,7 @@ public sealed class DataCopyOthersTests : IDisposable
         Assert.Empty(first.Skipped);
         Assert.False(Directory.Exists(PrivateCopyRoot(Other)), "A private folder that is not there is in the copy.");
         Create(_share.CreatePrivate(Other), Record, "other");
-        Assert.Empty(copy.Load().Skipped);
+        Assert.Empty(LoadAMinuteLater(copy).Skipped);
         Assert.True(File.Exists(PrivateCopyPath(Other, Record)), "A private folder made later is not in the copy.");
     }
 
@@ -660,7 +662,7 @@ public sealed class DataCopyOthersTests : IDisposable
         TestFolder.CreateJunction(other.Root, elsewhere);
         _files.Reads = 0;
 
-        var load = copy.Load();
+        var load = LoadAMinuteLater(copy);
 
         Assert.Equal(0, _files.Reads);
         Assert.Equal(new SkippedEntry(@"private\demo.other", null, SkipReason.Unreadable), Assert.Single(load.Skipped));
@@ -668,6 +670,325 @@ public sealed class DataCopyOthersTests : IDisposable
         Assert.Empty(copy.Load().Outside);
         Assert.True(File.Exists(PrivateCopyPath(Other, Record)), "The documents of the private folder have gone from the copy.");
         Assert.False(File.Exists(PrivateCopyPath(Other, OtherRecord)), "The copy followed the link.");
+    }
+
+    /// <summary>
+    /// An admin's load takes the private folders of other users once a minute, as they are only for a restore (decided in M2.8c,
+    /// by the user): the first load, the first after <see cref="DataCopy.OthersInterval"/>, and the next load after each call of
+    /// <see cref="DataCopy.CopyOthers"/>. The documents that a load takes new in one place give no load more.
+    /// </summary>
+    [Fact]
+    public void Load_ThePrivateFoldersOfOtherUsers_AreListedOnceAMinute_AndAtTheNextLoadAfterCopyOthers()
+    {
+        Create(_share.CreatePrivate(Other), Record, "other");
+        var copy = OpenAt(Me);
+        copy.CopyOthers([Other]);
+
+        Assert.True(ListsOther(copy), "The first load did not take the private folder of the other user.");
+
+        Assert.Equal([false, false, false, false, false, true, false], ListsOtherAtThePasses(copy, 7));
+        copy.CopyOthers([Other]);
+        Assert.True(ListsOther(copy), "The load after CopyOthers did not take the private folder of the other user.");
+        Assert.Equal([false], ListsOtherAtThePasses(copy, 1));
+    }
+
+    [Fact]
+    public void Load_ThePrivateFoldersOfOtherUsers_AreListedAtOnceWhenTheClockIsPutBack()
+    {
+        Create(_share.CreatePrivate(Other), Record, "other");
+        var copy = OpenAt(Me);
+        copy.CopyOthers([Other]);
+        copy.Load();
+        _clock.AdjustTime(_clock.GetUtcNow() - TimeSpan.FromMinutes(1));
+
+        Assert.True(ListsOther(copy), "A load after the clock was put back did not take the private folder of the other user.");
+
+        Assert.Equal([false], ListsOtherAtThePasses(copy, 1));
+    }
+
+    /// <summary>A load that throws before it has taken every private folder of other users leaves them all for the next load, not for a minute later.</summary>
+    [Fact]
+    public void Load_ThatThrowsInThePrivateFoldersOfOtherUsers_TakesThemAllAtTheNextLoad()
+    {
+        var other = _share.CreatePrivate(Other);
+        Create(other, Record, "other");
+        var third = _share.CreatePrivate(Third);
+        Create(third, Record, "third");
+        var copy = OpenAt(Me);
+        copy.CopyOthers([Other, Third]);
+        _files.Before = (step, path) =>
+        {
+            if (step == nameof(IFileSystem.List) && path.StartsWith(third.Root, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("The test failed the load.");
+            }
+        };
+        Assert.Throws<InvalidOperationException>(() => copy.Load());
+        _clock.Advance(DataWatch.Interval);
+        var listed = ListedUnder(Path.Combine(_share.Root, DataFolder.Private));
+
+        copy.Load();
+
+        Assert.Contains(other.Root, listed, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains(third.Root, listed, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// A move to the trash in the private folder of another user that a listing of the trash shows a load late, through the SMB
+    /// cache, is followed, and is no document gone (the M2.8b note): the next load takes the private folder again, as it has a
+    /// document that went less than <see cref="InPlaceEdits.SettleTime"/> ago and is not reported (decided in M2.8c, by the
+    /// user), and once the move is followed the folder waits for its minute.
+    /// </summary>
+    [Fact]
+    public void Load_AMoveInAnotherPrivateFolderThatTheTrashListsLate_IsFollowedAtTheNextLoad()
+    {
+        var other = _share.CreatePrivate(Other);
+        Create(other, Record, "other");
+        var copy = OpenAt(Me);
+        copy.CopyOthers([Other]);
+        copy.Load();
+        var bytes = File.ReadAllBytes(other.DocumentPath(Record));
+        Assert.Equal(WriteOutcome.Deleted, other.DeleteDocument(Record, 1).Outcome);
+        var hidden = Path.Combine(_test.Root, "hidden.json");
+        File.Move(other.TrashPath(Record), hidden);
+        _clock.Advance(DataCopy.OthersInterval);
+        Assert.True(ListsOther(copy), "The load a minute later did not take the private folder of the other user.");
+        File.Move(hidden, other.TrashPath(Record));
+        var outside = new List<OutsideChange>();
+
+        Assert.Equal([true, false, false, false, false], ListsOtherAtThePasses(copy, 5, outside));
+
+        Assert.Empty(outside);
+        Assert.False(File.Exists(PrivateKeptPath(Other, Record)), "The moved document is kept apart.");
+        Assert.Equal(bytes, File.ReadAllBytes(PrivateCopyPath(Other, Record, inTrash: true)));
+    }
+
+    /// <summary>
+    /// The other way: a load lists the document in both places, as the listing of its folder is late, and the next load takes
+    /// the private folder again, as a document there in both places was taken less than <see cref="InPlaceEdits.SettleTime"/>
+    /// ago; once one of the two has gone, the folder waits for its minute (decided in M2.8c, by the user).
+    /// </summary>
+    [Fact]
+    public void Load_AMoveInAnotherPrivateFolderThatItsFolderListsLate_IsFollowedAtTheNextLoad()
+    {
+        var other = _share.CreatePrivate(Other);
+        Create(other, Record, "other");
+        var copy = OpenAt(Me);
+        copy.CopyOthers([Other]);
+        copy.Load();
+        var bytes = File.ReadAllBytes(other.DocumentPath(Record));
+        Directory.CreateDirectory(Path.GetDirectoryName(other.TrashPath(Record))!);
+        TestFolder.WriteAsKiler(other.TrashPath(Record), bytes);
+        _clock.Advance(DataCopy.OthersInterval);
+        Assert.True(ListsOther(copy), "The load a minute later did not take the private folder of the other user.");
+        File.Delete(other.DocumentPath(Record));
+        var outside = new List<OutsideChange>();
+
+        Assert.Equal([true, false, false, false, false, true, false, false, false], ListsOtherAtThePasses(copy, 9, outside));
+
+        Assert.Empty(outside);
+        Assert.False(File.Exists(PrivateKeptPath(Other, Record)), "The moved document is kept apart.");
+        Assert.Equal(bytes, File.ReadAllBytes(PrivateCopyPath(Other, Record, inTrash: true)));
+    }
+
+    /// <summary>A document of another private folder deleted outside Kiler keeps its folder taken by each load until it is reported, and no longer.</summary>
+    [Fact]
+    public void Load_ADocumentDeletedOutsideKilerInAnotherPrivateFolder_KeepsItsFolderTakenUntilItIsReported()
+    {
+        var other = _share.CreatePrivate(Other);
+        Create(other, Record, "other");
+        var copy = OpenAt(Me);
+        copy.CopyOthers([Other]);
+        copy.Load();
+        File.Delete(other.DocumentPath(Record));
+        _clock.Advance(DataCopy.OthersInterval);
+        Assert.True(ListsOther(copy), "The load a minute later did not take the private folder of the other user.");
+        var outside = new List<OutsideChange>();
+
+        Assert.Equal([true, true, false, false], ListsOtherAtThePasses(copy, 4, outside));
+
+        Assert.Equal(new OutsideChange(TheirRecord, InTrash: false, OutsideReason.Gone, LastGood: 1), Assert.Single(outside));
+    }
+
+    /// <summary>A load in between takes only the private folders of other users that wait for a listing, not all of them.</summary>
+    [Fact]
+    public void Load_InBetween_TakesOnlyThePrivateFolderOfAnotherUserThatWaitsForAListing()
+    {
+        var other = _share.CreatePrivate(Other);
+        Create(other, Record, "other");
+        var third = _share.CreatePrivate(Third);
+        Create(third, Record, "third");
+        var copy = OpenAt(Me);
+        copy.CopyOthers([Other, Third]);
+        copy.Load();
+        File.Delete(other.DocumentPath(Record));
+        LoadAMinuteLater(copy);
+        _clock.Advance(DataWatch.Interval);
+        var listed = ListedUnder(Path.Combine(_share.Root, DataFolder.Private));
+
+        copy.Load();
+
+        Assert.Contains(other.Root, listed, StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain(listed, path => path.StartsWith(third.Root, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>A load that takes no private folder of another user does not hold <c>private\</c> for them.</summary>
+    [Fact]
+    public void Load_ThatTakesNoPrivateFolderOfOtherUsers_DoesNotHoldPrivate()
+    {
+        Create(_share.CreatePrivate(Other), Record, "other");
+        var copy = DataCopy.Open(_share, _copy, _clock, account: null);
+        copy.CopyOthers([Other]);
+        var privateFolders = Path.Combine(_share.Root, DataFolder.Private);
+        var holds = 0;
+        _files.Before = (step, path) =>
+        {
+            if (step == nameof(IFileSystem.HoldFolder) && path.Equals(privateFolders, StringComparison.OrdinalIgnoreCase))
+            {
+                Interlocked.Increment(ref holds);
+            }
+        };
+        copy.Load();
+        Assert.True(Volatile.Read(ref holds) > 0, "The load that took the private folder of the other user did not hold private.");
+        Volatile.Write(ref holds, 0);
+        _clock.Advance(DataWatch.Interval);
+
+        copy.Load();
+
+        Assert.Equal(0, Volatile.Read(ref holds));
+    }
+
+    /// <summary>
+    /// A write of another Kiler can look edited in place for about 10 s through the SMB cache (M2.3), and a load that sees it
+    /// so takes the private folder again at the next load, until the edit is reported or the document is read again, so the
+    /// write is not reported for a restore (decided in M2.8c, with the moves).
+    /// </summary>
+    [Fact]
+    public void Load_AWriteInAnotherPrivateFolderThatLooksEditedForAMoment_IsReadAgainAtTheNextLoad_AndNotReported()
+    {
+        var other = _share.CreatePrivate(Other);
+        Create(other, Record, "first");
+        var copy = OpenAt(Me);
+        copy.CopyOthers([Other]);
+        copy.Load();
+        Replace(other, Record, 1, "second");
+        var path = other.DocumentPath(Record);
+        var written = File.GetLastWriteTimeUtc(path);
+        File.SetLastWriteTimeUtc(path, written.AddSeconds(1));
+        _clock.Advance(DataCopy.OthersInterval);
+        Assert.True(ListsOther(copy), "The load a minute later did not take the private folder of the other user.");
+        File.SetLastWriteTimeUtc(path, written);
+        var outside = new List<OutsideChange>();
+
+        Assert.Equal([true, false, false, false, false], ListsOtherAtThePasses(copy, 5, outside));
+
+        Assert.Empty(outside);
+    }
+
+    [Fact]
+    public void Load_ADocumentEditedInPlaceInAnotherPrivateFolder_KeepsItsFolderTakenUntilItIsReported()
+    {
+        var other = _share.CreatePrivate(Other);
+        Create(other, Record, "first");
+        var copy = OpenAt(Me);
+        copy.CopyOthers([Other]);
+        copy.Load();
+        TestFolder.EditInPlace(other.DocumentPath(Record), DocumentFormat.Next(Record, 1, Content("edited")));
+        _clock.Advance(DataCopy.OthersInterval);
+        Assert.True(ListsOther(copy), "The load a minute later did not take the private folder of the other user.");
+        var outside = new List<OutsideChange>();
+
+        Assert.Equal([true, true, true, false], ListsOtherAtThePasses(copy, 4, outside));
+
+        Assert.Equal(new OutsideChange(TheirRecord, InTrash: false, OutsideReason.EditedInPlace, LastGood: 1), Assert.Single(outside));
+    }
+
+    /// <summary>
+    /// The skipped entries of each load are the state of the share as the copy knows it (M2.8), so the loads that do not take
+    /// the private folder of another user report what its last pass skipped, until the next pass (M2.8c); one that the copy is
+    /// no longer given reports nothing.
+    /// </summary>
+    [Fact]
+    public void Load_TheSkippedEntriesOfAnotherPrivateFolder_AreReportedByEveryLoad_AsItsLastPassLeftThem()
+    {
+        var other = _share.CreatePrivate(Other);
+        Create(other, Record, "other");
+        var bad = Path.Combine(other.Root, DataFolder.Records, "Bad.json");
+        TestFolder.WriteAsKiler(bad, DocumentFormat.New(OtherRecord, Content("bad")));
+        var copy = OpenAt(Me);
+        copy.CopyOthers([Other]);
+        var skipped = Assert.Single(copy.Load().Skipped);
+        Assert.Equal(SkipReason.BadName, skipped.Reason);
+        File.Delete(bad);
+
+        for (var pass = 1; pass < 6; pass++)
+        {
+            _clock.Advance(DataWatch.Interval);
+            Assert.Equal([skipped], copy.Load().Skipped);
+        }
+
+        _clock.Advance(DataWatch.Interval);
+        Assert.Empty(copy.Load().Skipped);
+        TestFolder.WriteAsKiler(bad, DocumentFormat.New(OtherRecord, Content("bad")));
+        Assert.Equal([skipped], LoadAMinuteLater(copy).Skipped);
+        copy.CopyOthers([]);
+        _clock.Advance(DataWatch.Interval);
+        Assert.Empty(copy.Load().Skipped);
+    }
+
+    /// <summary>What the private folders of other users keep for the loads that do not take them is no more than one load gives, as anyone can fill a folder with links.</summary>
+    [Fact]
+    public void Load_TheSkippedEntriesThatThePrivateFoldersOfOtherUsersKeep_AreNoMoreThanALoadGives()
+    {
+        var other = _share.CreatePrivate(Other);
+        Create(other, Record, "other");
+
+        // In both places, so the next load takes the folder again.
+        Directory.CreateDirectory(Path.GetDirectoryName(other.TrashPath(Record))!);
+        TestFolder.WriteAsKiler(other.TrashPath(Record), File.ReadAllBytes(other.DocumentPath(Record)));
+        var third = _share.CreatePrivate(Third);
+        TestFolder.WriteAsKiler(Path.Combine(third.Root, DataFolder.Records, "B.json"), DocumentFormat.New(OtherRecord, Content("bad")));
+        var copy = OpenAt(Me, DataCopyTests.Limits(reports: 2));
+        copy.CopyOthers([Other, Third]);
+        Assert.Single(copy.Load().Skipped);
+        foreach (var name in (string[])["A.json", "C.json"])
+        {
+            TestFolder.WriteAsKiler(Path.Combine(other.Root, DataFolder.Records, name), DocumentFormat.New(OtherRecord, Content("bad")));
+        }
+
+        _clock.Advance(DataWatch.Interval);
+
+        var load = copy.Load();
+
+        Assert.Equal(2, load.Skipped.Count);
+        Assert.Equal(1, load.MoreSkipped);
+        Assert.Equal(2, copy.OthersSkipsKept);
+
+        // Once the folder waits for no listing, a load takes neither, and reports what each kept, with the rest counted.
+        _clock.Advance(InPlaceEdits.SettleTime - DataWatch.Interval);
+        var after = copy.Load();
+        Assert.Equal(2, after.Skipped.Count);
+        Assert.Equal(1, after.MoreSkipped);
+    }
+
+    /// <summary>Accepting the private folder of another user has the next load take the folder at the name, as for the user's own (M2.7d), not a minute later.</summary>
+    [Fact]
+    public void AcceptPrivateFolder_OfAnotherUser_IsTakenAtTheNextLoad()
+    {
+        var other = _share.CreatePrivate(Other);
+        Create(other, Record, "other");
+        var copy = OpenAt(Me);
+        copy.CopyOthers([Other]);
+        copy.Load();
+        Directory.Move(other.Root, Path.Combine(_test.Root, "elsewhere"));
+        Create(_share.CreatePrivate(Other), OtherRecord, "at the name");
+        Assert.Equal(new SkippedEntry(@"private\demo.other", null, SkipReason.ForeignFolder), Assert.Single(LoadAMinuteLater(copy).Skipped));
+
+        copy.AcceptPrivateFolder(Other);
+
+        _clock.Advance(DataWatch.Interval);
+        Assert.Empty(copy.Load().Skipped);
+        Assert.True(File.Exists(PrivateCopyPath(Other, OtherRecord)), "The folder at the name was not taken at the next load.");
     }
 
     private static JsonObject Content(string name) => new() { ["name"] = name };
@@ -703,6 +1024,43 @@ public sealed class DataCopyOthersTests : IDisposable
             }
         };
         return listed;
+    }
+
+    /// <summary>Loads a copy on <see cref="_clock"/> a minute later, when the load takes the private folders of other users again (<see cref="DataCopy.OthersInterval"/>, M2.8c).</summary>
+    private LoadResult LoadAMinuteLater(DataCopy copy)
+    {
+        _clock.Advance(DataCopy.OthersInterval);
+        return copy.Load();
+    }
+
+    /// <summary>Loads the copy once, and gives whether the load listed the private folder of <see cref="Other"/>; collects its changes outside Kiler into <paramref name="outside"/>.</summary>
+    private bool ListsOther(DataCopy copy, List<OutsideChange>? outside = null)
+    {
+        var listed = ListedUnder(Path.Combine(_share.Root, DataFolder.Private, Other));
+        try
+        {
+            var load = copy.Load();
+            outside?.AddRange(load.Outside);
+        }
+        finally
+        {
+            _files.Before = null;
+        }
+
+        return listed.Count > 0;
+    }
+
+    /// <summary>Loads the copy at each of <paramref name="passes"/> passes of the watch, <see cref="DataWatch.Interval"/> apart, as <see cref="ListsOther"/> does.</summary>
+    private bool[] ListsOtherAtThePasses(DataCopy copy, int passes, List<OutsideChange>? outside = null)
+    {
+        var lists = new bool[passes];
+        for (var pass = 0; pass < passes; pass++)
+        {
+            _clock.Advance(DataWatch.Interval);
+            lists[pass] = ListsOther(copy, outside);
+        }
+
+        return lists;
     }
 
     /// <summary>A document file of the data folder, as a write of Kiler leaves it, at version 1.</summary>

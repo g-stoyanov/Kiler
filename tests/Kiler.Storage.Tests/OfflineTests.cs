@@ -58,6 +58,15 @@ public sealed class OfflineTests : IDisposable
         CreatePrivate,
     }
 
+    /// <summary>A member of the copy that reads it, or that a sign-in calls, without touching the share.</summary>
+    public enum Member
+    {
+        Documents,
+        Trash,
+        CopyOthers,
+        AcceptPrivateFolder,
+    }
+
     public void Dispose()
     {
         // A step that a test held would keep the thread of the watch.
@@ -287,6 +296,53 @@ public sealed class OfflineTests : IDisposable
         Assert.True(Next<OfflineChange>().Offline, "The copy did not go offline.");
     }
 
+    /// <summary>
+    /// While offline, a load tries the share before it takes the lock of the copy (decided in M2.8c, by the user), so a read of
+    /// the copy, or a call of a sign-in, does not wait up to about 60 s for a try at a share that has gone (the code review of
+    /// M2.8a); the try that fails says nothing, and the one that reaches the share loads it.
+    /// </summary>
+    [Theory]
+    [InlineData(Member.Documents)]
+    [InlineData(Member.Trash)]
+    [InlineData(Member.CopyOthers)]
+    [InlineData(Member.AcceptPrivateFolder)]
+    public void WhileOffline_ATryOfTheShare_DoesNotHoldTheCopy(Member member)
+    {
+        Create(Record, "record");
+        _watch.Start();
+        Next<LoadResult>();
+        GoAway();
+        _clock.Advance(DataWatch.Interval);
+        Assert.True(Next<OfflineChange>().Offline, "The copy did not go offline.");
+        using var held = HoldTheNextTry();
+        _clock.Advance(DataWatch.Interval);
+        Assert.True(held.Wait(Wait, TestContext.Current.CancellationToken), "The try did not start.");
+        Exception? failure = null;
+        var call = new Thread(() =>
+        {
+            try
+            {
+                Call(member);
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+            }
+        });
+
+        call.Start();
+
+        Assert.True(call.Join(TimeSpan.FromSeconds(5)), $"{member} while offline waited for the try under way.");
+        Assert.Null(failure);
+        _release.Set();
+        AssertNoEvent();
+        Assert.True(_copy.Offline, "A try that failed brought the copy back.");
+        Back();
+        AdvanceUntilAnEvent();
+        Assert.False(Next<OfflineChange>().Offline, "The copy did not come back.");
+        Next<LoadResult>();
+    }
+
     /// <summary>Only the share that cannot be reached is offline (M2.8a): not a folder that is not the one the copy knows (M2.7d), nor a fault of the code.</summary>
     [Fact]
     public void IsUnreachable_TellsTheShareThatHasGone_FromAForeignFolderAndAFaultOfTheCode()
@@ -436,6 +492,27 @@ public sealed class OfflineTests : IDisposable
         Write.RestoreFromTrash => _copy.RestoreFromTrash(OtherRecord),
         _ => throw new ArgumentOutOfRangeException(nameof(write)),
     };
+
+    private void Call(Member member)
+    {
+        switch (member)
+        {
+            case Member.Documents:
+                Assert.Equal(Record, Assert.Single(_copy.Documents()).Key);
+                break;
+            case Member.Trash:
+                Assert.Empty(_copy.Trash());
+                break;
+            case Member.CopyOthers:
+                _copy.CopyOthers(["demo.other"]);
+                break;
+            case Member.AcceptPrivateFolder:
+                _copy.AcceptPrivateFolder(Me);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(member));
+        }
+    }
 
     /// <summary>
     /// Makes a write through the copy and gives how it ended; <see cref="DataCopy.CreatePrivate"/>, which gives nothing, ends

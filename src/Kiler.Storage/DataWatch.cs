@@ -59,7 +59,8 @@ public sealed class DataWatch : IDisposable
     /// The copy went offline or came back (<see cref="DataCopy.Offline"/>, M2.8a), raised as <see cref="Loaded"/> is, by the
     /// load of the watch that changed it and not by the loads in between. Offline is a load that could not hold, list or read
     /// the root of the data folder, with what it threw as the cause, for the log; the loop goes on trying every
-    /// <see cref="Interval"/>, and such a load is not <see cref="Failed"/>. Back is the next load that ends, raised before its
+    /// <see cref="Interval"/>, each try a hold of the root before the lock of the copy (M2.8c), and such a load is not
+    /// <see cref="Failed"/>. Back is the next load that ends, raised before its
     /// <see cref="Loaded"/>. A load that went offline after it took documents has written them into the copy, and no load
     /// gives them, so a handler reads the copy again at each change (<see cref="DataCopy.Documents"/>,
     /// <see cref="DataCopy.Trash"/>), as after <see cref="Failed"/>. A watch says nothing until one of its loads goes offline.

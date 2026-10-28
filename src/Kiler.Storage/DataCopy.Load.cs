@@ -15,7 +15,9 @@ public sealed partial class DataCopy
     /// folder of each other user that the copy is given (<see cref="CopyOthers"/>, M2.7c) is loaded so, one after the other,
     /// while the data folder and <c>private\</c> are held, each in the budget of its own within that of all of them, with only
     /// the heads of its documents read, and without its history; nothing of it is given, and its changes outside Kiler are
-    /// reported. A document that
+    /// reported. They are only for a restore, so a load takes them all once in <see cref="OthersInterval"/>, and in between
+    /// only those where a move or an edit that the SMB cache shows late waits for a listing (<see cref="OthersToLoad"/>,
+    /// M2.8c); for each of the others it reports what its last pass skipped. A document that
     /// the copy had and the share no longer lists, and that did not move, also when its folder has gone, is gone: its last
     /// good bytes are kept apart. The history folder of each document that has changed is then listed, and its new slots
     /// taken (decided in M2.7a). After the pass of the user's own, at most once in 10 minutes, the old stopped creates of the
@@ -26,7 +28,9 @@ public sealed partial class DataCopy
     /// cannot be listed, such as one that is a link, or that lists too many entries, is reported, and its documents stay as
     /// the copy has them, and so is the private folder (<see cref="ListPrivate"/>). The root of the data folder that cannot be
     /// held, listed or read is an <see cref="IOException"/> or an <see cref="UnauthorizedAccessException"/>: the share cannot
-    /// be reached, and the copy is offline until a load ends (<see cref="Offline"/>, M2.8a). Any other exception is a fault of
+    /// be reached, and the copy is offline until a load ends (<see cref="Offline"/>, M2.8a). While it is offline, a load first
+    /// holds the root of the data folder without the lock of the copy (<see cref="DataFolder.Reach"/>), and throws what that
+    /// throws, so the other members do not wait for a try at a share that has gone (M2.8c). Any other exception is a fault of
     /// the code, and leaves the copy online or offline as it was. Either way, what the load took before it threw is written
     /// into the index first, so a start gives it. The index is written once,
     /// after the files, and before them only when the last good bytes of a document went apart and its file is overwritten.
@@ -36,6 +40,14 @@ public sealed partial class DataCopy
     /// </summary>
     public LoadResult Load()
     {
+        // While offline, the share is tried before the lock: the hold of the root is the request that blocks while a file server
+        // has gone, up to about 60 s over SMB, and the reads of the copy and the calls of a sign-in do not wait for it (decided
+        // in M2.8c, by the user).
+        if (_offline)
+        {
+            _share.Reach();
+        }
+
         lock (_gate)
         {
             var now = _time.GetUtcNow();
@@ -61,10 +73,18 @@ public sealed partial class DataCopy
                 var privateFolder = _account is { } account ? ListPrivate(account, listed, missing, report) : null;
                 LoadFolders(listed, missing, OwnCap, now, report, ref taken);
                 DeleteStoppedCreates(now, report);
-                using (var held = _others.Count > 0 ? _share.HoldPrivateFolders() : null)
+                var others = OthersToLoad(now, out var all);
+                using (var held = others.Count > 0 ? _share.HoldPrivateFolders() : null)
                 {
                     foreach (var other in _others)
                     {
+                        if (!others.Contains(other))
+                        {
+                            ReportSkipped(other, report);
+                            continue;
+                        }
+
+                        var mark = report.Mark;
                         var theirs = new List<DataFolder.ListedFolder>();
                         var theirsMissing = new List<FolderKey>();
                         try
@@ -79,7 +99,15 @@ public sealed partial class DataCopy
                                 folder.Dispose();
                             }
                         }
+
+                        KeepSkipped(other, report.SkippedSince(mark));
                     }
+                }
+
+                // Only once every one has had its pass: a load that throws in between leaves them all for the next.
+                if (all)
+                {
+                    _othersAt = now;
                 }
 
                 taken |= TakeHistory(privateFolder, now, report);
@@ -187,6 +215,72 @@ public sealed partial class DataCopy
     /// listing of a move that the SMB cache shows late leaves the document for a while in both places.
     /// </summary>
     private static bool IsLateListing(CopyEntry entry, DateTimeOffset now) => now - entry.Taken < InPlaceEdits.SettleTime && !entry.Reported;
+
+    /// <summary>
+    /// The private folders of other users that a load takes (decided in M2.8c, by the user): all of them
+    /// (<paramref name="all"/>) once in <see cref="OthersInterval"/> on the clock of the copy, at the first load and at the
+    /// next one after <see cref="CopyOthers"/>, and at once when the clock was put back; in the loads in between, only those
+    /// whose state waits for a listing within <see cref="InPlaceEdits.SettleTime"/>, as the SMB cache can show a change about
+    /// 10 s late (the M2.8b note): a document that went less than that ago and is not reported (<see cref="JustGone"/>), or
+    /// one in both places that the copy took less than that ago (<see cref="IsLateListing"/>), whose move a listing can still
+    /// show; and one that looks edited in place and is not reported, as a write of another Kiler can look so for a moment
+    /// (<see cref="InPlaceEdits"/>). Loaded a minute later, such a move would be a document gone and a new one in the other
+    /// place, and such a write an edit in place, each reported for a restore. A document that a load takes new in one place
+    /// gives no load more.
+    /// </summary>
+    private HashSet<string> OthersToLoad(DateTimeOffset now, out bool all)
+    {
+        all = _othersAt is not { } last || now < last || now - last >= OthersInterval;
+        if (all || _others.Count == 0)
+        {
+            return [.. _others];
+        }
+
+        var waiting = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (spot, entry) in _index)
+        {
+            if (spot.Key.Account is { } account
+                && (JustGone(entry, now)
+                    || (IsLateListing(entry, now) && _index.ContainsKey(spot with { InTrash = !spot.InTrash }))
+                    || entry is { Outside: OutsideReason.EditedInPlace, Reported: false }))
+            {
+                waiting.Add(account);
+            }
+        }
+
+        return [.. _others.Where(waiting.Contains)];
+    }
+
+    /// <summary>Reports what the last pass of the private folder of another user skipped, for a load that does not take it (M2.8c).</summary>
+    private void ReportSkipped(string account, Report report)
+    {
+        if (_othersSkipped.TryGetValue(account, out var skips))
+        {
+            foreach (var entry in skips.Kept)
+            {
+                report.Skip(entry);
+            }
+
+            report.Untold(skips.Untold);
+        }
+    }
+
+    /// <summary>
+    /// Keeps what the pass of the private folder of another user skipped, for the loads that do not take it until its next
+    /// pass (M2.8c). All of them keep at most as many skipped entries as one load gives, and count the rest, as anyone can fill
+    /// a folder with links.
+    /// </summary>
+    private void KeepSkipped(string account, (SkippedEntry[] Kept, int More) skipped)
+    {
+        _othersSkipped.Remove(account);
+        var room = Math.Max(0, _limits.Reports - _othersSkipped.Values.Sum(skips => skips.Kept.Length));
+        SkippedEntry[] kept = [.. skipped.Kept.Take(room)];
+        var untold = skipped.More + skipped.Kept.Length - kept.Length;
+        if (kept.Length > 0 || untold > 0)
+        {
+            _othersSkipped[account] = new Skips(kept, untold);
+        }
+    }
 
     /// <summary>
     /// Whether a document whose times changed waits before it is read (M2.8b, decided by the user): the copy has it good, with
@@ -1116,6 +1210,9 @@ public sealed partial class DataCopy
 
     /// <summary>Where the last good bytes that a change takes the place of are copied to: apart, or into a slot of the history.</summary>
     private readonly record struct ApartJob(string? From, string? To, KeptCopy? LastGood, SlotKey? Slot);
+
+    /// <summary>What a pass of the private folder of another user skipped: the entries kept, and how many more there were (M2.8c).</summary>
+    private sealed record Skips(SkippedEntry[] Kept, int Untold);
 
     /// <summary>A file that a load read, with what the copy had of its document and the state it takes.</summary>
     private sealed record Change(Spot Spot, Spot LineageSpot, CopyEntry? Lineage, CopyEntry? Replaced, CopyEntry Next, LoadedFile File);

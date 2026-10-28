@@ -33,7 +33,8 @@ namespace Kiler.Storage;
 /// (<see cref="AcceptPrivateFolder"/>, decided in M2.7d, by the user). Safe across threads (M2.8): each public member but
 /// <see cref="Offline"/> keeps one lock for its whole run, so a write of a request waits for a load of the watch
 /// (<see cref="DataWatch"/>) under way, and a load for a write. A copy whose last load could not reach the share is offline,
-/// and refuses the writes before they touch it (<see cref="Offline"/>, M2.8a).
+/// and refuses the writes before they touch it (<see cref="Offline"/>, M2.8a); a load while offline tries the share before it
+/// takes the lock (M2.8c).
 /// </summary>
 public sealed partial class DataCopy
 {
@@ -73,6 +74,12 @@ public sealed partial class DataCopy
     /// long (security review of M2.7c, decided by the user). Two hundred is far more than one team.
     /// </summary>
     public const int MaxOthers = 200;
+
+    /// <summary>
+    /// How often a load takes the private folders of other users, as they are only for a restore (decided in M2.8c, by the
+    /// user): once a minute, in one load, on the clock of the copy (<see cref="Load"/>).
+    /// </summary>
+    public static readonly TimeSpan OthersInterval = TimeSpan.FromMinutes(1);
 
     /// <summary>
     /// How long a document must have been in the copy while the share listed it, from when the copy took it to when the share
@@ -125,6 +132,30 @@ public sealed partial class DataCopy
 
     /// <summary>The accounts of the other users whose private folders the loads copy, in order (<see cref="CopyOthers"/>, M2.7c).</summary>
     private SortedSet<string> _others = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// When the last load that took all the private folders of other users started, on the clock of the copy, or <c>null</c>
+    /// until one has, and after each call of <see cref="CopyOthers"/> (M2.8c).
+    /// </summary>
+    private DateTimeOffset? _othersAt;
+
+    /// <summary>
+    /// What the last pass of the private folder of each other user skipped, which the loads that do not take it report until
+    /// its next pass (M2.8c), as the skipped entries of each load are the state of the share as the copy knows it (M2.8).
+    /// </summary>
+    private readonly Dictionary<string, Skips> _othersSkipped = new(StringComparer.Ordinal);
+
+    /// <summary>For the tests: the skipped entries that the private folders of other users keep for the loads that do not take them (M2.8c).</summary>
+    internal int OthersSkipsKept
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _othersSkipped.Values.Sum(skips => skips.Kept.Length);
+            }
+        }
+    }
 
     /// <summary>What the private folder of each account is, as the copy made it or first saw it (M2.7d).</summary>
     private readonly Dictionary<string, FolderIdentity> _roots;
@@ -248,9 +279,10 @@ public sealed partial class DataCopy
 
     /// <summary>
     /// Gives the copy the accounts of the other users whose private folders it copies, for an admin after the sign-in (M4):
-    /// from the next load on, each is loaded as the private folder of the current user is, with only the head of each document
-    /// read (<see cref="DocumentFormat.ReadHead"/>), without its history, in a budget of its own (<see cref="MaxBytesPerOther"/>
-    /// within <see cref="MaxOtherBytes"/>), and never given: not by <see cref="Documents"/>, <see cref="Trash"/>, nor in
+    /// each is loaded as the private folder of the current user is, all of them at the next load and then once in
+    /// <see cref="OthersInterval"/> (M2.8c), with only the head of each document read (<see cref="DocumentFormat.ReadHead"/>),
+    /// without its history, in a budget of its own (<see cref="MaxBytesPerOther"/> within <see cref="MaxOtherBytes"/>), and
+    /// never given: not by <see cref="Documents"/>, <see cref="Trash"/>, nor in
     /// <see cref="LoadResult.Changed"/> and <see cref="LoadResult.Gone"/>. Their changes outside Kiler are in
     /// <see cref="LoadResult.Outside"/>, for a restore (M2.9). Each call takes the place of the last; an account that is no
     /// longer given, and every account before the first call, stays in the copy as the last load left it, neither loaded nor
@@ -280,6 +312,8 @@ public sealed partial class DataCopy
         lock (_gate)
         {
             _others = others;
+            _othersAt = null;
+            _othersSkipped.Clear();
         }
     }
 
@@ -332,7 +366,8 @@ public sealed partial class DataCopy
     /// opened, or one that is not the folder that the copy knows, never does. A new copy is online until a load says
     /// otherwise, and the next load that ends brings it back. Read without the lock of the copy, so it never waits for a load
     /// under way; a write reads it before the lock too, so a write while offline does not wait up to about 60 s for a load
-    /// blocked on a share that has gone (decided in M2.8a, by the user). The watch says each change
+    /// blocked on a share that has gone (decided in M2.8a, by the user), and a load while offline tries the share before it
+    /// takes the lock, so neither do the other members (decided in M2.8c, by the user). The watch says each change
     /// (<see cref="DataWatch.OfflineChanged"/>).
     /// </summary>
     public bool Offline => _offline;
@@ -345,8 +380,9 @@ public sealed partial class DataCopy
     /// the copy had of it and that the folder at the name does not have are then gone, with their last good bytes kept apart
     /// for a restore. It covers only the root: a folder in it of another owner than the root stays refused, as it is compared
     /// with the owner of the root, and is put right on the share (decided by the user after the review of M2.7d). Who may
-    /// accept it is decided in M4 and M6. An account that fails the name check of <see cref="StorageName"/> is an
-    /// <see cref="ArgumentException"/>.
+    /// accept it is decided in M4 and M6. The private folder of another user that the copy is given is taken at the next load
+    /// too, with all the others, rather than once their minute is over (<see cref="OthersInterval"/>, M2.8c). An account that
+    /// fails the name check of <see cref="StorageName"/> is an <see cref="ArgumentException"/>.
     /// </summary>
     public void AcceptPrivateFolder(string account)
     {
@@ -355,6 +391,11 @@ public sealed partial class DataCopy
         {
             if (_roots.Remove(name))
             {
+                if (_others.Contains(name))
+                {
+                    _othersAt = null;
+                }
+
                 _indexBehind = true;
                 FlushIndex();
             }

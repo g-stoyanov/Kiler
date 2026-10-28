@@ -93,6 +93,7 @@ Opening the browser is `IBrowser` in Kiler.App (decided in M1.5), because only t
 - A script that breaks the guards one by one in the background is read when it ends, not watched: a `tail -f` of its results file (a Monitor) held the file, and every later `Add-Content` of the script failed, though the runs went on and the code was put back (M2.8b).
 - An age check is broken by taking it out, not by setting the age to zero: a `FakeTimeProvider` that starts at the real time is behind the times of the files made after it, so a file made a moment ago still counts as young (M2.7e).
 - A test class with a field named `Record`, such as a `DocumentKey`, hides `Xunit.Record`: write `Xunit.Record.Exception` there.
+- A null-conditional call skips the evaluation of its arguments too: `outside?.AddRange(copy.Load().Outside)` does not load at all when `outside` is null (M2.8c). Make the call with a side effect first, then pass its result.
 - Tests on the real clock, such as the stop by the heartbeat: take the time stamp before the action that starts the wait, check a lower and an upper bound, and leave margins for a slow CI machine (`windows-latest`) (M1.6).
 
 ## Manual checks

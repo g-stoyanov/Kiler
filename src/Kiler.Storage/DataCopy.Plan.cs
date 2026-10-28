@@ -189,6 +189,12 @@ public sealed partial class DataCopy
         /// <summary>Counts skipped entries that a listing did not keep, beyond what a report gives.</summary>
         public void Untold(int count) => _more += count;
 
+        /// <summary>Where the report stands, so a part of the load can take what it skipped (<see cref="SkippedSince"/>, M2.8c).</summary>
+        public (int Kept, int More) Mark => (_skipped.Count, _more);
+
+        /// <summary>The skipped entries that the report kept since <paramref name="mark"/>, and how many more it counted.</summary>
+        public (SkippedEntry[] Kept, int More) SkippedSince((int Kept, int More) mark) => ([.. _skipped.Skip(mark.Kept)], _more - mark.More);
+
         public LoadResult Result() => new(Changed, Gone, Outside, _skipped, _more, TrashChanged);
     }
 }
