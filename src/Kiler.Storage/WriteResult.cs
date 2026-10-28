@@ -12,13 +12,15 @@ public enum WriteOutcome
     /// <summary>
     /// Creating: a document with that id exists, or did: its history is there, as a delete leaves it (M2.5), and a new
     /// version 1 would meet the old slot of version 1 and could never be written again. Restoring from the trash: a document
-    /// with that id exists. Nothing was written.
+    /// with that id exists. Writing back from the local copy (M2.9a): anything is at its name, or a document of its id is in
+    /// the other place, its folder or the trash, as Kiler never makes two documents of one id. Nothing was written.
     /// </summary>
     Exists,
 
     /// <summary>
-    /// Replacing or deleting: there is no document. Restoring from the trash: there is no copy of it in the trash. Nothing
-    /// was written.
+    /// Replacing or deleting: there is no document. Restoring from the trash: there is no copy of it in the trash. Writing
+    /// back from the local copy (M2.9a): the copy no longer has the last good bytes, as their file has gone or has other bytes
+    /// than its entry; the change stays listed until it is forgotten. Nothing was written.
     /// </summary>
     Missing,
 
@@ -46,8 +48,9 @@ public enum WriteOutcome
 
     /// <summary>
     /// Replacing, deleting or restoring from the trash: a file stayed open in another program, such as the read of another
-    /// Kiler or an antivirus, or it is read-only, so it could not be renamed over or moved. Nothing was written; the write can
-    /// be tried again.
+    /// Kiler or an antivirus, or it is read-only, so it could not be renamed over or moved. Writing back from the local copy
+    /// (M2.9a): the last good bytes in the copy cannot be read now, as another program holds their file. Nothing was written;
+    /// the write can be tried again.
     /// </summary>
     Busy,
 
@@ -60,6 +63,21 @@ public enum WriteOutcome
     /// the write can be tried again once the share is back.
     /// </summary>
     Offline,
+
+    /// <summary>
+    /// Writing back from the local copy (<see cref="DataCopy.WriteBack"/>, M2.9a): the change is no longer in the copy as the
+    /// list gave it (<see cref="DataCopy.ToRestore"/>), as a load has seen the document since, or it was forgotten. Nothing
+    /// was written; the list is read again.
+    /// </summary>
+    NotListed,
+
+    /// <summary>
+    /// Writing back from the local copy (M2.9a): the history of the share has a version after the one written back, or one
+    /// of it with other bytes, so other Kilers wrote versions that this copy did not see, and the document back at that
+    /// version would block their writes for good (M2.4). Nothing was written, and the history stays as it is: the newer
+    /// versions are in it, and in the copies that saw them (decided in M2.9a, by the user).
+    /// </summary>
+    Behind,
 }
 
 /// <summary>The outcome of a write, with what the caller needs of it.</summary>

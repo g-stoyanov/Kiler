@@ -6,8 +6,9 @@ namespace Kiler.Storage.Tests;
 
 /// <summary>
 /// The restore from the local copy (M2.9, PLAN M2 step 10): the documents whose last good bytes the copy keeps for a restore
-/// (<see cref="DataCopy.ToRestore"/>), and forgetting those that should not come back (<see cref="DataCopy.Forget"/>), such
-/// as the private folder of someone who has left (<see cref="DataCopy.ForgetPrivate"/>, design 7.9).
+/// (<see cref="DataCopy.ToRestore"/>), forgetting those that should not come back (<see cref="DataCopy.Forget"/>), such as
+/// the private folder of someone who has left (<see cref="DataCopy.ForgetPrivate"/>, design 7.9), and writing back a
+/// document gone outside the trash (<see cref="DataCopy.WriteBack"/>, M2.9a).
 /// </summary>
 public sealed class DataCopyRestoreTests : IDisposable
 {
@@ -29,6 +30,15 @@ public sealed class DataCopyRestoreTests : IDisposable
     {
         _share = DataFolder.Create(Path.Combine(_test.Root, "data"), _files);
         _copy = Directory.CreateDirectory(Path.Combine(_test.Root, "copy")).FullName;
+    }
+
+    /// <summary>How the history of the share shows versions that a copy did not see (M2.9a).</summary>
+    public enum Ahead
+    {
+        SlotAfter,
+        SlotWithOtherBytes,
+        FolderAtItsSlot,
+        TooManyEntries,
     }
 
     public void Dispose() => _test.Dispose();
@@ -527,6 +537,479 @@ public sealed class DataCopyRestoreTests : IDisposable
         Assert.Equal(new OutsideChange(Record.InPrivate(Me), InTrash: false, OutsideReason.Gone, LastGood: 1), Assert.Single(copy.ToRestore()));
     }
 
+    /// <summary>
+    /// The last good bytes go back as they are, at their version (decided in M2.9a, by the user), and the copy follows the
+    /// write: the next load reads the file back, finds it good, and reports nothing.
+    /// </summary>
+    [Fact]
+    public void WriteBack_ADocumentDeletedOutsideKiler_ComesBackWithItsBytesAtItsVersion_AndTheNextLoadTakesItAsGood()
+    {
+        Create(Record, "first");
+        Replace(Record, 1, "second");
+        var copy = OpenAt();
+        copy.Load();
+        var path = _share.DocumentPath(Record);
+        var good = File.ReadAllBytes(path);
+        File.Delete(path);
+        var gone = ListGone(copy);
+        Assert.Equal(new OutsideChange(Record, InTrash: false, OutsideReason.Gone, LastGood: 2), gone);
+
+        var result = copy.WriteBack(gone);
+
+        Assert.Equal(WriteOutcome.Written, result.Outcome);
+        Assert.Equal(2, result.Version);
+        Assert.Equal(good, File.ReadAllBytes(path));
+        Assert.Equal(["v1.json"], SlotsOnShare(Record));
+        Assert.Empty(copy.ToRestore());
+        Assert.Equal("second", Name(Assert.Single(copy.Documents())));
+        Assert.False(File.Exists(KeptPath(Record)), "The kept bytes of a document written back stay.");
+        Assert.Equal(good, File.ReadAllBytes(CopyPath(Record)));
+        Assert.Empty(copy.Load().Outside);
+        _clock.Advance(InPlaceEdits.SettleTime);
+        Assert.Empty(copy.Load().Outside);
+        Assert.Empty(copy.ToRestore());
+        Assert.Equal(2, Assert.Single(OpenAt().Documents()).Read.Document?.Version);
+    }
+
+    /// <summary>
+    /// One gone from the trash goes back there, the folder of the trash made again when it went too, as after a delete of
+    /// Kiler: the slot of its delete has its bytes, and a restore from the trash deletes it (M2.5).
+    /// </summary>
+    [Fact]
+    public void WriteBack_ADocumentGoneFromTheTrash_GoesBackIntoTheTrash_AndIsRestoredFromThere()
+    {
+        Create(Record, "record");
+        Assert.Equal(WriteOutcome.Deleted, _share.DeleteDocument(Record, 1).Outcome);
+        var copy = OpenAt();
+        copy.Load();
+        var good = File.ReadAllBytes(_share.TrashPath(Record));
+        Directory.Delete(Path.GetDirectoryName(_share.TrashPath(Record))!, recursive: true);
+        var gone = ListGone(copy);
+        Assert.True(gone.InTrash, "The document gone from the trash is listed in its folder.");
+
+        Assert.Equal(WriteOutcome.Written, copy.WriteBack(gone).Outcome);
+
+        Assert.Equal(good, File.ReadAllBytes(_share.TrashPath(Record)));
+        Assert.False(File.Exists(_share.DocumentPath(Record)), "The document went back into its folder.");
+        Assert.Equal(Record, Assert.Single(copy.Trash()).Key);
+        Assert.Empty(copy.Documents());
+        Assert.Empty(copy.Load().Outside);
+        Assert.Equal(WriteOutcome.Written, copy.RestoreFromTrash(Record).Outcome);
+        Assert.Empty(SlotsOnShare(Record));
+        Assert.Equal("record", Name(Assert.Single(copy.Documents())));
+    }
+
+    [Fact]
+    public void WriteBack_ADocumentOfThePrivateFolderOfTheUser_ComesBack()
+    {
+        var mine = _share.CreatePrivate(Me);
+        Create(mine, Record, "mine");
+        var copy = OpenAt(Me);
+        copy.Load();
+        var path = mine.DocumentPath(Record);
+        var good = File.ReadAllBytes(path);
+        File.Delete(path);
+        var gone = ListGone(copy);
+        Assert.Equal(Record.InPrivate(Me), gone.Key);
+
+        Assert.Equal(WriteOutcome.Written, copy.WriteBack(gone).Outcome);
+
+        Assert.Equal(good, File.ReadAllBytes(path));
+        Assert.Empty(copy.Load().Outside);
+        Assert.Equal(Record.InPrivate(Me), Assert.Single(copy.Documents()).Key);
+    }
+
+    /// <summary>A document folder that went with its documents is made again by the first of them written back, as a folder of the trash is.</summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData(Me)]
+    public void WriteBack_ADocumentWhoseFolderWentWithIt_MakesTheFolderAgain(string? account)
+    {
+        var root = account is null ? _share : _share.CreatePrivate(account);
+        Create(root, Record, "record");
+        var copy = OpenAt(account);
+        copy.Load();
+        var path = root.DocumentPath(Record);
+        var good = File.ReadAllBytes(path);
+        Directory.Delete(Path.GetDirectoryName(path)!, recursive: true);
+        var gone = ListGone(copy);
+
+        Assert.Equal(WriteOutcome.Written, copy.WriteBack(gone).Outcome);
+
+        Assert.Equal(good, File.ReadAllBytes(path));
+        var load = copy.Load();
+        Assert.Empty(load.Outside);
+        Assert.Empty(load.Skipped);
+    }
+
+    /// <summary>
+    /// The bytes written back keep whether this Kiler wrote them (M2.7a), and the stay of the document counts only the time
+    /// that the share listed it (fourth security review of M2.7): the bytes of another Kiler that go again keep their place
+    /// once the copy has had them for a day, and before that make room for the documents of the share, however long they
+    /// were gone before the write back (security review of M2.9a).
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void WriteBack_ADocumentOfAnotherKilerGoneAgain_KeepsItsLastGoodBytes_OnlyAfterADayListedByTheShare(bool aDayListed)
+    {
+        Create(Record, "record");
+        var copy = OpenAt(limits: CopyLimits.Default with { Documents = 2 });
+        copy.Load();
+        _clock.Advance(aDayListed ? DataCopy.BriefStay : DataCopy.BriefStay / 2);
+        File.Delete(_share.DocumentPath(Record));
+        var gone = ListGone(copy);
+        _clock.Advance(aDayListed ? TimeSpan.Zero : DataCopy.BriefStay);
+        Assert.Equal(WriteOutcome.Written, copy.WriteBack(gone).Outcome);
+        copy.Load();
+        File.Delete(_share.DocumentPath(Record));
+        ListGone(copy);
+        Create(OtherRecord, "new");
+        Create(ThirdRecord, "new");
+
+        var load = copy.Load();
+
+        if (aDayListed)
+        {
+            Assert.Equal(SkipReason.OverBudget, Assert.Single(load.Skipped).Reason);
+            Assert.Equal(Record, Assert.Single(copy.ToRestore()).Key);
+        }
+        else
+        {
+            Assert.Empty(load.Skipped);
+            Assert.Equal(2, copy.Documents().Count);
+            Assert.Empty(copy.ToRestore());
+        }
+    }
+
+    /// <summary>
+    /// The copy follows the write back only when it can write the bytes into data\; when not, it stays as it was, and the
+    /// next load takes the file of the share, as the last good bytes again are good.
+    /// </summary>
+    [Fact]
+    public void WriteBack_WhoseBytesCannotBeWrittenIntoTheCopy_LeavesTheCopy_AndTheNextLoadTakesTheFile()
+    {
+        Create(Record, "record");
+        var copy = OpenAt();
+        copy.Load();
+        File.Delete(_share.DocumentPath(Record));
+        var gone = ListGone(copy);
+        var inTheWay = Directory.CreateDirectory(CopyPath(Record)).FullName;
+
+        Assert.Equal(WriteOutcome.Written, copy.WriteBack(gone).Outcome);
+
+        Assert.Equal(gone, Assert.Single(copy.ToRestore()));
+        Assert.Empty(copy.Documents());
+        Directory.Delete(inTheWay);
+        var load = copy.Load();
+        Assert.Empty(load.Outside);
+        Assert.Equal("record", Name(Assert.Single(load.Changed)));
+        Assert.Empty(copy.ToRestore());
+    }
+
+    /// <summary>Every copy that has the same last good bytes takes them as good again, so its list clears too (decided in M2.9a, by the user).</summary>
+    [Fact]
+    public void WriteBack_AnotherCopyWithTheSameLastGoodBytes_TakesTheDocumentAsGoodAgain()
+    {
+        Create(Record, "record");
+        var copy = OpenAt();
+        var other = OpenAnother();
+        copy.Load();
+        other.Load();
+        File.Delete(_share.DocumentPath(Record));
+        LoadBoth(copy, other);
+        var gone = Assert.Single(copy.ToRestore());
+        Assert.Equal(gone, Assert.Single(other.ToRestore()));
+
+        Assert.Equal(WriteOutcome.Written, copy.WriteBack(gone).Outcome);
+
+        Assert.Empty(other.Load().Outside);
+        Assert.Empty(other.ToRestore());
+        Assert.Equal("record", Name(Assert.Single(other.Documents())));
+    }
+
+    /// <summary>
+    /// The limit (decided in M2.9a, by the user): a copy that missed only the last version of the share writes back the one
+    /// before it, as the slot of that version has its bytes; the copy that saw the last one reports the document out of
+    /// order, with its last good bytes, so nothing is lost.
+    /// </summary>
+    [Fact]
+    public void WriteBack_ByACopyThatMissedTheLastVersion_IsReportedOutOfOrderByTheCopyThatSawIt()
+    {
+        Create(Record, "first");
+        var copy = OpenAt();
+        copy.Load();
+        Replace(Record, 1, "second");
+        var other = OpenAnother();
+        other.Load();
+        File.Delete(_share.DocumentPath(Record));
+        LoadBoth(copy, other);
+        var gone = Assert.Single(copy.ToRestore());
+        Assert.Equal(1, gone.LastGood);
+
+        Assert.Equal(WriteOutcome.Written, copy.WriteBack(gone).Outcome);
+
+        LoadBoth(copy, other);
+        Assert.Empty(copy.ToRestore());
+        Assert.Equal(new OutsideChange(Record, InTrash: false, OutsideReason.OutOfOrder, LastGood: 2), Assert.Single(other.ToRestore()));
+    }
+
+    /// <summary>
+    /// A copy that did not see the newer versions of the share writes nothing back (decided in M2.9a, by the user): the slot
+    /// of the version written back, or of one after it, would have other bytes than the document and block its writes for
+    /// good (M2.4). The slots stay as they are. Anything at the name of such a slot counts, and a history that a listing does
+    /// not take whole cannot be checked.
+    /// </summary>
+    [Theory]
+    [InlineData(Ahead.SlotAfter)]
+    [InlineData(Ahead.SlotWithOtherBytes)]
+    [InlineData(Ahead.FolderAtItsSlot)]
+    [InlineData(Ahead.TooManyEntries)]
+    public void WriteBack_WhenTheHistoryOfTheShareHasAVersionThatTheCopyDidNotSee_IsRefusedAsBehind(Ahead ahead)
+    {
+        Create(Record, "first");
+        var copy = OpenAt(limits: ahead == Ahead.TooManyEntries ? CopyLimits.Default with { Listed = 3 } : null);
+        copy.Load();
+        var history = HistoryOnShare(Record);
+        if (ahead == Ahead.SlotAfter)
+        {
+            Replace(Record, 1, "second");
+            Replace(Record, 2, "third");
+        }
+        else
+        {
+            Directory.CreateDirectory(history);
+        }
+
+        if (ahead == Ahead.SlotWithOtherBytes)
+        {
+            // Written after an edit in place that the copy did not see.
+            TestFolder.WriteAsKiler(_share.HistoryPath(Record, 1), DocumentFormat.New(Record, Content("edited by hand")));
+        }
+        else if (ahead == Ahead.FolderAtItsSlot)
+        {
+            Directory.CreateDirectory(_share.HistoryPath(Record, 1));
+        }
+        else if (ahead == Ahead.TooManyEntries)
+        {
+            foreach (var name in (string[])["a.txt", "b.txt", "c.txt", "d.txt"])
+            {
+                File.WriteAllText(Path.Combine(history, name), "not a slot");
+            }
+        }
+
+        File.Delete(_share.DocumentPath(Record));
+        var gone = ListGone(copy);
+        Assert.Equal(1, gone.LastGood);
+        var slots = SlotsOnShare(Record).Select(name => File.ReadAllBytes(Path.Combine(history, name))).ToList();
+
+        Assert.Equal(WriteOutcome.Behind, copy.WriteBack(gone).Outcome);
+
+        Assert.False(File.Exists(_share.DocumentPath(Record)), "A copy that is behind wrote the document back.");
+        Assert.Equal(slots, SlotsOnShare(Record).Select(name => File.ReadAllBytes(Path.Combine(history, name))));
+        Assert.Equal(gone, Assert.Single(copy.ToRestore()));
+    }
+
+    /// <summary>The rename that does not replace decides, also when the name is taken while the write back runs, and its temporary file goes.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void WriteBack_ANameTakenSinceTheList_IsNotWrittenOver(bool whileItWrites)
+    {
+        Create(Record, "record");
+        var copy = OpenAt();
+        copy.Load();
+        var path = _share.DocumentPath(Record);
+        File.Delete(path);
+        var gone = ListGone(copy);
+        var put = DocumentFormat.New(Record, Content("put by hand"));
+        if (whileItWrites)
+        {
+            _files.Before = (step, _) =>
+            {
+                if (step == nameof(IFileSystem.CreateFile) && !File.Exists(path))
+                {
+                    TestFolder.WriteAsKiler(path, put);
+                }
+            };
+        }
+        else
+        {
+            TestFolder.WriteAsKiler(path, put);
+        }
+
+        Assert.Equal(WriteOutcome.Exists, copy.WriteBack(gone).Outcome);
+
+        Assert.Equal(put, File.ReadAllBytes(path));
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(path)!, "*.tmp"));
+        Assert.True(File.Exists(KeptPath(Record)), "The kept bytes of a document that was not written back went.");
+    }
+
+    /// <summary>The folders are checked before the rename, as for a create (M2.3): an empty one made a link in place is refused.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void WriteBack_WhenTheEmptyDocumentFolderIsMadeALinkInPlace_IsRefused(bool createThroughLinks)
+    {
+        Create(Record, "record");
+        var copy = OpenAt();
+        copy.Load();
+        var records = Path.GetDirectoryName(_share.DocumentPath(Record))!;
+        File.Delete(_share.DocumentPath(Record));
+        var gone = ListGone(copy);
+        var elsewhere = Directory.CreateDirectory(Path.Combine(_test.Root, "elsewhere")).FullName;
+        TestFolder.SkipWithoutJunctions(records);
+        _files.CreateThroughLinks = createThroughLinks;
+        var made = false;
+        _files.Before = (step, at) =>
+        {
+            if (step == nameof(IFileSystem.CreateFile) && !made && at.StartsWith(records + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                made = true;
+                TestFolder.MakeMountPoint(records, elsewhere);
+            }
+        };
+
+        Assert.Throws<IOException>(() => copy.WriteBack(gone));
+
+        Assert.True(made, "The folder was not made a link.");
+        Assert.Empty(Directory.GetFiles(elsewhere));
+        Assert.Equal(gone, Assert.Single(copy.ToRestore()));
+    }
+
+    /// <summary>The history folder is checked after its listing: an empty one made a link in place would give another folder's slots.</summary>
+    [Fact]
+    public void WriteBack_WhenTheEmptyHistoryFolderIsMadeALinkInPlace_IsRefused()
+    {
+        Create(Record, "record");
+        var copy = OpenAt();
+        copy.Load();
+        File.Delete(_share.DocumentPath(Record));
+        var gone = ListGone(copy);
+        var history = Directory.CreateDirectory(HistoryOnShare(Record)).FullName;
+        var elsewhere = Directory.CreateDirectory(Path.Combine(_test.Root, "elsewhere")).FullName;
+        TestFolder.SkipWithoutJunctions(history);
+        var made = false;
+        _files.Before = (step, at) =>
+        {
+            if (step == nameof(IFileSystem.List) && !made && string.Equals(at, history, StringComparison.OrdinalIgnoreCase))
+            {
+                made = true;
+                TestFolder.MakeMountPoint(history, elsewhere);
+            }
+        };
+
+        Assert.Throws<IOException>(() => copy.WriteBack(gone));
+
+        Assert.True(made, "The history folder was not made a link.");
+        Assert.False(File.Exists(_share.DocumentPath(Record)), "The document was written back after a listing through a link.");
+    }
+
+    /// <summary>Kiler never makes two documents of one id, one in its folder and one in the trash (M2.7a).</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void WriteBack_ADocumentOfItsIdInTheOtherPlace_IsNotWrittenBack(bool fromTheTrash)
+    {
+        Create(Record, "record");
+        if (fromTheTrash)
+        {
+            Assert.Equal(WriteOutcome.Deleted, _share.DeleteDocument(Record, 1).Outcome);
+        }
+
+        var copy = OpenAt();
+        copy.Load();
+        var (place, other) = fromTheTrash ? (_share.TrashPath(Record), _share.DocumentPath(Record)) : (_share.DocumentPath(Record), _share.TrashPath(Record));
+        var bytes = File.ReadAllBytes(place);
+        File.Delete(place);
+        var gone = ListGone(copy);
+        Directory.CreateDirectory(Path.GetDirectoryName(other)!);
+        TestFolder.WriteAsKiler(other, bytes);
+
+        Assert.Equal(WriteOutcome.Exists, copy.WriteBack(gone).Outcome);
+
+        Assert.False(File.Exists(place), "The document was written back beside one of its id in the other place.");
+    }
+
+    /// <summary>A change is written back only as the list gave it (M2.9), so a screen never writes back one that it did not show.</summary>
+    [Fact]
+    public void WriteBack_AChangeThatIsNoLongerAsTheListGaveIt_WritesNothing()
+    {
+        Create(Record, "record");
+        var copy = OpenAt();
+        copy.Load();
+        var path = _share.DocumentPath(Record);
+        var good = File.ReadAllBytes(path);
+        File.Delete(path);
+        var gone = ListGone(copy);
+
+        Assert.Equal(WriteOutcome.NotListed, copy.WriteBack(gone with { LastGood = 2 }).Outcome);
+        Assert.Equal(WriteOutcome.NotListed, copy.WriteBack(gone with { InTrash = true }).Outcome);
+        Assert.Equal(WriteOutcome.NotListed, copy.WriteBack(gone with { Key = OtherRecord }).Outcome);
+
+        // Back, and gone again for less than the settle time: it can be a move that the SMB cache shows late (M2.7a).
+        TestFolder.WriteAsKiler(path, good);
+        copy.Load();
+        File.Delete(path);
+        copy.Load();
+        Assert.Equal(WriteOutcome.NotListed, copy.WriteBack(gone).Outcome);
+        Assert.False(File.Exists(path), "A change that is not listed was written back.");
+
+        _clock.Advance(InPlaceEdits.SettleTime);
+        copy.Load();
+        Assert.Equal(WriteOutcome.Written, copy.WriteBack(gone).Outcome);
+    }
+
+    /// <summary>The bytes in kept\ are checked against their hash before the write (M2.7a): other bytes are not the last good ones.</summary>
+    [Fact]
+    public void WriteBack_WhenTheCopyHasLostTheLastGoodBytes_WritesNothing()
+    {
+        Create(Record, "record");
+        var copy = OpenAt();
+        copy.Load();
+        File.Delete(_share.DocumentPath(Record));
+        var gone = ListGone(copy);
+        File.WriteAllBytes(KeptPath(Record), DocumentFormat.New(Record, Content("other bytes")));
+
+        Assert.Equal(WriteOutcome.Missing, copy.WriteBack(gone).Outcome);
+        File.Delete(KeptPath(Record));
+        Assert.Equal(WriteOutcome.Missing, copy.WriteBack(gone).Outcome);
+
+        Assert.False(File.Exists(_share.DocumentPath(Record)), "Bytes that are not the last good ones were written back.");
+    }
+
+    [Fact]
+    public void WriteBack_WhenTheLastGoodBytesCannotBeReadNow_IsBusy_AndCanBeTriedAgain()
+    {
+        Create(Record, "record");
+        var copy = OpenAt();
+        copy.Load();
+        File.Delete(_share.DocumentPath(Record));
+        var gone = ListGone(copy);
+
+        using (new FileStream(KeptPath(Record), FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            Assert.Equal(WriteOutcome.Busy, copy.WriteBack(gone).Outcome);
+        }
+
+        Assert.False(File.Exists(_share.DocumentPath(Record)), "The document was written back while its bytes could not be read.");
+        Assert.Equal(WriteOutcome.Written, copy.WriteBack(gone).Outcome);
+    }
+
+    /// <summary>
+    /// Writing back over a file that is there comes with M2.9b, and into the private folder of another user with M2.9c; until
+    /// then they are refused before anything is looked at.
+    /// </summary>
+    [Fact]
+    public void WriteBack_AChangeOfAnotherReason_OrOfThePrivateFolderOfAnotherUser_IsRefused()
+    {
+        var copy = OpenAt(Me);
+
+        Assert.Throws<NotSupportedException>(() => copy.WriteBack(new OutsideChange(Record, InTrash: false, OutsideReason.Damaged, LastGood: 1)));
+        Assert.Throws<ArgumentException>(() => copy.WriteBack(new OutsideChange(TheirRecord, InTrash: false, OutsideReason.Gone, LastGood: 1)));
+        Assert.Throws<ArgumentNullException>(() => copy.WriteBack(default));
+    }
+
     private static JsonObject Content(string name) => new() { ["name"] = name };
 
     private static string? Name(LoadedDocument document) => (string?)document.Read.Document?.Content["name"];
@@ -544,6 +1027,41 @@ public sealed class DataCopyRestoreTests : IDisposable
 
     /// <summary>Opens the copy on <see cref="_clock"/>, with an account and a budget or without.</summary>
     private DataCopy OpenAt(string? account = null, CopyLimits? limits = null) => DataCopy.Open(_share, _copy, _clock, limits ?? CopyLimits.Default, account);
+
+    /// <summary>Opens a second copy of the share in a folder of its own, as on the machine of another user.</summary>
+    private DataCopy OpenAnother() => DataCopy.Open(_share, Directory.CreateDirectory(Path.Combine(_test.Root, "another copy")).FullName, _clock, CopyLimits.Default);
+
+    /// <summary>
+    /// Loads a copy twice, <see cref="InPlaceEdits.SettleTime"/> apart, so it reports a document that went (M2.7a), and gives
+    /// the one change that it lists.
+    /// </summary>
+    private OutsideChange ListGone(DataCopy copy)
+    {
+        copy.Load();
+        _clock.Advance(InPlaceEdits.SettleTime);
+        copy.Load();
+        return Assert.Single(copy.ToRestore());
+    }
+
+    /// <summary>Loads two copies, and again <see cref="InPlaceEdits.SettleTime"/> later, so both report what changed outside Kiler.</summary>
+    private void LoadBoth(DataCopy copy, DataCopy other)
+    {
+        copy.Load();
+        other.Load();
+        _clock.Advance(InPlaceEdits.SettleTime);
+        copy.Load();
+        other.Load();
+    }
+
+    /// <summary>The history folder of a document on the share.</summary>
+    private string HistoryOnShare(DocumentKey key) => Path.GetDirectoryName(_share.HistoryPath(key, 1))!;
+
+    /// <summary>The names of the slots of a document in the history of the share, in order.</summary>
+    private string[] SlotsOnShare(DocumentKey key)
+    {
+        var folder = HistoryOnShare(key);
+        return Directory.Exists(folder) ? [.. Directory.GetFiles(folder).Select(path => Path.GetFileName(path)).Order(StringComparer.Ordinal)] : [];
+    }
 
     /// <summary>Loads a copy on <see cref="_clock"/> a minute later, when the load takes the private folders of other users again (<see cref="DataCopy.OthersInterval"/>, M2.8c).</summary>
     private LoadResult LoadAMinuteLater(DataCopy copy)

@@ -56,6 +56,7 @@ public sealed class OfflineTests : IDisposable
         Delete,
         RestoreFromTrash,
         CreatePrivate,
+        WriteBack,
     }
 
     /// <summary>A member of the copy that reads it, or that a sign-in calls, without touching the share.</summary>
@@ -217,6 +218,35 @@ public sealed class OfflineTests : IDisposable
         }
     }
 
+    /// <summary>A write back is a write through the copy (M2.9a), refused while offline as the others are, with a change that the list gave.</summary>
+    [Fact]
+    public void AWriteBackWhileOffline_IsRefusedBeforeItTouchesTheShare_AndGoesThroughOnceTheShareIsBack()
+    {
+        Create(Record, "record");
+        _watch.Start();
+        Next<LoadResult>();
+        File.Delete(_share.DocumentPath(Record));
+        _clock.Advance(DataWatch.Interval);
+        Next<LoadResult>();
+        _clock.Advance(InPlaceEdits.SettleTime);
+        Assert.Single(Next<LoadResult>().Outside);
+        var gone = Assert.Single(_copy.ToRestore());
+        var tried = GoAway();
+        _clock.Advance(DataWatch.Interval);
+        Assert.True(Next<OfflineChange>().Offline, "The copy did not go offline.");
+        var before = tried.Count;
+
+        Assert.Equal(WriteOutcome.Offline, _copy.WriteBack(gone).Outcome);
+
+        Assert.Equal(before, tried.Count);
+        Back();
+        _clock.Advance(DataWatch.Interval);
+        Assert.False(Next<OfflineChange>().Offline, "The copy did not come back.");
+        Next<LoadResult>();
+        Assert.Equal(WriteOutcome.Written, _copy.WriteBack(gone).Outcome);
+        Assert.True(File.Exists(_share.DocumentPath(Record)), "The document was not written back.");
+    }
+
     /// <summary>
     /// The writes are refused before the lock of the copy (decided in M2.8a, by the user), so a request does not wait up to
     /// about 60 s for a load blocked on a share that has gone (the M2.8 code review).
@@ -227,6 +257,7 @@ public sealed class OfflineTests : IDisposable
     [InlineData(Write.Delete)]
     [InlineData(Write.RestoreFromTrash)]
     [InlineData(Write.CreatePrivate)]
+    [InlineData(Write.WriteBack)]
     public void AWriteWhileOffline_IsRefusedAtOnce_AlsoWhileALoadIsUnderWay(Write write)
     {
         GoAway();
@@ -261,6 +292,48 @@ public sealed class OfflineTests : IDisposable
         AssertNoEvent();
     }
 
+    /// <summary>
+    /// While offline, a load that reaches the root holds the lock of the copy for its listings (M2.8c), which can block on a
+    /// share that has gone again; a write looks before the lock, so it does not wait for that load either.
+    /// </summary>
+    [Theory]
+    [InlineData(Write.Create)]
+    [InlineData(Write.Replace)]
+    [InlineData(Write.Delete)]
+    [InlineData(Write.RestoreFromTrash)]
+    [InlineData(Write.CreatePrivate)]
+    [InlineData(Write.WriteBack)]
+    public void AWriteWhileOffline_IsRefusedAtOnce_AlsoWhileALoadHoldsTheCopy(Write write)
+    {
+        GoAway();
+        _watch.Start();
+        Assert.True(Next<OfflineChange>().Offline, "The copy did not go offline.");
+        using var held = HoldTheNextListing();
+        _clock.Advance(DataWatch.Interval);
+        Assert.True(held.Wait(Wait, TestContext.Current.CancellationToken), "The load did not list.");
+        WriteOutcome? outcome = null;
+        Exception? failure = null;
+        var call = new Thread(() =>
+        {
+            try
+            {
+                outcome = Attempt(write);
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+            }
+        });
+
+        call.Start();
+
+        Assert.True(call.Join(TimeSpan.FromSeconds(5)), $"{write} while offline waited for the load that holds the copy.");
+        Assert.Null(failure);
+        Assert.Equal(WriteOutcome.Offline, outcome);
+        _release.Set();
+        AssertNoEvent();
+    }
+
     /// <summary>A write that waited for a load that went offline in the meantime looks again under the lock, and is refused.</summary>
     [Theory]
     [InlineData(Write.Create)]
@@ -268,6 +341,7 @@ public sealed class OfflineTests : IDisposable
     [InlineData(Write.Delete)]
     [InlineData(Write.RestoreFromTrash)]
     [InlineData(Write.CreatePrivate)]
+    [InlineData(Write.WriteBack)]
     public void AWriteThatWaitedForALoadThatWentOffline_IsRefused(Write write)
     {
         _watch.Start();
@@ -496,6 +570,7 @@ public sealed class OfflineTests : IDisposable
         Write.Replace => _copy.Replace(Record, 1, Content("changed")),
         Write.Delete => _copy.Delete(Record, 1),
         Write.RestoreFromTrash => _copy.RestoreFromTrash(OtherRecord),
+        Write.WriteBack => _copy.WriteBack(new OutsideChange(Record, InTrash: false, OutsideReason.Gone, LastGood: 1)),
         _ => throw new ArgumentOutOfRangeException(nameof(write)),
     };
 
@@ -613,6 +688,31 @@ public sealed class OfflineTests : IDisposable
             throw new InvalidOperationException("The test failed the load.");
         }
     };
+
+    /// <summary>
+    /// Lets the holds of folders on the share go through, so a load reaches the root and takes the lock of the copy, holds its
+    /// first listing until <see cref="_release"/> is set, and fails every listing: gives what is set once the listing is held.
+    /// </summary>
+    private ManualResetEventSlim HoldTheNextListing()
+    {
+        var held = new ManualResetEventSlim();
+        var once = 0;
+        _files.Before = (step, path) =>
+        {
+            if (step == nameof(IFileSystem.List) && IsOnShare(path))
+            {
+                if (Interlocked.Exchange(ref once, 1) == 0)
+                {
+                    held.Set();
+                    _release.Wait(Wait);
+                }
+
+                throw new IOException("The test took the share away.");
+            }
+        };
+
+        return held;
+    }
 
     /// <summary>
     /// Holds the next step on the share until <see cref="_release"/> is set, and takes the share away from that step on: gives

@@ -63,6 +63,7 @@ public sealed class DataWatchTests : IDisposable
         Replace,
         Delete,
         RestoreFromTrash,
+        WriteBack,
     }
 
     public void Dispose()
@@ -287,6 +288,7 @@ public sealed class DataWatchTests : IDisposable
     [InlineData(Member.Replace)]
     [InlineData(Member.Delete)]
     [InlineData(Member.RestoreFromTrash)]
+    [InlineData(Member.WriteBack)]
     public void EachPublicMemberOfTheCopy_WaitsForALoadUnderWay(Member member)
     {
         Create(Record, "record");
@@ -455,6 +457,9 @@ public sealed class DataWatchTests : IDisposable
                 break;
             case Member.RestoreFromTrash:
                 _copy.RestoreFromTrash(OtherRecord);
+                break;
+            case Member.WriteBack:
+                _copy.WriteBack(new OutsideChange(Record, InTrash: false, OutsideReason.Gone, LastGood: 1));
                 break;
         }
     }

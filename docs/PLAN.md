@@ -266,6 +266,8 @@ Design sections 5 and 7.10.
 
     Decided in M2.9 (by the user, before the code): the old M2.9 is split into the list and forgetting, which touch only the local copy (M2.9), writing back a document gone outside the trash (M2.9a), writing back over a file that is there (M2.9b), and the private folders of other users (M2.9c). The list is each reported change outside Kiler with the version of its last good bytes. Forgetting a document that the share still has takes its file as it is (one edited in place or out of order becomes the last good, a damaged one stays damaged), and a gone one leaves the copy. Forgetting the private folder of someone who left also stops copying it until the account is given again.
 
+    Decided in M2.9a (by the user, before the code): a document gone outside the trash goes back where it went from, its folder or the trash, with its last good bytes as they are, at their version, so every copy that has the same last good bytes takes it as good again. A copy that is behind writes nothing back: when the history of the share has a slot after that version, or a slot of it with other bytes, the document back at that version would block the writes of the newer versions for good, so the restore is refused (`WriteOutcome.Behind`) and the slots stay. A change that is no longer as the list gave it is refused too (`WriteOutcome.NotListed`).
+
 **Tests** (the tests are written first):
 
 - atomic write with a simulated crash in the middle: the original stays intact;

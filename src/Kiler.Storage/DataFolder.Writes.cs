@@ -386,10 +386,13 @@ public sealed partial class DataFolder
     }
 
     /// <summary>Whether the document has the bytes that the write read at its start.</summary>
-    private bool IsUnchanged(DocumentKey key, byte[] old)
+    private bool IsUnchanged(DocumentKey key, byte[] old) => HasBytes(DocumentPath(key), old);
+
+    /// <summary>Whether a file, opened as itself, has the bytes; <c>false</c> when no file is there.</summary>
+    private bool HasBytes(string path, byte[] expected)
     {
-        using var stream = Files.OpenRead(DocumentPath(key));
-        return stream is not null && DocumentFormat.TryReadBytes(stream, out var bytes) && bytes.AsSpan().SequenceEqual(old);
+        using var stream = Files.OpenRead(path);
+        return stream is not null && DocumentFormat.TryReadBytes(stream, out var bytes) && bytes.AsSpan().SequenceEqual(expected);
     }
 
     /// <summary>
