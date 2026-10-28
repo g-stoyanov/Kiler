@@ -346,9 +346,13 @@ public sealed partial class DataFolder
     /// over, nor a link, a folder or a slot that may not be deleted. The slot is held from its read to its delete, so of two
     /// writes that take over one slot the second cannot hold it, and a write under way, which keeps its slot open to write,
     /// cannot lose it. It is deleted through the handle, so the slot that was read goes, never a new one at its name, and
-    /// its name is free once the hold is let go (<see cref="IFileSystem.DeleteHeldFile"/>). Without <paramref name="now"/>
-    /// the age does not count: a restore from the trash deletes so the slot that the delete made (M2.5). <c>false</c> when
-    /// nothing was deleted.
+    /// its name is free once the hold is let go (<see cref="IFileSystem.DeleteHeldFile"/>). An empty slot is taken over
+    /// without the check of its bytes: no write makes one, as a slot is a whole document, so it is the lock of a write back
+    /// that a crash of the machine of the files left (M2.9b, second security review), whose delete-on-close it lost; a live
+    /// lock cannot be held. The document is checked as for any slot, so a write that read it before a write back replaced it
+    /// does not take the dead lock over (code review). Without <paramref name="now"/> the age does not count: a restore from
+    /// the trash deletes so the slot that the delete made (M2.5), and a dead lock at once. <c>false</c> when nothing was
+    /// deleted.
     /// </summary>
     private bool DeleteLeftoverSlot(DocumentKey key, string slot, byte[] old, DateTimeOffset? now, Holds folders, Holds historyFolders)
     {
@@ -366,7 +370,13 @@ public sealed partial class DataFolder
                 return false;
             }
 
-            if (!DocumentFormat.TryReadBytes(held.Content, out var bytes) || !bytes.AsSpan().SequenceEqual(old) || !IsUnchanged(key, old))
+            if (!DocumentFormat.TryReadBytes(held.Content, out var bytes))
+            {
+                return false;
+            }
+
+            // A dead lock has no bytes to compare; the document still has to be as the write read it (code review of M2.9b).
+            if ((bytes.Length > 0 && !bytes.AsSpan().SequenceEqual(old)) || !IsUnchanged(key, old))
             {
                 return false;
             }
@@ -468,7 +478,7 @@ public sealed partial class DataFolder
     }
 
     /// <summary>The root and the folder of a document, held.</summary>
-    private Holds HoldDocumentFolders(DocumentKey key) => Known(key).Folder is { } folder ? Hold(create: false, folder) : Hold(create: false);
+    private Holds HoldDocumentFolders(DocumentKey key) => Hold(create: false, FoldersOf(key));
 
     /// <summary>The folders of the history slots of a document, from the root down, made where they are missing, and held.</summary>
     private Holds HoldHistoryFolders(DocumentKey key) => Hold(create: true, HistoryFolders(key));

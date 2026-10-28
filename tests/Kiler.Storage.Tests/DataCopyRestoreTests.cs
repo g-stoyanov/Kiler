@@ -8,7 +8,8 @@ namespace Kiler.Storage.Tests;
 /// The restore from the local copy (M2.9, PLAN M2 step 10): the documents whose last good bytes the copy keeps for a restore
 /// (<see cref="DataCopy.ToRestore"/>), forgetting those that should not come back (<see cref="DataCopy.Forget"/>), such as
 /// the private folder of someone who has left (<see cref="DataCopy.ForgetPrivate"/>, design 7.9), and writing back a
-/// document gone outside the trash (<see cref="DataCopy.WriteBack"/>, M2.9a).
+/// document gone outside the trash (<see cref="DataCopy.WriteBack"/>, M2.9a); over a file that is there, M2.9b, in
+/// <see cref="DataCopyWriteBackOverTests"/>.
 /// </summary>
 public sealed class DataCopyRestoreTests : IDisposable
 {
@@ -997,16 +998,17 @@ public sealed class DataCopyRestoreTests : IDisposable
     }
 
     /// <summary>
-    /// Writing back over a file that is there comes with M2.9b, and into the private folder of another user with M2.9c; until
-    /// then they are refused before anything is looked at.
+    /// Writing back into the private folder of another user comes with M2.9c; until then it is refused before anything is
+    /// looked at. Writing back over a file that is there is M2.9b (<see cref="DataCopyWriteBackOverTests"/>).
     /// </summary>
-    [Fact]
-    public void WriteBack_AChangeOfAnotherReason_OrOfThePrivateFolderOfAnotherUser_IsRefused()
+    [Theory]
+    [InlineData(OutsideReason.Gone)]
+    [InlineData(OutsideReason.Damaged)]
+    public void WriteBack_AChangeOfThePrivateFolderOfAnotherUser_IsRefused(OutsideReason reason)
     {
         var copy = OpenAt(Me);
 
-        Assert.Throws<NotSupportedException>(() => copy.WriteBack(new OutsideChange(Record, InTrash: false, OutsideReason.Damaged, LastGood: 1)));
-        Assert.Throws<ArgumentException>(() => copy.WriteBack(new OutsideChange(TheirRecord, InTrash: false, OutsideReason.Gone, LastGood: 1)));
+        Assert.Throws<ArgumentException>(() => copy.WriteBack(new OutsideChange(TheirRecord, InTrash: false, reason, LastGood: 1)));
         Assert.Throws<ArgumentNullException>(() => copy.WriteBack(default));
     }
 

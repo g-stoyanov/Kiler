@@ -26,7 +26,8 @@ public enum WriteOutcome
 
     /// <summary>
     /// Replacing or deleting: the file on disk is damaged, so its version is unknown; restoring from the trash: the copy
-    /// there is damaged. Nothing was written; M2.9b restores it.
+    /// there is damaged. Nothing was written; a write back from the local copy restores it (<see cref="DataCopy.WriteBack"/>,
+    /// M2.9b).
     /// </summary>
     Damaged,
 
@@ -49,8 +50,10 @@ public enum WriteOutcome
     /// <summary>
     /// Replacing, deleting or restoring from the trash: a file stayed open in another program, such as the read of another
     /// Kiler or an antivirus, or it is read-only, so it could not be renamed over or moved. Writing back from the local copy
-    /// (M2.9a): the last good bytes in the copy cannot be read now, as another program holds their file. Nothing was written;
-    /// the write can be tried again.
+    /// (M2.9a): the last good bytes in the copy cannot be read now, as another program holds their file. Writing back over a
+    /// file that is there (M2.9b): that file is held open without sharing the delete, or is read-only; a write of another
+    /// Kiler of its version is under way, or left its slot less than two minutes ago; or the copy has lost its bytes of that
+    /// file, which the next load reads again. Nothing was written; the write can be tried again.
     /// </summary>
     Busy,
 
@@ -66,14 +69,17 @@ public enum WriteOutcome
 
     /// <summary>
     /// Writing back from the local copy (<see cref="DataCopy.WriteBack"/>, M2.9a): the change is no longer in the copy as the
-    /// list gave it (<see cref="DataCopy.ToRestore"/>), as a load has seen the document since, or it was forgotten. Nothing
-    /// was written; the list is read again.
+    /// list gave it (<see cref="DataCopy.ToRestore"/>), as a load has seen the document since, or it was forgotten. Over a file
+    /// that is there (M2.9b): that file is no longer the one that the list gave, as it has gone, another entry is at its name,
+    /// or it has changed since, such as by a new version that another Kiler wrote. Nothing was written; the list is read again.
+    /// The one exception: the name of the file there, which the write back deleted, stayed taken for all the tries of its
+    /// rename, so the document is gone until a write back of a gone document brings it back, once a load has reported it.
     /// </summary>
     NotListed,
 
     /// <summary>
-    /// Writing back from the local copy (M2.9a): the history of the share has a version after the one written back, or one
-    /// of it with other bytes, so other Kilers wrote versions that this copy did not see, and the document back at that
+    /// Writing back from the local copy (M2.9a, M2.9b): the history of the share has a version after the one written back, or
+    /// one of it with other bytes, so other Kilers wrote versions that this copy did not see, and the document back at that
     /// version would block their writes for good (M2.4). Nothing was written, and the history stays as it is: the newer
     /// versions are in it, and in the copies that saw them (decided in M2.9a, by the user).
     /// </summary>

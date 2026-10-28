@@ -92,6 +92,12 @@ internal sealed class TestFileSystem : IFileSystem
     /// </summary>
     public bool ZeroIds { get; set; }
 
+    /// <summary>
+    /// Lists every file with the size 0, as a listing may give a size that is not current (M2.9b), so a test sees that a size
+    /// the layer acts on is read through a handle.
+    /// </summary>
+    public bool ListsNoSizes { get; set; }
+
     /// <summary>The waits between the tries of a step, in order. None is waited.</summary>
     public List<TimeSpan> Waits { get; } = [];
 
@@ -105,7 +111,8 @@ internal sealed class TestFileSystem : IFileSystem
     public IReadOnlyList<FileEntry> List(string folder, int limit = int.MaxValue)
     {
         Step(nameof(List), folder);
-        return _real.List(folder, limit);
+        var entries = _real.List(folder, limit);
+        return ListsNoSizes ? [.. entries.Select(entry => entry with { Size = 0 })] : entries;
     }
 
     public void CreateFolder(string path)

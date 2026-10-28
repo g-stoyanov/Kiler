@@ -170,12 +170,15 @@ public sealed class VersionConflictTests : IDisposable
         Assert.Equal(outcome, data.ReplaceDocument(Record, 1, Content("second")).Outcome);
     }
 
-    /// <summary>Only the version that the write replaces is taken over: whole, byte for byte, and within the size limit.</summary>
+    /// <summary>
+    /// Only the version that the write replaces is taken over: whole, byte for byte, and within the size limit. An empty slot
+    /// is the one exception since M2.9b: no write makes one, so it is the dead lock of a write back, which is taken over
+    /// (<see cref="DataCopyWriteBackOverTests.AWriteOfTheVersionOfADeadLock_TakesItOver_OnceItIsOld"/>).
+    /// </summary>
     [Theory]
     [InlineData("other content")]
     [InlineData("a byte more")]
     [InlineData("half")]
-    [InlineData("empty")]
     [InlineData("over the limit")]
     public void ReplaceDocument_AnOldSlotWithOtherBytes_IsNeverTakenOver(string kind)
     {
@@ -187,7 +190,6 @@ public sealed class VersionConflictTests : IDisposable
             "other content" => DocumentFormat.New(Record, Content("another first")),
             "a byte more" => [.. before, (byte)' '],
             "half" => before[..(before.Length / 2)],
-            "empty" => [],
             _ => [.. before, .. new byte[DocumentFormat.MaxSize]],
         };
         var slot = MakeSlot(data, Record, other, Old);

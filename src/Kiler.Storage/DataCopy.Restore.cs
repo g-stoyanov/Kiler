@@ -6,9 +6,9 @@ namespace Kiler.Storage;
 /// The restore from the local copy (M2.9, PLAN M2 step 10): the documents whose last good bytes the copy keeps for a restore
 /// (<see cref="ToRestore"/>), and forgetting those that should not come back (<see cref="Forget"/>), such as the private
 /// folder of someone who has left (<see cref="ForgetPrivate"/>, design 7.9). None of them touches the share, so they work
-/// while the copy is offline too. Writing back a document gone outside the trash (<see cref="WriteBack"/>, M2.9a) is a write
-/// through the copy; over a file that is there it is M2.9b, and into the private folder of another user M2.9c. The screen is
-/// M6, and the check that only an admin restores is M4.
+/// while the copy is offline too. Writing back (<see cref="WriteBack"/>) a document gone outside the trash (M2.9a), or over a
+/// file that is there (M2.9b), is a write through the copy; into the private folder of another user it is M2.9c. The screen
+/// is M6, and the check that only an admin restores is M4.
 /// </summary>
 public sealed partial class DataCopy
 {
@@ -167,32 +167,30 @@ public sealed partial class DataCopy
     }
 
     /// <summary>
-    /// Writes back a document gone outside the trash, as <see cref="ToRestore"/> gave it (M2.9a): its last good bytes go back
-    /// on the share as they are, at their version, where it went from, its folder or the trash, through a write of their own
-    /// (<see cref="DataFolder.WriteBack"/>), and the copy follows it. So every copy that has the same last good bytes takes
-    /// them as good again at its next load, and one that had an older version takes them as a new one (decided in M2.9a, by
-    /// the user). The file is new, so its owner is the one who wrote it back (M4 must not mark it for that). Nothing is
-    /// written, and the copy stays as it is, when the change is no longer as the list gave it (<see cref="IsListed"/>,
-    /// <see cref="WriteOutcome.NotListed"/>); when the bytes kept apart are not the last good ones any more
-    /// (<see cref="WriteOutcome.Missing"/>) or cannot be read now (<see cref="WriteOutcome.Busy"/>), as the bytes in
-    /// <c>kept\</c> are checked against their hash first (M2.7a); when anything is at its name, or a document of its id is in
-    /// the other place (<see cref="WriteOutcome.Exists"/>); when the history of the share has a version after them, or one of
-    /// theirs with other bytes, as the copy did not see versions that other Kilers wrote (<see cref="WriteOutcome.Behind"/>);
-    /// and while the copy is offline (<see cref="WriteOutcome.Offline"/>), as for the other writes through the copy. The
-    /// limit (decided by the user): a copy that missed only the last version of the share writes back the one before it, as
-    /// the slot of that version has its bytes, and a copy that saw the last one reports the document out of order, with its
-    /// last good bytes. A change of another reason is a <see cref="NotSupportedException"/>, as writing back over a file that
-    /// is there comes with M2.9b, and one of the private folder of another user an <see cref="ArgumentException"/> (M2.9c),
-    /// before anything is looked at.
+    /// Writes back a change outside Kiler, as <see cref="ToRestore"/> gave it: its last good bytes go back on the share as they
+    /// are, at their version, through a write of their own, and the copy follows it. So every copy that has the same last good
+    /// bytes takes them as good again at its next load, and one that had an older version takes them as a new one (decided in
+    /// M2.9a, by the user). A document gone outside the trash goes back where it went from, its folder or the trash
+    /// (<see cref="DataFolder.WriteBack"/>, M2.9a); one damaged, edited in place or out of order gets them over the file there,
+    /// which is not kept (<see cref="DataFolder.WriteBackOver"/>, M2.9b). The file is new, so its owner is the one who wrote it
+    /// back (M4 must not mark it for that). Nothing is written, and the copy stays as it is, when the change is no longer as
+    /// the list gave it (<see cref="IsListed"/>, <see cref="WriteOutcome.NotListed"/>), or the file there is not the one that
+    /// the copy listed: still damaged, or with the bytes that the copy took of it (also <see cref="WriteOutcome.NotListed"/>,
+    /// and <see cref="WriteOutcome.Busy"/> while the copy has lost those bytes, until the next load reads the file again);
+    /// when the bytes kept apart are not the last good ones any more (<see cref="WriteOutcome.Missing"/>) or cannot be read
+    /// now (<see cref="WriteOutcome.Busy"/>), as the bytes in <c>kept\</c> are checked against their hash first (M2.7a); for a
+    /// gone one, when anything is at its name, or a document of its id is in the other place
+    /// (<see cref="WriteOutcome.Exists"/>); when the history of the share has a version after them, or one of theirs with
+    /// other bytes, as the copy did not see versions that other Kilers wrote (<see cref="WriteOutcome.Behind"/>); and while
+    /// the copy is offline (<see cref="WriteOutcome.Offline"/>), as for the other writes through the copy. The limit (decided
+    /// by the user): a copy that missed only the last version of the share writes back the one before it, as the slot of that
+    /// version has its bytes, and a copy that saw the last one reports the document out of order, with its last good bytes. A
+    /// change of the private folder of another user is an <see cref="ArgumentException"/> until M2.9c, before anything is
+    /// looked at.
     /// </summary>
     public WriteResult WriteBack(OutsideChange change)
     {
         ArgumentNullException.ThrowIfNull(change.Key, nameof(change));
-        if (change.Reason != OutsideReason.Gone)
-        {
-            throw new NotSupportedException("Only a document gone outside the trash is written back.");
-        }
-
         if (!IsOwn(change.Key.Account))
         {
             throw new ArgumentException("A write through the local copy goes only to the data folder or to the private folder of its user.", nameof(change));
@@ -221,7 +219,10 @@ public sealed partial class DataCopy
                 return WriteResult.Not(kept == Keep.Lost ? WriteOutcome.Missing : WriteOutcome.Busy);
             }
 
-            var result = RootOf(change.Key).WriteBack(change.Key, spot.InTrash, bytes, _limits.Listed);
+            var root = RootOf(change.Key);
+            var result = change.Reason == OutsideReason.Gone
+                ? root.WriteBack(change.Key, spot.InTrash, bytes, _limits.Listed)
+                : WriteBackOver(root, spot, entry, bytes);
             if (result.Outcome == WriteOutcome.Written)
             {
                 WroteBack(spot, entry, lastGood, bytes);
@@ -230,6 +231,31 @@ public sealed partial class DataCopy
 
             return result;
         }
+    }
+
+    /// <summary>
+    /// Writes back the last good bytes of a document over the file there (M2.9b), only while that file is the one that the copy
+    /// listed: still damaged, or with the bytes that the copy took of it, whose hash the entry keeps. When the copy has lost
+    /// those bytes, it does not know the file there, so it is <see cref="WriteOutcome.Busy"/>: the next load reads it again
+    /// (<see cref="WithoutCurrent"/>).
+    /// </summary>
+    private WriteResult WriteBackOver(DataFolder root, Spot spot, CopyEntry entry, byte[] bytes)
+    {
+        Func<byte[]?, bool> isListed;
+        if (entry.Outside == OutsideReason.Damaged)
+        {
+            isListed = there => there is null || DocumentFormat.ReadHead(spot.Key, there).Damage is not null;
+        }
+        else if (entry.Hash is { } hash)
+        {
+            isListed = there => there is not null && Hash(there) == hash;
+        }
+        else
+        {
+            return WriteResult.Not(WriteOutcome.Busy);
+        }
+
+        return root.WriteBackOver(spot.Key, spot.InTrash, bytes, _limits.Listed, isListed);
     }
 
     /// <summary>
