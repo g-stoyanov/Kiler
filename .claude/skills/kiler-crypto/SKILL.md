@@ -88,5 +88,5 @@ Known test vectors come from their source (RFC 7914 for PBKDF2-HMAC-SHA256, the 
 | Question | Note |
 |---|---|
 | Where and how the admin stamp key is kept | the admin seal of PLAN M3 step 6 |
-| What exactly the stamp signs | a canonical form of the user's file, without the `stamp` field itself |
+| What exactly the stamp signs | a canonical form of the user's file, without the `stamp` field itself; `levels.json` too (PLAN section 10, decided after M3.2) |
 | Where the private key for signing updates is kept, and how a release is signed | never in the repo or the shared folder (M3 step 11) |
