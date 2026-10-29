@@ -56,14 +56,36 @@ internal static class EncryptedValue
         ArgumentNullException.ThrowIfNull(value);
         using var aes = key.Use(Aes256Gcm.Create);
 
-        var bytes = FromBase64(value);
-        if (bytes.Length < MinSize || bytes[0] != Version1)
+        var bytes = Read(value);
+        var plaintext = new byte[bytes.Length - MinSize];
+        Decrypt(aes, bytes, plaintext, purpose, context);
+        return plaintext;
+    }
+
+    /// <summary>
+    /// Decrypts a value whose plaintext has the length of <paramref name="plaintext"/> straight into it, so a secret such as a
+    /// level key goes into a pinned buffer of the caller, never into an array of its own (M3.3). A value of another length
+    /// fails as a damaged one does, and a failure leaves <paramref name="plaintext"/> zeroed.
+    /// </summary>
+    public static void Decrypt(SecretKey key, string value, Span<byte> plaintext, Purpose purpose, params ReadOnlySpan<string> context)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(value);
+        using var aes = key.Use(Aes256Gcm.Create);
+
+        var bytes = Read(value);
+        if (bytes.Length - MinSize != plaintext.Length)
         {
+            CryptographicOperations.ZeroMemory(plaintext);
             throw Unreadable();
         }
 
+        Decrypt(aes, bytes, plaintext, purpose, context);
+    }
+
+    private static void Decrypt(AesGcm aes, byte[] bytes, Span<byte> plaintext, Purpose purpose, ReadOnlySpan<string> context)
+    {
         var associatedData = AssociatedData(bytes[0], purpose, context);
-        var plaintext = new byte[bytes.Length - MinSize];
         try
         {
             aes.Decrypt(bytes.AsSpan(1, Aes256Gcm.NonceSize), bytes.AsSpan(HeaderSize, plaintext.Length), bytes.AsSpan(HeaderSize + plaintext.Length), plaintext, associatedData);
@@ -74,8 +96,13 @@ internal static class EncryptedValue
             CryptographicOperations.ZeroMemory(plaintext);
             throw Unreadable();
         }
+    }
 
-        return plaintext;
+    /// <summary>The bytes of a value of a version that can be read, at least as long as one that encrypts nothing.</summary>
+    private static byte[] Read(string value)
+    {
+        var bytes = FromBase64(value);
+        return bytes.Length >= MinSize && bytes[0] == Version1 ? bytes : throw Unreadable();
     }
 
     private static byte[] FromBase64(string value)

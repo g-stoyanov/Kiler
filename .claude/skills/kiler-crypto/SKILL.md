@@ -62,6 +62,7 @@ The decisions are in `docs/tasks/M3.md`, "Decisions for the module".
 
   The private records add their own after the exam: the owner and the record id (design 7.10).
 - **Salt:** 16 random bytes, new at every lock, also when the same keys are locked again.
+- **A locked set of level keys** (`LevelKeys`, M3.3): the `salt` and `keys` of a user file (design 7.3). The salt is base64 of 16 bytes, and each key is an encrypted value of its 32 bytes, with the key from the secret and the salt, purpose `level-key` and its level as context, under the level's digits. A set locked with the recovery key has the same format.
 - **A password** goes into PBKDF2 as UTF-8, as typed, and those bytes are zeroed after use.
 - **The recovery key:** 20 random bytes as 32 characters of Crockford Base32 (`0123456789ABCDEFGHJKMNPQRSTVWXYZ`), shown in 8 groups of 4 joined by `-`. A typed key is read without regard to case, hyphens and spaces, with O read as 0 and I and L as 1; anything else is refused. The 32 upper-case characters are the secret, used as a password (salt and PBKDF2). The personal recovery code (design 7.10) has the same format.
 - **Kiler.Crypto knows bytes and base64 strings only:** no files, no JSON, no models. Kiler.Core gives it the UTF-8 of a group of fields.

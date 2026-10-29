@@ -48,6 +48,44 @@ public class EncryptedValueTests
         Assert.True(EncryptedValue.Decrypt(key, value, Purpose.Group, "8f3a1c", "2").SequenceEqual(Text), "Decrypted bytes differ.");
     }
 
+    // A decrypted key goes straight into the pinned buffer of the caller, never into an array of its own (M3.3).
+    [Fact]
+    public void Decrypt_IntoADestinationOfItsLength_GivesTheSameBytes()
+    {
+        using var key = SecretKey.New();
+        var value = EncryptedValue.Encrypt(key, Text, Purpose.Group, "8f3a1c", "2");
+        var plaintext = new byte[Text.Length];
+
+        EncryptedValue.Decrypt(key, value, plaintext, Purpose.Group, "8f3a1c", "2");
+
+        Assert.True(plaintext.SequenceEqual(Text), "Decrypted bytes differ.");
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(1)]
+    public void Decrypt_IntoADestinationOfAnotherLength_FailsAndWritesNothing(int difference)
+    {
+        using var key = SecretKey.New();
+        var value = EncryptedValue.Encrypt(key, Text, Purpose.Group, "8f3a1c", "2");
+        var plaintext = new byte[Text.Length + difference];
+
+        Assert.Throws<CryptographicException>(() => EncryptedValue.Decrypt(key, value, plaintext, Purpose.Group, "8f3a1c", "2"));
+        Assert.True(plaintext.All(b => b == 0), "A failed decryption wrote bytes.");
+    }
+
+    [Fact]
+    public void Decrypt_IntoADestination_ADamagedValueWritesNothing()
+    {
+        using var key = SecretKey.New();
+        var bytes = Convert.FromBase64String(EncryptedValue.Encrypt(key, Text, Purpose.Group, "8f3a1c", "2"));
+        bytes[^1] ^= 0x01;
+        var plaintext = new byte[Text.Length];
+
+        Assert.Throws<CryptographicException>(() => EncryptedValue.Decrypt(key, Convert.ToBase64String(bytes), plaintext, Purpose.Group, "8f3a1c", "2"));
+        Assert.True(plaintext.All(b => b == 0), "A failed decryption left bytes.");
+    }
+
     [Fact]
     public void Decrypt_AnEncryptedEmptyValue_GivesNoBytes()
     {
