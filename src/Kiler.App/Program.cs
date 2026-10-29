@@ -47,6 +47,12 @@ switch (decision)
             Console.WriteLine($"--port {port} is ignored.");
         }
 
+        // The running Kiler keeps the account it started with.
+        if (options.Account is not null)
+        {
+            Console.WriteLine("--account is ignored.");
+        }
+
         if (options.FirstWait is not null)
         {
             Console.WriteLine("--first-wait is ignored.");

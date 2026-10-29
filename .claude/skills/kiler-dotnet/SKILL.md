@@ -67,7 +67,7 @@ The rest are general good practices, not project decisions. If a task asks for s
 
 ## Windows parts
 
-Per PLAN section 3, the current Windows account, DPAPI and opening Explorer are interfaces in Kiler.Core, implemented in Kiler.App. Their names are chosen when they are first needed. Tests use fake implementations.
+Per PLAN section 3, the current Windows account, DPAPI and opening Explorer are interfaces in Kiler.Core, implemented in Kiler.App. Their names are chosen when they are first needed: the account is `ICurrentAccount` (M4.1), implemented by `WindowsAccount`, which takes `--account` or the user of the process token, never the `USERNAME` variable. Tests use fake implementations.
 
 The file owner is the exception (decided at the start of M2): an interface in Kiler.Storage (`IFileOwner`, M2.6), implemented in Kiler.App by `FileOwner.Instance`. Storage reads the owner through the handle it reads the file with and keeps it in the local copy (M2.7), so a start from the local copy does not ask the share for every owner.
 

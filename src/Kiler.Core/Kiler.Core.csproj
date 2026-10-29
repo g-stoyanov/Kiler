@@ -11,4 +11,9 @@
     <ProjectReference Include="..\Kiler.Storage\Kiler.Storage.csproj" />
   </ItemGroup>
 
+  <!-- The tests read the content of a model without a document, which only the data layer makes. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Kiler.Core.Tests" />
+  </ItemGroup>
+
 </Project>

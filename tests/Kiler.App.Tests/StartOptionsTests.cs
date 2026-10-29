@@ -11,6 +11,7 @@ public class StartOptionsTests
         Assert.False(options.NoBrowser);
         Assert.Null(options.Port);
         Assert.Null(options.DataFolder);
+        Assert.Null(options.Account);
         Assert.Null(options.FirstWait);
         Assert.Null(options.IdleWait);
         Assert.Equal(HeartbeatTimes.Default, options.HeartbeatTimes);
@@ -19,12 +20,13 @@ public class StartOptionsTests
     [Fact]
     public void AllServerOptions_AreRead()
     {
-        var options = Parse("--no-browser", "--port", "5050", "--data", @"C:\demo data", "--first-wait", "3", "--idle-wait", "2");
+        var options = Parse("--no-browser", "--port", "5050", "--data", @"C:\demo data", "--account", "demo.user", "--first-wait", "3", "--idle-wait", "2");
 
         Assert.Equal(StartMode.Server, options.Mode);
         Assert.True(options.NoBrowser);
         Assert.Equal(5050, options.Port);
         Assert.Equal(@"C:\demo data", options.DataFolder);
+        Assert.Equal("demo.user", options.Account);
         Assert.Equal(TimeSpan.FromSeconds(3), options.FirstWait);
         Assert.Equal(TimeSpan.FromSeconds(2), options.IdleWait);
     }
@@ -93,6 +95,27 @@ public class StartOptionsTests
         Assert.Contains("--idle-wait", ParseError("--idle-wait", value), StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("demo.user", "demo.user")]
+    [InlineData("Demo.User", "demo.user")]
+    [InlineData(@"DEMO\demo.user", "demo.user")]
+    public void Account_IsTheAccountOfTheName_WithoutTheDomain_InLowercase(string value, string account)
+    {
+        Assert.Equal(account, Parse("--account", value).Account);
+    }
+
+    [Theory]
+    [InlineData("demo user")]
+    [InlineData("Демо")]
+    [InlineData("con")]
+    [InlineData("demo..user")]
+    [InlineData(@"DEMO\")]
+    [InlineData("demo.tmp")]
+    public void Account_ThatFailsTheNameCheck_IsAnError(string value)
+    {
+        Assert.Contains("--account", ParseError("--account", value), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void HeartbeatTimes_TakesTheGivenWaitsAndTheDefaultsForTheRest()
     {
@@ -115,6 +138,10 @@ public class StartOptionsTests
     [InlineData("--data", "")]
     [InlineData("--data", "   ")]
     [InlineData("--data", "-x")]
+    [InlineData("--account")]
+    [InlineData("--account", "--no-browser")]
+    [InlineData("--account", "")]
+    [InlineData("--account", "  ")]
     [InlineData("--first-wait")]
     [InlineData("--first-wait", "--no-browser")]
     [InlineData("--idle-wait")]
@@ -157,6 +184,7 @@ public class StartOptionsTests
     [Theory]
     [InlineData("--diag", "--no-browser")]
     [InlineData("--diag", "--port", "5050")]
+    [InlineData("--diag", "--account", "demo.user")]
     [InlineData("--port", "5050", "--diag", "folder")]
     [InlineData("--diag", "--first-wait", "3")]
     [InlineData("--idle-wait", "2", "--diag")]
@@ -195,6 +223,7 @@ public class StartOptionsTests
     [InlineData("--no-browser", "--no-browser")]
     [InlineData("--port", "5050", "--port", "6060")]
     [InlineData("--data", "a", "--data", "b")]
+    [InlineData("--account", "demo.user", "--account", "demo.admin")]
     [InlineData("--diag", "--diag")]
     [InlineData("--first-wait", "3", "--first-wait", "4")]
     [InlineData("--idle-wait", "2", "--idle-wait", "2")]
@@ -226,10 +255,10 @@ public class StartOptionsTests
     [Fact]
     public void ToServerArguments_AllServerOptions_ArePassedOn()
     {
-        var options = Parse("--idle-wait", "2", "--data", @"C:\demo data\", "--first-wait", "3", "--port", "5050", "--no-browser");
+        var options = Parse("--idle-wait", "2", "--account", "Demo.User", "--data", @"C:\demo data\", "--first-wait", "3", "--port", "5050", "--no-browser");
 
         Assert.Equal(
-            ["--no-browser", "--port", "5050", "--data", @"C:\demo data\", "--first-wait", "3", "--idle-wait", "2"],
+            ["--no-browser", "--port", "5050", "--data", @"C:\demo data\", "--account", "demo.user", "--first-wait", "3", "--idle-wait", "2"],
             options.ToServerArguments());
     }
 

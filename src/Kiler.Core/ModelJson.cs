@@ -1,0 +1,95 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
+
+namespace Kiler.Core;
+
+/// <summary>
+/// The JSON of the models of Kiler.Core (M4), source-generated and case-sensitive, so a name in another case means nothing
+/// to a model (storage.md, "Documents in the upper layers"). Every member of the JSON types is nullable, so a missing one is
+/// a reason of the model, not an exception. A member that a model does not know is skipped when read and left out when
+/// written.
+/// </summary>
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    PropertyNameCaseInsensitive = false,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(LevelsJson))]
+[JsonSerializable(typeof(SettingsJson))]
+[JsonSerializable(typeof(UserJson))]
+internal sealed partial class CoreJsonContext : JsonSerializerContext;
+
+internal static class ModelJson
+{
+    /// <summary>The reason of a content whose value has another type, such as a text where a number belongs.</summary>
+    public const string WrongType = "A value does not have the type it must have.";
+
+    /// <summary>
+    /// The content as its JSON type, or <c>null</c> when a value has another type. The message of the exception is not kept:
+    /// its path can hold a name from the share.
+    /// </summary>
+    public static T? Read<T>(JsonObject content, JsonTypeInfo<T> type)
+        where T : class
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        try
+        {
+            return content.Deserialize(type);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    public static JsonObject Write<T>(T value, JsonTypeInfo<T> type) => JsonSerializer.SerializeToNode(value, type)!.AsObject();
+}
+
+internal sealed class LevelsJson
+{
+    public List<LevelJson?>? Levels { get; init; }
+
+    public KeysJson? Recovery { get; init; }
+}
+
+internal sealed class LevelJson
+{
+    public int? Level { get; init; }
+
+    public string? Name { get; init; }
+
+    public string? Check { get; init; }
+}
+
+/// <summary>A locked set of level keys (M3.3): the salt, and the keys under the digits of their levels.</summary>
+internal sealed class KeysJson
+{
+    public string? Salt { get; init; }
+
+    public Dictionary<string, string?>? Keys { get; init; }
+}
+
+internal sealed class SettingsJson
+{
+    public bool? GuestMode { get; init; }
+
+    public int? AutoLockMinutes { get; init; }
+}
+
+internal sealed class UserJson
+{
+    public string? DisplayName { get; init; }
+
+    public int? Level { get; init; }
+
+    public bool? CanEdit { get; init; }
+
+    public bool? IsAdmin { get; init; }
+
+    public bool? MustChangePassword { get; init; }
+
+    public string? Salt { get; init; }
+
+    public Dictionary<string, string?>? Keys { get; init; }
+}

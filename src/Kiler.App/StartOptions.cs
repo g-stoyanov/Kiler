@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using Kiler.Core;
 
 namespace Kiler.App;
 
@@ -15,13 +16,14 @@ internal sealed record StartOptions
 {
     public const string Usage = """
         Usage:
-          Kiler.exe [--no-browser] [--port <port>] [--data <folder>]
+          Kiler.exe [--no-browser] [--port <port>] [--data <folder>] [--account <name>]
           Kiler.exe --diag [<folder>] [--data <folder>]
           Kiler.exe --help
 
           --no-browser      do not open the browser; print the address instead
           --port <port>     listen on this port (1-65535) instead of a free one
           --data <folder>   use this data folder instead of the default one
+          --account <name>  sign in as this account instead of the Windows one; the password is still asked
           --diag [<folder>] measure the file access in a folder, by default the data folder
 
         For tests:
@@ -41,6 +43,12 @@ internal sealed record StartOptions
 
     /// <summary>The folder from <c>--data</c>, as given; null means the default data folder.</summary>
     public string? DataFolder { get; init; }
+
+    /// <summary>
+    /// The account from <c>--account</c>, as <see cref="AccountName.From"/> makes it; null means the Windows account. It only
+    /// picks the user file, for the demo, the screenshots and the tests (decided at the start of M4).
+    /// </summary>
+    public string? Account { get; init; }
 
     /// <summary>The folder after <c>--diag</c>, as given; null means the data folder.</summary>
     public string? DiagFolder { get; init; }
@@ -112,6 +120,16 @@ internal sealed record StartOptions
                     result = result with { DataFolder = dataFolder };
                     break;
 
+                case "--account":
+                    if (!TryTakeValue(args, ref i, out var accountText) || AccountName.From(accountText) is not { } account)
+                    {
+                        error = "--account needs a Windows account name of ASCII letters, digits, '.', '-' and '_'.";
+                        return false;
+                    }
+
+                    result = result with { Account = account };
+                    break;
+
                 case "--diag":
                     // The folder is optional, so the next argument is taken only when it is not an option.
                     TryTakeValue(args, ref i, out var diagFolder);
@@ -145,9 +163,9 @@ internal sealed record StartOptions
         }
 
         if (result.Mode == StartMode.Diag
-            && (result.NoBrowser || result.Port is not null || result.FirstWait is not null || result.IdleWait is not null))
+            && (result.NoBrowser || result.Port is not null || result.Account is not null || result.FirstWait is not null || result.IdleWait is not null))
         {
-            error = "--diag starts no server, so it does not take --no-browser, --port, --first-wait or --idle-wait.";
+            error = "--diag starts no server, so it does not take --no-browser, --port, --account, --first-wait or --idle-wait.";
             return false;
         }
 
@@ -181,6 +199,11 @@ internal sealed record StartOptions
         if (DataFolder is { } dataFolder)
         {
             arguments.AddRange(["--data", Path.GetFullPath(dataFolder)]);
+        }
+
+        if (Account is { } account)
+        {
+            arguments.AddRange(["--account", account]);
         }
 
         // Whole seconds, as the command line gives them.
