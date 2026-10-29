@@ -9,7 +9,9 @@ namespace Kiler.App;
 [JsonSerializable(typeof(ErrorResponse))]
 [JsonSerializable(typeof(HealthResponse))]
 [JsonSerializable(typeof(InstanceFileContent))]
+[JsonSerializable(typeof(SessionResponse))]
 [JsonSerializable(typeof(ShareFileContent))]
+[JsonSerializable(typeof(SignInRequest))]
 [JsonSerializable(typeof(WizardRequest))]
 [JsonSerializable(typeof(WizardResponse))]
 internal sealed partial class KilerJsonContext : JsonSerializerContext;

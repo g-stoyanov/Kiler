@@ -1,5 +1,6 @@
 using System.Net.ServerSentEvents;
 using System.Runtime.CompilerServices;
+using Kiler.Core;
 using Microsoft.AspNetCore.Http.HttpResults;
 
 namespace Kiler.App;
@@ -26,7 +27,7 @@ internal static class EventsApi
             // Disposed when the request ends, also when the stream never starts.
             context.Response.RegisterForDispose(connection);
             return TypedResults.ServerSentEvents(Events(pingInterval, time, stopping));
-        });
+        }).Needs(Need.Nothing);
 
     /// <summary>
     /// <c>ping</c> at once, which also sends the headers, and then every <paramref name="pingInterval"/>. The stream ends

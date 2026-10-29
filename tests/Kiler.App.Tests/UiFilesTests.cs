@@ -1,4 +1,5 @@
 using System.Net;
+using Kiler.Core;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.FileProviders;
@@ -146,7 +147,7 @@ public class UiFilesTests
     {
         using var ui = new MadeUpUi();
         var app = KilerHost.Build(new StartOptions(), ui.Files);
-        app.MapGet("/records/{id}", (HttpContext context) => context.Request.Path.Value);
+        app.MapGet("/records/{id}", (HttpContext context) => context.Request.Path.Value).Needs(Need.Nothing);
         await using var server = await KilerServer.StartAsync(app);
         using var client = server.CreateSignedInClient();
 

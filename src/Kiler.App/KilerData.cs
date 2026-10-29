@@ -123,6 +123,22 @@ internal sealed partial class KilerData : IDisposable
     }
 
     /// <summary>
+    /// The files of the team while the copy is <see cref="DataState.Open"/> or <see cref="DataState.Offline"/>; null before,
+    /// as a new local copy has no team until its first load has ended, and without data. The sign-in and the rights read
+    /// them (M4.4).
+    /// </summary>
+    public TeamFiles? Files
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _state is DataState.Open or DataState.Offline ? _team?.Files : null;
+            }
+        }
+    }
+
+    /// <summary>
     /// Completes when the start of the data has ended: the first load of the watch has ended, offline or failed too, or Kiler
     /// runs without data, or stops before. It never fails.
     /// </summary>

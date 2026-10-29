@@ -45,12 +45,16 @@ internal static class KilerHost
         builder.Services.AddSingleton(services => new Heartbeat(services.GetRequiredService<IHostApplicationLifetime>(), times, TimeProvider.System));
         builder.Services.AddSingleton(data);
         builder.Services.AddSingleton(account);
+        var sessions = new CurrentSession();
+        builder.Services.AddSingleton(sessions);
 
         var app = builder.Build();
         // Once the server listens, so a share that cannot be reached does not hold up the page. The watch stops before the
         // server does; the stops registered later, such as that of the instance file, run before it.
         app.Lifetime.ApplicationStarted.Register(data.Start);
         app.Lifetime.ApplicationStopping.Register(() => data.Stop(ShutdownTimeout));
+        // Once the server has stopped, so no request starts with the keys; one that outlived the stop answers as locked.
+        app.Lifetime.ApplicationStopped.Register(sessions.Dispose);
 
         // Made now, not on the first request, so the wait for the first page starts with the server.
         var heartbeat = app.Services.GetRequiredService<Heartbeat>();
@@ -58,10 +62,13 @@ internal static class KilerHost
         // ShortCircuit() would run straight from routing, before the guard.
         AccessGuard.Use(app, token, InstancePlace.CookieNameFor(options.DataFolder));
         app.UseRouting();
+        // After routing, so it knows the endpoint and what it needs (M4.4).
+        AccessRules.Use(app, sessions, data);
         UiFiles.Use(app, uiFiles ?? UiFiles.Embedded());
         HealthApi.Map(app, heartbeat);
         DataApi.Map(app, data);
         WizardApi.Map(app, data, account);
+        SessionApi.Map(app, sessions, data, account);
         EventsApi.Map(app, heartbeat, times.PingInterval, TimeProvider.System, app.Lifetime.ApplicationStopping);
         return app;
     }

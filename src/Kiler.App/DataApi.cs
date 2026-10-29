@@ -20,7 +20,7 @@ internal static class DataApi
     public const string MissingFile = "The file is missing.";
 
     public static void Map(IEndpointRouteBuilder endpoints, KilerData data) =>
-        endpoints.MapGet("/api/data", () => TypedResults.Ok(Read(data)));
+        endpoints.MapGet("/api/data", () => TypedResults.Ok(Read(data))).Needs(Need.Nothing);
 
     private static DataResponse Read(KilerData data)
     {

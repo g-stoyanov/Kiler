@@ -37,7 +37,7 @@ internal static class WizardApi
     public const string NoAccount = "The name of this Windows account cannot be the name of a Kiler account, so it cannot sign in.";
 
     public static void Map(IEndpointRouteBuilder endpoints, KilerData data, ICurrentAccount account) =>
-        endpoints.MapPost("/api/wizard", (WizardRequest request) => Run(data, account, request));
+        endpoints.MapPost("/api/wizard", (WizardRequest request) => Run(data, account, request)).Needs(Need.Nothing);
 
     /// <summary>What the page says when the wizard made no Kiler.</summary>
     public static string Message(WizardRefusal refusal) => refusal switch

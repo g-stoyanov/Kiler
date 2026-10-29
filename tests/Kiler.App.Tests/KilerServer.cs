@@ -35,6 +35,9 @@ internal sealed class KilerServer : IAsyncDisposable
 
     public AccessToken Token { get; }
 
+    /// <summary>The services of the app, such as the session of the process (M4.4).</summary>
+    public IServiceProvider Services => _app.Services;
+
     /// <summary>The name of the cookie with the token, which comes from the data folder of the instance.</summary>
     public string CookieName { get; }
 
