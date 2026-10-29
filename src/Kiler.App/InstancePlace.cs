@@ -40,7 +40,8 @@ internal sealed record InstancePlace(string MutexName, string FilePath, string C
     /// </summary>
     public static string CookieNameFor(string? dataFolder) => dataFolder is null ? Cookie : $"{Cookie}-{Key(dataFolder)}";
 
-    private static string Key(string dataFolder)
+    /// <summary>The key of a data folder in the names of its instance and of its local copy (<see cref="DataPlace"/>): 16 hex digits.</summary>
+    public static string Key(string dataFolder)
     {
         // Windows ignores the case of a path. Another spelling of the same folder, such as a mapped drive and
         // its UNC path, gives another instance.

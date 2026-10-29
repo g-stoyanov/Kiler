@@ -9,14 +9,15 @@ namespace Kiler.App.Tests;
 /// A copy of the published Kiler.exe for the smoke tests, in a temporary folder of its own on the local disk, so it runs
 /// there and does not copy itself into the profile (M1.5a). Each copy has a data folder of its own, so its runs are an
 /// instance of their own and do not meet the user's Kiler (M1.5). Disposing it ends the runs that are left and deletes the
-/// instance file that a killed run leaves in the real profile.
+/// instance file that a killed run leaves in the real profile, and the local copy of the data folder that every run makes
+/// there (M2.10).
 /// </summary>
 internal sealed partial class KilerExe : IDisposable
 {
     /// <summary>The environment variable with the path of the published exe. <c>smoke.ps1</c> sets it.</summary>
     public const string Variable = "KILER_SMOKE_EXE";
 
-    /// <summary>An antivirus may still read the exe that has just run, so the folder is deleted in a few tries.</summary>
+    /// <summary>An antivirus may still read the exe that has just run, so a folder is deleted in a few tries.</summary>
     private const int DeleteTries = 5;
 
     private static readonly TimeSpan DeleteRetryDelay = TimeSpan.FromMilliseconds(500);
@@ -44,6 +45,7 @@ internal sealed partial class KilerExe : IDisposable
         var place = InstancePlace.ForCurrentUser(DataFolder);
         InstanceFile = place.FilePath;
         CookieName = place.CookieName;
+        CopyFolder = DataPlace.For(DataFolder, UserFolders.Kiler()).CopyFolder;
     }
 
     /// <summary>The published exe from <see cref="Variable"/>; null when it is not set.</summary>
@@ -59,6 +61,12 @@ internal sealed partial class KilerExe : IDisposable
 
     /// <summary>The name of the cookie of the runs, which comes from the data folder.</summary>
     public string CookieName { get; }
+
+    /// <summary>
+    /// The local copy of the data folder of the runs, <c>%LOCALAPPDATA%\Kiler\copies\&lt;key&gt;</c> in the real profile (M2.10),
+    /// deleted with the instance file. <c>copies\</c> stays, as the Kiler of the user may make its copy there at the same moment.
+    /// </summary>
+    public string CopyFolder { get; }
 
     /// <summary>
     /// Starts the copy with <c>--no-browser --data &lt;data folder&gt;</c> and then <paramref name="arguments"/>. A test never
@@ -90,13 +98,20 @@ internal sealed partial class KilerExe : IDisposable
         }
         finally
         {
-            // A killed run leaves its file, and the next start would only delete it.
-            if (File.Exists(InstanceFile))
+            try
             {
-                File.Delete(InstanceFile);
-            }
+                // A killed run leaves its file, and the next start would only delete it.
+                if (File.Exists(InstanceFile))
+                {
+                    File.Delete(InstanceFile);
+                }
 
-            DeleteFolder();
+                Delete(CopyFolder);
+            }
+            finally
+            {
+                Delete(_folder.Path);
+            }
         }
     }
 
@@ -127,13 +142,14 @@ internal sealed partial class KilerExe : IDisposable
         return run;
     }
 
-    private void DeleteFolder()
+    /// <summary>Deletes a folder with everything in it, and tries again a few times, as an antivirus may still read a file that has just been written or run.</summary>
+    private static void Delete(string folder)
     {
-        for (var tries = 1; Directory.Exists(_folder.Path); tries++)
+        for (var tries = 1; Directory.Exists(folder); tries++)
         {
             try
             {
-                _folder.Dispose();
+                Directory.Delete(folder, recursive: true);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && tries < DeleteTries)
             {

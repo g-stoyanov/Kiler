@@ -189,6 +189,44 @@ public partial class SmokeTests
     }
 
     [Fact(Skip = NoExe, SkipUnless = nameof(HasExe))]
+    public async Task Start_FillsTheLocalCopyOfItsDataFolderInTheProfile_AndTheTestDoesNotLeaveIt()
+    {
+        var exe = new KilerExe();
+        try
+        {
+            using var writer = new TempFolder();
+            var made = MadeUpData.Create(exe.DataFolder, writer.Path);
+            made.Create("a1");
+            made.Create("b2");
+            var idleWait = TimeSpan.FromSeconds(1);
+            using var run = exe.Start(["--first-wait", "30", "--idle-wait", Text(idleWait)]);
+            var entry = ReadEntryAddress(await run.WaitForLineAsync(OpenPrefix, Quick));
+
+            // A page keeps Kiler running until its first load has been said, as nothing is said once Kiler stops.
+            using (await EventStream.OpenAsync(CreateClient(entry, $"{exe.CookieName}={TokenOf(entry)}")))
+            {
+                await run.WaitForLineAsync("Loaded the data folder: 2 new or changed, 0 gone, 0 changed outside Kiler, 0 skipped, in ", Quick);
+            }
+
+            Assert.StartsWith(UserFolders.Kiler() + Path.DirectorySeparatorChar, exe.CopyFolder, StringComparison.OrdinalIgnoreCase);
+            foreach (var id in new[] { "a1", "b2" })
+            {
+                Assert.Equal(File.ReadAllBytes(made.RecordFile(id)), File.ReadAllBytes(MadeUpData.CopyFile(exe.CopyFolder, id)));
+            }
+
+            Assert.Equal(0, await run.WaitForExitAsync(idleWait + Late));
+            Assert.Equal(Stopped, run.Output[^1]);
+            Assert.Empty(run.Errors);
+        }
+        finally
+        {
+            exe.Dispose();
+        }
+
+        Assert.False(Directory.Exists(exe.CopyFolder), "The test left the local copy in the profile.");
+    }
+
+    [Fact(Skip = NoExe, SkipUnless = nameof(HasExe))]
     public async Task KilledKiler_TheNextStartTakesOver_WithoutAskingTheOldPort()
     {
         using var exe = new KilerExe();

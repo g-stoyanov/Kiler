@@ -69,7 +69,8 @@ switch (decision)
 
 // Started from a shared folder, Kiler runs from its copy in the profile. The single instance comes first, so a Kiler that
 // runs already only gets the browser. The copy takes the lock itself.
-var localCopy = new LocalCopy(CopyPlace.ForCurrentUser(), ShareFile.ForCurrentUser(), new CopyFiles(), new ShellShortcuts(), new ProcessStarter());
+var share = ShareFile.ForCurrentUser();
+var localCopy = new LocalCopy(CopyPlace.ForCurrentUser(), share, new CopyFiles(), new ShellShortcuts(), new ProcessStarter());
 var copyDecision = localCopy.Decide(Environment.ProcessPath);
 if (copyDecision is not LocalCopyDecision.RunHere)
 {
@@ -77,7 +78,11 @@ if (copyDecision is not LocalCopyDecision.RunHere)
     return localCopy.Start(copyDecision, options, Console.Out, Console.Error);
 }
 
-await using var app = KilerHost.Build(options);
+// Let go after the server has stopped, as requests can use the local copy until then.
+using var data = DataPlace.Choose(options.DataFolder, copyDecision, share, UserFolders.Kiler()) is { } dataPlace
+    ? new KilerData(dataPlace, FileOwner.Instance, TimeProvider.System, Console.Out, Console.Error)
+    : null;
+await using var app = KilerHost.Build(options, data: data);
 try
 {
     await app.StartAsync();
@@ -91,6 +96,10 @@ catch (Exception ex) when (options.Port is not null && ex is IOException or Sock
 
 var address = new Uri(app.Urls.Single());
 Console.WriteLine($"Kiler is listening on {address.GetLeftPart(UriPartial.Authority)}. It stops when its last page closes, or with Ctrl+C.");
+if (data is null)
+{
+    Console.Error.WriteLine("Kiler runs without data: it has not been started from the shared folder yet. Start it from there once, or give the data folder with --data <folder>.");
+}
 
 var self = new RunningInstance(address.Port, app.Services.GetRequiredService<AccessToken>());
 try

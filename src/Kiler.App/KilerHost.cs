@@ -15,7 +15,11 @@ internal static class KilerHost
 
     /// <param name="options">The parameters of the start.</param>
     /// <param name="uiFiles">The UI files; by default the ones embedded in Kiler.exe (<see cref="UiFiles.Embedded"/>).</param>
-    public static WebApplication Build(StartOptions options, IFileProvider? uiFiles = null)
+    /// <param name="data">
+    /// The data of the start (M2.10), which the caller disposes after the server has stopped; null runs without data. Tests
+    /// give one with folders of their own, so no test reads <c>share.json</c> or makes a local copy in the profile.
+    /// </param>
+    public static WebApplication Build(StartOptions options, IFileProvider? uiFiles = null, KilerData? data = null)
     {
         // The empty builder reads no config files and no environment variables, so nothing
         // outside the command line can change the address, and nothing watches the exe folder.
@@ -30,8 +34,20 @@ internal static class KilerHost
         builder.Services.AddSingleton(token);
         var times = options.HeartbeatTimes;
         builder.Services.AddSingleton(services => new Heartbeat(services.GetRequiredService<IHostApplicationLifetime>(), times, TimeProvider.System));
+        if (data is not null)
+        {
+            builder.Services.AddSingleton(data);
+        }
 
         var app = builder.Build();
+        if (data is not null)
+        {
+            // Once the server listens, so a share that cannot be reached does not hold up the page. The watch stops before the
+            // server does; the stops registered later, such as that of the instance file, run before it.
+            app.Lifetime.ApplicationStarted.Register(data.Start);
+            app.Lifetime.ApplicationStopping.Register(() => data.Stop(ShutdownTimeout));
+        }
+
         // Made now, not on the first request, so the wait for the first page starts with the server.
         var heartbeat = app.Services.GetRequiredService<Heartbeat>();
         // Routing comes after the guard. WebApplication would otherwise put it first, and an endpoint with

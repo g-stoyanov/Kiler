@@ -11,7 +11,7 @@ Decisions come from `docs/PLAN.md` (sections 2 and 3) and the task files `docs/t
 
 The rules of one area are in a file of their own beside this one. Read the file of the area that the task changes, and only that one:
 
-- [host.md](host.md): Kiler.App and its tests: the host, the access to the server, the single instance, the heartbeat, the local copy of the exe, the UI files and the publish, the smoke tests and `--diag` (M1).
+- [host.md](host.md): Kiler.App and its tests: the host, the access to the server, the single instance, the heartbeat, the local copy of the exe, the UI files and the publish, the smoke tests and `--diag` (M1); the data folder, its local copy and the watch in the host (M2.10).
 - [storage.md](storage.md): Kiler.Storage and its tests, and code that calls the layer: the data layer (M2).
 
 A rule for all the code stays here. A rule of one area goes into the file of that area; a new area, such as Kiler.Crypto or Kiler.Core, gets a file of its own when its first task needs one. Each rule is written once: a task note points to the rule instead of repeating it.
@@ -100,7 +100,7 @@ Opening the browser is `IBrowser` in Kiler.App (decided in M1.5), because only t
 
 - Publish with `powershell -ExecutionPolicy Bypass -File .\publish.ps1` (M1.8), then run the smoke tests with `powershell -ExecutionPolicy Bypass -File .\smoke.ps1` (M1.9). Native AOT needs the Visual Studio C++ tools and `vswhere.exe`; the script puts the Visual Studio Installer folder on PATH when `vswhere.exe` is not there (M1.0b, M1.3). `artifacts\` is out of git.
 - The UI of the published exe is checked in Chrome or Edge, not in the Claude Code in-app browser, which blocks the network requests of a SharedWorker and so shows "Stopped" (kiler-ui, Manual checks).
-- Kiler.exe started by hand or from a script runs with `--data <temporary folder>`, so it does not meet the user's own Kiler, and from a local folder, so it does not copy itself into the profile (M1.5a). Afterwards, check that no `instance-*.json` was left in `%LOCALAPPDATA%\Kiler`.
+- Kiler.exe started by hand or from a script runs with `--data <temporary folder>`, so it does not meet the user's own Kiler, and from a local folder, so it does not copy itself into the profile (M1.5a). Afterwards, check that no `instance-*.json` was left in `%LOCALAPPDATA%\Kiler`, and delete the local copy of the temporary data folder, `%LOCALAPPDATA%\Kiler\copies\<key>` (the folder that `Kiler opens the data folder …` names, M2.10).
 - The `Open:` line holds the token. A script that reads it masks the token in everything it prints.
 - Requests from the shell to the local server must not go through the corporate proxy. In the Claude process `NO_PROXY` covers 127.0.0.1 and localhost. With curl's `--noproxy`, quote the `*`, or bash expands it to file names (M1.4).
 

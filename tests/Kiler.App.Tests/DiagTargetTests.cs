@@ -1,5 +1,6 @@
 namespace Kiler.App.Tests;
 
+/// <summary>The folder of <c>--diag</c>; without one, the data folder by the rule of <see cref="DataPlaceTests"/>.</summary>
 public sealed class DiagTargetTests : IDisposable
 {
     private const string Exe = @"\\server\share\Kiler\Kiler.exe";
@@ -32,19 +33,11 @@ public sealed class DiagTargetTests : IDisposable
     }
 
     [Fact]
-    public void Choose_StartedFromASharedFolder_TakesTheDataNextToTheExe_NotTheFolderInShareJson()
+    public void Choose_NoFolderAfterDiagAndNoDataFolder_TakesTheDataInTheSharedFolder()
     {
         var options = new StartOptions { Mode = StartMode.Diag };
 
-        Assert.Equal(@"\\server\share\Kiler\data", DiagTarget.Choose(options, new LocalCopyDecision.CopyAndStart(Exe), _share));
         Assert.Equal(@"\\server\share\Kiler\data", DiagTarget.Choose(options, new LocalCopyDecision.StartCopy(Exe), _share));
-    }
-
-    [Fact]
-    public void Choose_StartedLocally_TakesTheDataInTheFolderFromShareJson()
-    {
-        var options = new StartOptions { Mode = StartMode.Diag };
-
         Assert.Equal(@"\\old-server\share\Kiler\data", DiagTarget.Choose(options, new LocalCopyDecision.RunHere(), _share));
     }
 
