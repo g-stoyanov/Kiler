@@ -24,7 +24,7 @@ The deliverable is a Google Doc of 3–6 pages: idea, modules and for each modul
   1. Rough refinement: `KILER_DESIGN.md`. Done.
   2. Plan: `docs/PLAN.md`, `docs/tasks/`, GitHub repo, development environment. Done.
   3. **Development (current):** modules M1–M7, while M8 runs the whole time. The checks in the real environment (design section 14) were a checkpoint right after M1, with the instructions in [docs/real-environment-checks.md](docs/real-environment-checks.md); the results are in [docs/tasks/M1.md](docs/tasks/M1.md#checkpoint-in-the-real-environment).
-  4. Stabilization and release: full E2E with demo data, README, final screenshots, release `v1.0`, trial use in the real environment.
+  4. Stabilization and release: full E2E with demo data, README, final screenshots, release `v1.0`, trial use in the real environment with the checks of the data layer in [docs/real-environment-checks.md](docs/real-environment-checks.md#the-trial-use-phase-4).
   5. Exam write-up: Google Doc from `course/NOTES.md` and `course/PROMPTS.md`.
   6. After the exam: move to the company Bitbucket and delete the GitHub repo. The checklist is in [docs/PLAN.md, section 9](docs/PLAN.md#9-after-the-exam).
 
