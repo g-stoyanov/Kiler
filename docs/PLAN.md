@@ -347,7 +347,7 @@ Design sections 7, 8.2 (audit) and 12.
 
 **Goal:** sign-in, roles, locking, admin actions and checking permissions on the server. Plus the screens for them.
 
-**Until the exam** ([section 10](#10-deferred-until-after-the-exam)): steps 6, 8, 10, 11 and 12 are deferred, with what serves them in steps 3, 5, 7 and 13: unlocking the personal key at sign-in, the locking per level (the overall automatic locking stays), the seal of the user files, and the screens of the personal key.
+**Until the exam** ([section 10](#10-deferred-until-after-the-exam)): steps 6, 8, 10, 11 and 12 are deferred, with what serves them in steps 3, 5, 7 and 13: unlocking the personal key at sign-in, the locking per level (the overall automatic locking stays), the seal of the user files, and the screens of the personal key. Decided at the start of M4 ([tasks/M4.md](tasks/M4.md)): the levels screen of step 13 only renames a level, and adding a level is in section 10; the E2E test moves to M6, with the screenshots; Kiler makes the temporary password (design 7.6 updated); `--account <name>` picks the user file for the demo and the tests (design 7.5 updated).
 
 **Steps:**
 
@@ -404,7 +404,7 @@ Design sections 7, 8.2 (audit) and 12.
 - audit entries;
 - changing a level key;
 - the personal key: the admin's exe cannot unlock it; it survives a level change (with the previous password) and a forgotten password (with the recovery code); it is not remembered;
-- E2E: wizard → sign-in → the admin creates a user.
+- E2E: wizard → sign-in → the admin creates a user. Moved to M6 at the start of M4; the API tests of M4 cover the same flow.
 
 **Done:** all roles from section 7.4 work through the API and the screens, and permissions are checked on the server.
 
@@ -530,6 +530,7 @@ Design sections 6.6, 7.10, 8 and 10.
 **Tests:**
 
 - Vitest: detecting the bind parameters, filling in a query, generating a form from a template.
+- E2E of M4 (moved here at the start of M4): wizard → sign-in → the admin creates a user, who signs in with `--account` and changes the temporary password.
 - E2E: search and filters; creating and editing; showing and copying a password with audit; conflict; theme; a private record that another user does not see, locked and unlocked; the stash tree; creating a record with "+" on a node, at that node and one level deeper with a new stash; creating a stash from the form.
 - Screenshots for the write-up.
 
@@ -625,7 +626,7 @@ They are resolved at the start of the relevant module. The decisions are also re
 | M2 | How the local copy keeps what it is there to restore (step 10). If it mirrors the share, a file deleted outside Kiler (not through `trash\`), a damaged file or a file edited in place reaches every user's cache within about 10 s, and there is nothing left to restore from. Decided at the start of M2, as proposed: the cache does not delete or overwrite such files; it keeps the last good version apart and reports them for restore ([tasks/M2.md](tasks/M2.md)). |
 | M3 | Whether the first copy checks the copied exe against the signed `version.json` before it starts it. The bytes are copied by path some seconds after the start, and a DLL planted next to the exe in the shared folder runs in it (M1.5a security review). The checkpoint after M1 confirmed it: planted copies of `NTASN1.dll` and `SSPICLI.DLL` replaced the system ones in every start from the shared folder, and more in some ([tasks/M1.md](tasks/M1.md#checkpoint-in-the-real-environment)). Deferred with the signed updates (section 10). |
 | M6 | Whether the UI shows the shared folder that Kiler uses (M1.5a security review). |
-| M6 | UI component library, routing, data loading. |
+| M4 | UI component library, routing, data loading. Planned for M6; decided at the start of M4, whose screens come first: no component library (own CSS), React Router, the data through `api.ts` and React state ([tasks/M4.md](tasks/M4.md)). |
 | M6 | Whether the redirect of the token exchange sends `Clear-Site-Data: "cache"`, against a browser cache poisoned from another port of 127.0.0.1 (the M1.8 residual risk in [tasks/log/M1.md](tasks/log/M1.md); to be checked in Edge with a test listener first). |
 | M7 | What highlights the code in MD: CodeMirror or a separate library. Deferred with M7 (section 10). |
 | M8 | Which language the README is in. Decided: English, like the other repository documents. |
@@ -661,7 +662,7 @@ The split is as follows:
 
 | Name | Kind | When it is used | Role |
 |---|---|---|---|
-| `kiler-dotnet` | skill | C# and .NET code | project structure, Native AOT, xUnit v3 and TDD, Windows parts behind interfaces; the rules of one area in a file of its own (`host.md` for Kiler.App, `storage.md` for Kiler.Storage, `crypto.md` for Kiler.Crypto) |
+| `kiler-dotnet` | skill | C# and .NET code | project structure, Native AOT, xUnit v3 and TDD, Windows parts behind interfaces; the rules of one area in a file of its own (`host.md` for Kiler.App, `storage.md` for Kiler.Storage, `crypto.md` for Kiler.Crypto, `core.md` for Kiler.Core) |
 | `kiler-crypto` | skill | encryption, keys, passwords, tokens | the algorithms and rules from design sections 7 and 12 |
 | `kiler-ui` | skill | `src/ui` | React, TypeScript, Vite, API, secret values in the browser, Vitest |
 | `code-reviewer` | subagent, read-only | every task, before the tick | scope, the tests from "Tests", bugs, the rules, real data |
@@ -733,12 +734,13 @@ Decided by the user on 2026-10-29, after M2 took three days: until the exam, the
 5. Changing a level key when someone untrusted leaves: M3 step 9 and M4 step 11.
 6. "Remember me" and the locking per level: M3 step 8, M4 step 6 and the per-level part of M4 step 5. The overall automatic locking stays.
 7. Restoring admin access with the recovery key (M3 step 7). The key itself is made, shown by the wizard and locks the level keys before the exam.
-8. Changing a template that has records, and the template screen: M5 step 10 and M6 step 7.
-9. Renaming, merging and deleting stashes: M5 steps 9 and 12, M6 step 7. Creating a stash stays.
-10. The other admin screens of M6 step 7 (general settings, history, restoring files from the local copy) and the personal configuration file of M6 step 8.
-11. The conflict with the two versions side by side (M6 step 5).
-12. M7 whole.
-13. The read limit of `--diag` (the M2.11 note in [tasks/M2.md](tasks/M2.md#for-later-modules)).
-14. A full review by `security-reviewer` of the tasks done in the light cycle, and the findings that it left under "Left for after the exam" at the end of each module's task file.
+8. Adding a level (design 13, decided at the start of M4): the recovery key locks the new level key into the recovery set of `levels.json`, and the users who get the level get new temporary passwords. Until then the levels screen of M4 only renames a level.
+9. Changing a template that has records, and the template screen: M5 step 10 and M6 step 7.
+10. Renaming, merging and deleting stashes: M5 steps 9 and 12, M6 step 7. Creating a stash stays.
+11. The other admin screens of M6 step 7 (general settings, history, restoring files from the local copy) and the personal configuration file of M6 step 8.
+12. The conflict with the two versions side by side (M6 step 5).
+13. M7 whole.
+14. The read limit of `--diag` (the M2.11 note in [tasks/M2.md](tasks/M2.md#for-later-modules)), and opening the local copy before the look at the share (the M2.11b note there).
+15. A full review by `security-reviewer` of the tasks done in the light cycle, and the findings that it left under "Left for after the exam" at the end of each module's task file.
 
 **Before the exam only if there is time, else after it:** the history and the trash in the UI (M6 step 6) and "Parameters" for the bind variables (M6 step 4).

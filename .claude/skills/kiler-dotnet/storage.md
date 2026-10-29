@@ -1,6 +1,6 @@
 # Kiler.Storage: the data layer
 
-Part of the `kiler-dotnet` skill. Read it with [SKILL.md](SKILL.md) when a task changes Kiler.Storage or its tests, or code that calls the layer (M4, M5).
+Part of the `kiler-dotnet` skill. Read it with [SKILL.md](SKILL.md) when a task changes Kiler.Storage or its tests. Code that calls the layer (M4, M5) reads [core.md](core.md), "Calling the layer", and the bullets here that it names.
 
 ## Data layer (M2)
 

@@ -50,6 +50,14 @@ The limits accepted so far are in the decisions at the top of the module file, f
      - the server checks every request (level, `canEdit`, `isAdmin`);
      - a level sent by the client is never trusted;
      - nobody writes a field above their own level.
+   - **Sign-in and the session** (added at the start of M4; the decisions in `docs/tasks/M4.md`):
+     - the levels of a session are the keys that unlocked and passed `LevelCheck.Verify`, never the `level` of the user file; an action that gives keys needs the keys it gives;
+     - `canEdit` and `isAdmin` come from a user file that anyone can write: until the admin seal (after the exam), they give screens, not keys. A finding that rests only on a forged flag, with no key beyond those the forger holds, is `[minor, out of model]` (design 7.8, the decisions of M4);
+     - a failed or missing check never makes Kiler write a new check or new level keys, and the wizard runs only in an empty data folder;
+     - a lock, a sign-out and the stop dispose the keys and drop the decrypted data, and every page learns of a lock through the `session` event;
+     - a session that must change its password reaches only the change of password; a guest reads only level 0 and writes nothing;
+     - a password, a temporary password and the recovery key never reach a log, a console line, an exception message, an address, a later answer or a file other than the locked keys;
+     - `--account` only picks the user file; the password is still asked.
    - **Kiler as a client and a launcher** (added after M1.5):
      - before Kiler sends a secret to a loopback port or opens the browser there, what proves that the listener is its own;
      - which schemes and hosts can reach `ShellExecute` or `Process.Start`; secrets on a child process's command line, which process-creation auditing and EDR keep; a launcher that captures a child's console output;

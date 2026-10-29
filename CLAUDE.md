@@ -74,7 +74,7 @@ One session covers one or several small tasks from one module.
 
 They are described in [docs/PLAN.md, section 8](docs/PLAN.md#8-agents-skills-and-hooks).
 
-- **Skills with the rules:** `kiler-dotnet`, `kiler-crypto`, `kiler-ui`. `kiler-dotnet` keeps the rules of one area in a file of its own (`host.md`, `storage.md`, `crypto.md`), read only for that area.
+- **Skills with the rules:** `kiler-dotnet`, `kiler-crypto`, `kiler-ui`. `kiler-dotnet` keeps the rules of one area in a file of its own (`host.md`, `storage.md`, `crypto.md`, `core.md`), read only for that area.
 - **Reviewer subagents:** `code-reviewer` for every task and `security-reviewer` for the security tasks. They only read.
 - **Documentation subagent:** `docs-researcher`.
 - **Hooks:**

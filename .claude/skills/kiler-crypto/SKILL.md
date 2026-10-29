@@ -5,7 +5,7 @@ description: Kiler's cryptography rules. Use when writing or reviewing code that
 
 # Kiler: cryptography
 
-Decisions come from sections 7 and 12 of the design (`KILER_DESIGN.md`, local, not in git) and from M3 in `docs/PLAN.md`. Anything not decided yet is listed under "Deferred". Do not invent it; if a task needs such a decision, ask.
+Decisions come from sections 7 and 12 of the design (`KILER_DESIGN.md`, local, not in git), from M3 and M4 in `docs/PLAN.md` and from the decisions in `docs/tasks/M3.md` and `docs/tasks/M4.md`. Anything not decided yet is listed under "Deferred". Do not invent it; if a task needs such a decision, ask.
 
 ## Model
 
@@ -46,6 +46,17 @@ Only what is built into .NET. No external crypto libraries and no home-made algo
 - Forbidden: `System.Random` for security, MD5, SHA-1, ECB, CBC without a MAC, home-made schemes.
 - Nobody encrypts a field above their own level, because they do not have the key. The server checks this too.
 - If the personal key does not unlock, fail. Never create a new personal key in its place: the old private records would become unreadable without anyone noticing.
+- An unlocked level key is kept only after `LevelCheck.Verify(key, check, level)` is true, and the rest are disposed. `levels.json` is on the share, so a missing check, or one that is not a string, counts as not verified and is never passed to `Verify` as null (M3.2).
+- A failed or missing check never makes Kiler write a new check or new level keys: whoever can write `levels.json` could put in a check of a key of their own, and the data of the real key would be lost (M3.2). An admin restores `levels.json`; the wizard runs only in an empty data folder (M4).
+- A change of password locks again only the keys that unlocked and verified, so it refuses when a level of the user file did not: that level would drop out of the file for good (M3.3).
+- A `RecoveryKey` is made (`New`) or read (`TryParse`), used and disposed in one request, never kept in the session or anywhere the automatic locking or a shutdown could dispose it: it has no lock, and a `Dispose` during `LevelKeys.Lock` would lock the keys under 32 NUL characters with no error (M3.3). `TryParse` skips only hyphens and U+0020, so the UI trims a pasted key whose line break or tab would refuse it.
+
+## Passwords (decided at the start of M4)
+
+- A password has at least 8 and at most 1024 characters (`PasswordKey.MaxLength`). Kiler.Crypto takes an empty one, so the API checks both, and the screens too.
+- A temporary password is made by Kiler, not typed by the admin: `RandomNumberGenerator.GetString` over the lowercase Crockford Base32 alphabet (`0123456789abcdefghjkmnpqrstvwxyz`), 16 characters (80 bits), used as shown. It goes to the admin once, in the answer of the action that made it, and never into a file other than the locked keys, a log or a later answer. The user file gets `mustChangePassword: true`.
+- The recovery key and a temporary password, like a password, never reach a log, a console line, an exception message or an address.
+- A new password does not revoke the old one: the copies of the user file in `history\` and in the local copies keep the keys locked with the old password, so after a leak only a new level key cuts the access (design 7.9, after the exam).
 
 ## Formats (decided at the start of M3)
 

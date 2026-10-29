@@ -5,7 +5,7 @@ description: Kiler's rules for the browser UI in src/ui. Use when writing or cha
 
 # Kiler: UI
 
-Decisions come from `docs/PLAN.md` (section 2, M1, M6, M7), `docs/tasks/M1.md` and sections 8–10 of the design (`KILER_DESIGN.md`, local, not in git). Anything not decided yet is listed under "Deferred". Do not invent it; if a task needs such a decision, ask.
+Decisions come from `docs/PLAN.md` (section 2, M1, M4, M6, M7), `docs/tasks/M1.md`, `docs/tasks/M4.md` and sections 7.5–7.7 and 8–10 of the design (`KILER_DESIGN.md`, local, not in git). Anything not decided yet is listed under "Deferred". Do not invent it; if a task needs such a decision, ask.
 
 ## Basics
 
@@ -27,6 +27,7 @@ Decisions come from `docs/PLAN.md` (section 2, M1, M6, M7), `docs/tasks/M1.md` a
 ## Layout (M1.7)
 
 - `src/texts.ts`: all the UI texts, in one place (decided in M1.7). Components take their texts from it.
+- Screens (decided at the start of M4, whose screens come first): no component library, own CSS on the variables of `index.css`; React Router for the addresses, which have no dot in their last segment (M1.8); the data through `api.ts` and React state, with no data library. The versions come from `docs-researcher` in the task that adds them (M4.7).
 - `src/api.ts`: the API client. `src/theme.ts`: the theme.
 - `src/events.ts`: the event stream and the hub that shares it; it runs in the page and in the worker, so it uses only what both have. `src/events-worker.ts`: the SharedWorker. `src/connection.ts`: the page side.
 - Three TypeScript projects (`tsc -b`): `tsconfig.app.json` (DOM), `tsconfig.worker.json` (WebWorker, only the worker file) and `tsconfig.node.json` (`vite.config.ts` and `dev/`). DOM and WebWorker cannot be in one project. A module imported by the worker is checked in both, so it must not use `SharedWorker` or other names that only one of them has.
@@ -39,7 +40,8 @@ Decisions come from `docs/PLAN.md` (section 2, M1, M6, M7), `docs/tasks/M1.md` a
 - Requests go only to the same origin, `/api/...`.
 - Sign-in uses an HttpOnly cookie set by the server. JavaScript never sees or stores the token, not in `localStorage` or anywhere else. The cookie is named per instance (M1.7): `kiler`, and `kiler-<key>` with `--data`.
 - The API client (`api.ts`) handles errors in one place: every failure becomes an `ApiError` with a message for the user (401, 503, another status, no answer, an answer it cannot read), and the page shows it instead of breaking. An abort by the caller passes through. It refuses a path outside `/api/` before any request.
-- `EventSource` on `/api/events` is the heartbeat. Change notifications come through it later (M6).
+- `EventSource` on `/api/events` is the heartbeat. Since M4 it also carries `session` (no data): the session was locked or changed, so every page drops the data it shows and reads the session again; it goes through the SharedWorker as another `HubMessage` type. Change notifications come through it later (M6).
+- The session is one per Kiler process, shared by all its pages (M4). A guest, a locked session and a session that must change its password see only the screens they may; the server checks every request anyway.
 - **One stream for all the pages** (decided in M1.7). Without TLS the browser talks HTTP/1.1 with at most 6 connections per host, so a stream per page would stall every request from the sixth page on. A SharedWorker (`events-worker.ts`) holds the one `EventSource` and sends its state to each page. The browser ends the worker when the last page of the origin closes, and that closes the stream. A page says `bye` to the worker when it unmounts; a page that closes says nothing, and its port stays in the worker's set.
 - Without SharedWorker, or when the worker does not start (its `error` event, or the constructor throws), the page holds a stream of its own. It falls back once: a second `error` must not open a new stream after a stop.
 - On its first `error` the stream is closed, in the handler itself, and the state becomes "stopped". It does not let the browser reconnect: after a stop, each try sends the cookie to the old port, and cookies are not separated by port, so by then the cookie can hold the token of a newer Kiler, and the old port can belong to another program (M1.6 security review). The one exception: a page that loads after the stop and joins the worker opens a new stream; that load has just sent the cookie to the same port anyway. The dev mode needs it: the next `npm run dev` serves the page on the same Vite port, and an old tab keeps the old worker alive.
@@ -74,8 +76,8 @@ Decisions come from `docs/PLAN.md` (section 2, M1, M6, M7), `docs/tasks/M1.md` a
   - loads nothing from other hosts, and loads fonts and other files as files. Vite puts assets under 4 KB inline as `data:` (`build.assetsInlineLimit`), which the policy allows only for images.
 
   A library that injects styles or needs more, such as CodeMirror or Mermaid (M6, M7), changes the policy in its own task, with a security review.
-- The dev server does not send this policy, because in dev mode Vite and the React plugin use inline scripts. A violation therefore shows only in the embedded build: check the console of the published exe, and the E2E tests (M4) fail on a `securitypolicyviolation` event.
-- Addresses of the UI's own routing (M6) have no dot in their last segment. Kiler gives `index.html` only to such addresses; a name with a dot is a file, and a missing one is 404 (also on a reload).
+- The dev server does not send this policy, because in dev mode Vite and the React plugin use inline scripts. A violation therefore shows only in the embedded build: check the console of the published exe, and the E2E tests (M6) fail on a `securitypolicyviolation` event.
+- Addresses of the UI's own routing (M4.7) have no dot in their last segment. Kiler gives `index.html` only to such addresses; a name with a dot is a file, and a missing one is 404 (also on a reload).
 - `/assets/` is cached for a year without a check, because Vite puts there only names with a hash of the content. Files in `public/` keep their names, are served from the root and are checked each time; nothing goes into `public/assets/`.
 
 ## Secret values
@@ -83,6 +85,9 @@ Decisions come from `docs/PLAN.md` (section 2, M1, M6, M7), `docs/tasks/M1.md` a
 - Passwords (`secret` fields) do not come with lists. The value is requested from the server only on "show" or "copy".
 - A shown value does not stay in state longer than needed. It is never logged and never put in a URL.
 - Fields above the user's level are shown with a lock.
+- A password is kept in state only until its request is sent. Its fields have `autocomplete="current-password"` or `"new-password"`.
+- The recovery key (the wizard) and a temporary password (the admin actions) come once, in the answer of their request: shown with a copy button, kept in state only while their screen is open, and gone when it closes. A pasted recovery key is trimmed first (`kiler-crypto`, "Rules").
+- At the `session` event of a lock, the page drops every decrypted value it holds, not only the shown ones.
 
 ## HTML, Markdown, Mermaid
 
@@ -122,7 +127,4 @@ Light, dark and system (M1.7). Until M6 the choice is kept in `localStorage` (`k
 
 | Question | When |
 |---|---|
-| UI component library | M6 |
-| Routing (addresses without a dot in the last segment, M1.8) | M6 |
-| Data loading and state | M6 |
 | Code highlighting in Markdown | M7 |
