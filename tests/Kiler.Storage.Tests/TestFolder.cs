@@ -31,12 +31,20 @@ internal sealed class TestFolder : IDisposable
     private const string NtUncPrefix = @"\??\UNC\";
 
     public TestFolder()
+        : this(Base())
     {
-        Root = Path.Combine(Base(), Guid.NewGuid().ToString("N"));
+    }
+
+    private TestFolder(string parent)
+    {
+        Root = Path.Combine(parent, Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Root);
     }
 
     public string Root { get; }
+
+    /// <summary>A folder under the temporary folder whatever <see cref="Variable"/> says, as the local copy in the profile is (M2.11c).</summary>
+    public static TestFolder OnTheLocalDisk() => new(Path.Combine(Path.GetTempPath(), "Kiler.Tests"));
 
     /// <summary>Deletes the folder. A junction in it goes as a link, without what it points to.</summary>
     public void Dispose()

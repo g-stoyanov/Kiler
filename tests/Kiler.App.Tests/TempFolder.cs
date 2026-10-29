@@ -40,5 +40,15 @@ internal sealed class TempFolder : IDisposable
         return new TempFolder(folder);
     }
 
+    /// <summary>
+    /// Whether <see cref="Variable"/> names a folder on a file server, not on a fixed disk of this machine (M2.11c). A value
+    /// that is not a full path counts too, so <see cref="OnTheTestDisk"/> refuses it with its message.
+    /// </summary>
+    public static bool OnAFileServer =>
+        Environment.GetEnvironmentVariable(Variable) is { Length: > 0 } folder
+        && !(System.IO.Path.IsPathFullyQualified(folder)
+            && !folder.StartsWith(@"\\", StringComparison.Ordinal)
+            && new DriveInfo(System.IO.Path.GetPathRoot(folder)!).DriveType == DriveType.Fixed);
+
     public void Dispose() => Directory.Delete(Path, recursive: true);
 }

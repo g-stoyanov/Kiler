@@ -25,7 +25,11 @@ internal sealed partial class KilerExe : IDisposable
     private readonly TempFolder _folder;
     private readonly List<KilerRun> _runs = [];
 
-    public KilerExe()
+    /// <param name="dataFolder">
+    /// A data folder that is there, such as one on the shared folder (M2.11c), which the test deletes; without it, a new empty
+    /// one beside the exe.
+    /// </param>
+    public KilerExe(string? dataFolder = null)
     {
         var published = Published ?? throw new InvalidOperationException($"{Variable} is not set.");
         _folder = new TempFolder();
@@ -34,7 +38,7 @@ internal sealed partial class KilerExe : IDisposable
             ExePath = Path.Combine(_folder.Path, "Kiler.exe");
             File.Copy(published, ExePath);
             Assert.False(CopyFiles.IsNetworkPath(ExePath), "The copy of Kiler.exe must be on a local disk, or it copies itself into the profile.");
-            DataFolder = Directory.CreateDirectory(Path.Combine(_folder.Path, "data")).FullName;
+            DataFolder = dataFolder ?? Directory.CreateDirectory(Path.Combine(_folder.Path, "data")).FullName;
         }
         catch
         {
