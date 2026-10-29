@@ -57,7 +57,7 @@ The decisions are in `docs/tasks/M3.md`, "Decisions for the module".
   | Purpose | Context | What |
   |---|---|---|
   | `group` | record id, level | a group of fields of a shared record (`protected."<level>"`) |
-  | `check` | level | the check value of a level |
+  | `check` | level | the check value of a level: the UTF-8 of `Kiler level check` (M3.2), compared in constant time |
   | `level-key` | level | a level key locked with a password or the recovery key |
 
   The private records add their own after the exam: the owner and the record id (design 7.10).
