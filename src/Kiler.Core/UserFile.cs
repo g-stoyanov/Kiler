@@ -148,7 +148,8 @@ public sealed class UserFile
         return true;
     }
 
-    private static string? Invalid(string displayName, int level)
+    /// <summary>Why the display name or the level do not fit, or <c>null</c>; also the check of the wizard (<see cref="NewKiler"/>).</summary>
+    internal static string? Invalid(string displayName, int level)
     {
         if (displayName.Length > MaxDisplayNameLength || string.IsNullOrWhiteSpace(displayName))
         {

@@ -12,12 +12,12 @@ namespace Kiler.App;
 /// (M2.8a) and the page should not wait for it; the watch stops on <c>ApplicationStopping</c> (<see cref="KilerHost"/>), and
 /// the copy is let go with <see cref="Dispose"/>, after the server has stopped. It is always in DI (M4.2), also when no data
 /// folder was chosen, and gives its <see cref="State"/> to the page (<see cref="DataApi"/>). Kiler runs without data, and
-/// says so, when the data folder does not exist (nothing makes it; the wizard of M4.3 does) or cannot be used, when another
+/// says so, when the data folder does not exist (nothing makes it at the start; the wizard does, M4.3) or cannot be used, when another
 /// Kiler of the user has the local copy open, or when the index of the copy cannot be read now; without a data folder chosen,
 /// <c>Program</c> says it. What it says goes to the console as lines, at once (decided by the user): what the user acts on to
 /// the errors.
 /// </summary>
-internal sealed class KilerData : IDisposable
+internal sealed partial class KilerData : IDisposable
 {
     /// <summary>
     /// The file in the folder of the local copy that a Kiler holds without sharing while it has the copy open (decided by the
@@ -206,12 +206,13 @@ internal sealed class KilerData : IDisposable
 
     private static bool IsSharingViolation(IOException ex) => (ex.HResult & 0xFFFF) == SharingViolation;
 
-    private void Open(DataPlace place)
+    /// <summary>The open of the start, and of the wizard, which gives <paramref name="create"/> (<see cref="OpenAndWatch"/>).</summary>
+    private void Open(DataPlace place, Action<DataCopy>? create = null)
     {
         var watching = false;
         try
         {
-            watching = OpenAndWatch(place);
+            watching = OpenAndWatch(place, create);
         }
         catch (Exception ex)
         {
@@ -246,14 +247,17 @@ internal sealed class KilerData : IDisposable
     /// <summary>
     /// Opens the data folder and its local copy, reads the team from the copy, and starts the watch; false when Kiler runs
     /// without data, which it has said, or stops. The state stays <see cref="DataState.Opening"/> until the first load has
-    /// ended, as a new local copy has nothing before it.
+    /// ended, as a new local copy has nothing before it. With <paramref name="create"/>, the wizard's (M4.3), it makes the
+    /// data folder new first, and gives it the copy before the team reads it; a data folder that it cannot make, which it
+    /// has said, opens as at the start, and <paramref name="create"/> does not run.
     /// </summary>
-    private bool OpenAndWatch(DataPlace place)
+    private bool OpenAndWatch(DataPlace place, Action<DataCopy>? create)
     {
+        var made = create is null ? null : MakeFolder(place);
         DataFolder share;
         try
         {
-            share = DataFolder.Open(place.DataFolder, _owners);
+            share = made ?? DataFolder.Open(place.DataFolder, _owners);
         }
         catch (DirectoryNotFoundException)
         {
@@ -282,6 +286,11 @@ internal sealed class KilerData : IDisposable
             return RunWithout(DataState.IndexUnreadable, $"Kiler runs without data: the index of its local copy cannot be read now, so start Kiler again: {ex.Message}");
         }
 
+        if (made is not null && create is not null)
+        {
+            create(copy);
+        }
+
         var team = new Team(copy);
         var watch = new DataWatch(copy, _time);
         watch.Loaded += (_, load) => OnLoaded(team, load);
@@ -300,6 +309,24 @@ internal sealed class KilerData : IDisposable
             _watch = watch;
             watch.Start();
             return true;
+        }
+    }
+
+    /// <summary>
+    /// Makes the data folder new for the wizard (M4.3), or takes it when it holds nothing but the empty folders of the layout
+    /// (<see cref="DataFolder.Create"/>, decided at the start of M4); null when it cannot, as when it holds more by now or
+    /// cannot be written, which it says.
+    /// </summary>
+    private DataFolder? MakeFolder(DataPlace place)
+    {
+        try
+        {
+            return DataFolder.Create(place.DataFolder, _owners);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            SayError($"The wizard cannot make a new Kiler in the data folder: {ex.Message}");
+            return null;
         }
     }
 

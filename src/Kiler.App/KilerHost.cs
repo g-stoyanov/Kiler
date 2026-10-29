@@ -1,4 +1,5 @@
 using System.Net;
+using Kiler.Core;
 using Microsoft.Extensions.FileProviders;
 
 namespace Kiler.App;
@@ -20,10 +21,15 @@ internal static class KilerHost
     /// (<see cref="KilerData.WithoutFolder"/>). Tests give one with folders of their own, so no test reads <c>share.json</c>
     /// or makes a local copy in the profile.
     /// </param>
-    public static WebApplication Build(StartOptions options, IFileProvider? uiFiles = null, KilerData? data = null)
+    /// <param name="account">
+    /// The account of this Kiler (M4.1); by default the one of <c>--account</c>, else of the process
+    /// (<see cref="WindowsAccount"/>). The API tests give a fake.
+    /// </param>
+    public static WebApplication Build(StartOptions options, IFileProvider? uiFiles = null, KilerData? data = null, ICurrentAccount? account = null)
     {
         // Always in DI, so every endpoint finds the state of the data (M4.2).
         data ??= KilerData.WithoutFolder();
+        account ??= new WindowsAccount(options.Account);
         // The empty builder reads no config files and no environment variables, so nothing
         // outside the command line can change the address, and nothing watches the exe folder.
         var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions());
@@ -38,6 +44,7 @@ internal static class KilerHost
         var times = options.HeartbeatTimes;
         builder.Services.AddSingleton(services => new Heartbeat(services.GetRequiredService<IHostApplicationLifetime>(), times, TimeProvider.System));
         builder.Services.AddSingleton(data);
+        builder.Services.AddSingleton(account);
 
         var app = builder.Build();
         // Once the server listens, so a share that cannot be reached does not hold up the page. The watch stops before the
@@ -54,6 +61,7 @@ internal static class KilerHost
         UiFiles.Use(app, uiFiles ?? UiFiles.Embedded());
         HealthApi.Map(app, heartbeat);
         DataApi.Map(app, data);
+        WizardApi.Map(app, data, account);
         EventsApi.Map(app, heartbeat, times.PingInterval, TimeProvider.System, app.Lifetime.ApplicationStopping);
         return app;
     }

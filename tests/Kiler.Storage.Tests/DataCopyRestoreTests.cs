@@ -194,6 +194,33 @@ public sealed class DataCopyRestoreTests : IDisposable
             copy.ToRestore());
     }
 
+    /// <summary>The wizard writes a new Kiler only into a copy that has had no document (M4.3).</summary>
+    [Fact]
+    public void IsEmpty_UntilTheCopyHasHadADocument_AlsoOnceTheShareHasLostIt_UntilItIsForgotten()
+    {
+        var copy = OpenAt();
+        Assert.True(copy.IsEmpty, "A new copy is not empty.");
+        copy.Load();
+        Assert.True(copy.IsEmpty, "The copy of a data folder without documents is not empty.");
+
+        Create(Record, "first");
+        copy.Load();
+        Assert.False(copy.IsEmpty, "A copy with a document is empty.");
+
+        // Gone outside Kiler: before a load has reported it, after, and in the copy opened again.
+        File.Delete(_share.DocumentPath(Record));
+        copy.Load();
+        Assert.Empty(copy.Documents());
+        Assert.Empty(copy.ToRestore());
+        Assert.False(copy.IsEmpty, "A copy that keeps the last good bytes of a document gone a moment ago is empty.");
+        _clock.Advance(InPlaceEdits.SettleTime);
+        copy.Load();
+        Assert.False(OpenAt().IsEmpty, "A copy that keeps the last good bytes of a gone document is empty once opened again.");
+
+        Assert.Equal(1, copy.Forget(copy.ToRestore()));
+        Assert.True(copy.IsEmpty, "A copy whose last document was forgotten is not empty.");
+    }
+
     [Fact]
     public void Forget_AGoneDocument_TakesItOutOfTheList_WithItsKeptBytesAndItsSlots_ForGood()
     {

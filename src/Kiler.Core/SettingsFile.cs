@@ -81,6 +81,7 @@ public sealed class SettingsFile
         return true;
     }
 
-    private static string? Invalid(int autoLockMinutes) =>
+    /// <summary>Why the minutes do not fit, or <c>null</c>; also the check of the wizard (<see cref="NewKiler"/>).</summary>
+    internal static string? Invalid(int autoLockMinutes) =>
         autoLockMinutes is < 1 or > MaxAutoLockMinutes ? $"autoLockMinutes is not from 1 to {MaxAutoLockMinutes}." : null;
 }

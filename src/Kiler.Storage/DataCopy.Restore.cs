@@ -13,6 +13,23 @@ namespace Kiler.Storage;
 public sealed partial class DataCopy
 {
     /// <summary>
+    /// Whether the copy has had no document (M4.3): its index names none, whether the share has it, has lost it with its last
+    /// good bytes kept here, also before a load has reported that, or has it in the trash, and it keeps no slot of a history.
+    /// The wizard writes a new Kiler only into such a copy, as one that has had documents may keep the last good bytes of a
+    /// Kiler whose data folder has gone, and new keys there would replace its keys. The share is not touched.
+    /// </summary>
+    public bool IsEmpty
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _index.Count == 0 && _history.Count == 0;
+            }
+        }
+    }
+
+    /// <summary>
     /// The documents whose last good bytes the copy keeps for a restore (M2.9): each change outside Kiler that a load has
     /// reported (<see cref="LoadResult.Outside"/>) and that is still so, with the version of its last good bytes: a document
     /// gone otherwise than to the trash or back, damaged, edited in place, or at a version that is not after the last good

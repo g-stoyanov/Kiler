@@ -133,8 +133,8 @@ public sealed class LevelsFile
         return true;
     }
 
-    /// <summary>Why the levels do not fit, or <c>null</c>.</summary>
-    private static string? Invalid(IReadOnlyList<LevelEntry?> levels)
+    /// <summary>Why the levels do not fit, or <c>null</c>; also the check of the wizard (<see cref="NewKiler"/>).</summary>
+    internal static string? Invalid(IReadOnlyList<LevelEntry?> levels)
     {
         if (levels.Count is < 2 or > MaxTop + 1)
         {
