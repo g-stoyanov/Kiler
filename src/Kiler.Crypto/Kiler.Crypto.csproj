@@ -2,4 +2,9 @@
 
   <!-- Cryptography. No files, no network, no dependency on the other Kiler projects. -->
 
+  <!-- The tests reach the primitives and the format of an encrypted value, which only the library's own types use. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Kiler.Crypto.Tests" />
+  </ItemGroup>
+
 </Project>

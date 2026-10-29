@@ -661,7 +661,7 @@ The split is as follows:
 
 | Name | Kind | When it is used | Role |
 |---|---|---|---|
-| `kiler-dotnet` | skill | C# and .NET code | project structure, Native AOT, xUnit v3 and TDD, Windows parts behind interfaces; the rules of one area in a file of its own (`host.md` for Kiler.App, `storage.md` for Kiler.Storage) |
+| `kiler-dotnet` | skill | C# and .NET code | project structure, Native AOT, xUnit v3 and TDD, Windows parts behind interfaces; the rules of one area in a file of its own (`host.md` for Kiler.App, `storage.md` for Kiler.Storage, `crypto.md` for Kiler.Crypto) |
 | `kiler-crypto` | skill | encryption, keys, passwords, tokens | the algorithms and rules from design sections 7 and 12 |
 | `kiler-ui` | skill | `src/ui` | React, TypeScript, Vite, API, secret values in the browser, Vitest |
 | `code-reviewer` | subagent, read-only | every task, before the tick | scope, the tests from "Tests", bugs, the rules, real data |

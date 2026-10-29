@@ -47,6 +47,25 @@ Only what is built into .NET. No external crypto libraries and no home-made algo
 - Nobody encrypts a field above their own level, because they do not have the key. The server checks this too.
 - If the personal key does not unlock, fail. Never create a new personal key in its place: the old private records would become unreadable without anyone noticing.
 
+## Formats (decided at the start of M3)
+
+The decisions are in `docs/tasks/M3.md`, "Decisions for the module".
+
+- **An encrypted value:** base64 (standard alphabet, with padding) of `[version: 1 byte][nonce: 12][ciphertext][tag: 16]`. Version 1 is AES-256-GCM, at least 29 bytes. A new algorithm gets a new version, and the old versions stay readable.
+- **Associated data:** the version byte, then the label of the purpose and the parts of the context, each as strict UTF-8 (a lone surrogate is refused) with its length before it in 4 bytes, big-endian. Every encryption has a purpose and its context, so a value cannot be moved to another record, level or use:
+
+  | Purpose | Context | What |
+  |---|---|---|
+  | `group` | record id, level | a group of fields of a shared record (`protected."<level>"`) |
+  | `check` | level | the check value of a level |
+  | `level-key` | level | a level key locked with a password or the recovery key |
+
+  The private records add their own after the exam: the owner and the record id (design 7.10).
+- **Salt:** 16 random bytes, new at every lock, also when the same keys are locked again.
+- **A password** goes into PBKDF2 as UTF-8, as typed, and those bytes are zeroed after use.
+- **The recovery key:** 20 random bytes as 32 characters of Crockford Base32 (`0123456789ABCDEFGHJKMNPQRSTVWXYZ`), shown in 8 groups of 4 joined by `-`. A typed key is read without regard to case, hyphens and spaces, with O read as 0 and I and L as 1; anything else is refused. The 32 upper-case characters are the secret, used as a password (salt and PBKDF2). The personal recovery code (design 7.10) has the same format.
+- **Kiler.Crypto knows bytes and base64 strings only:** no files, no JSON, no models. Kiler.Core gives it the UTF-8 of a group of fields.
+
 ## Tests
 
 Tests are written first (TDD) and cover:
@@ -62,14 +81,12 @@ Tests are written first (TDD) and cover:
 - the personal key unlocks with the password and with the recovery code;
 - a private record does not decrypt under another id or another owner.
 
-## Deferred (decided at the start of M3)
+Known test vectors come from their source (RFC 7914 for PBKDF2-HMAC-SHA256, the test cases of the GCM specification for AES-GCM), through `docs-researcher`, never from memory.
+
+## Deferred until after the exam (PLAN section 10)
 
 | Question | Note |
 |---|---|
-| Exact byte layout of the format | version, nonce, ciphertext and tag; base64 |
-| Binding a group to the record id and level (associated data in AES-GCM) | an addition to the design; needs a decision. Decided for private records: the owner and the record id |
-| Where and how the admin stamp key is kept | |
+| Where and how the admin stamp key is kept | the admin seal of PLAN M3 step 6 |
 | What exactly the stamp signs | a canonical form of the user's file, without the `stamp` field itself |
-| Recovery key format | a long, readable code, shown only once; the personal recovery code uses the same format |
-| Salt length | |
-| Where the private key for signing updates is kept, and how a release is signed | never in the repo or the shared folder |
+| Where the private key for signing updates is kept, and how a release is signed | never in the repo or the shared folder (M3 step 11) |

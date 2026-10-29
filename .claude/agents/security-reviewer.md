@@ -70,7 +70,7 @@ The limits accepted so far are in the decisions at the top of the module file, f
      - passwords never appear in lists, search, logs, errors or URLs;
      - a C# record that holds a secret overrides `ToString()`, because the generated one prints every property;
      - showing or copying a Prod password is written to the audit log.
-   - **Cryptography:** per the rules in `kiler-crypto`: nonce, tag, PBKDF2, zeroing keys, forbidden algorithms.
+   - **Cryptography:** per the rules and formats in `kiler-crypto`: nonce, tag, PBKDF2, the associated data of each purpose (a value must not decrypt in another record, level or use), zeroing keys, forbidden algorithms.
    - **Paths:**
      - paths are normalized;
      - only paths from records are read;
