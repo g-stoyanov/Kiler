@@ -17,6 +17,7 @@
   - there is no real data in the code, tests and demo data;
   - the course note is recorded with `/note`.
 - The plan covers the whole application. Only in the exam write-up are modules merged (section 7).
+- Until the exam, the steps in section 10 are deferred, and the tasks follow the [light cycle](tasks/README.md#light-cycle-until-the-exam).
 
 ---
 
@@ -298,6 +299,8 @@ Design sections 4.1, 7.1–7.3, 7.5, 7.7 and 7.10.
 
 **Goal:** a clean library with all cryptographic operations, with no files and no UI.
 
+**Until the exam** ([section 10](#10-deferred-until-after-the-exam)): steps 6, 8, 9, 11 and 12 are deferred, and of step 7 only restoring admin access. The recovery key is made and locks the level keys now.
+
 **Steps:**
 
 1. Primitives: AES-GCM (12-byte nonce, 16-byte tag), PBKDF2-SHA256 with 600 000 iterations and a random salt, random 32-byte keys.
@@ -343,6 +346,8 @@ Design sections 4.1, 7.1–7.3, 7.5, 7.7 and 7.10.
 Design sections 7, 8.2 (audit) and 12.
 
 **Goal:** sign-in, roles, locking, admin actions and checking permissions on the server. Plus the screens for them.
+
+**Until the exam** ([section 10](#10-deferred-until-after-the-exam)): steps 6, 8, 10, 11 and 12 are deferred, with what serves them in steps 3, 5, 7 and 13: unlocking the personal key at sign-in, the locking per level (the overall automatic locking stays), the seal of the user files, and the screens of the personal key.
 
 **Steps:**
 
@@ -410,6 +415,8 @@ Design sections 7, 8.2 (audit) and 12.
 Design sections 5.2, 6, 7.10 and 11.
 
 **Goal:** the record logic and the API for the UI.
+
+**Until the exam** ([section 10](#10-deferred-until-after-the-exam)): steps 10 and 11 are deferred, with what serves the private records in the other steps, the audit of step 6, and renaming, merging and deleting stashes (steps 9 and 12; creating a stash stays). The first task fixes the API, its DTOs and endpoints, so the UI of M6 can be built in a [parallel session](tasks/README.md#parallel-sessions) while M5 goes on.
 
 **Steps:**
 
@@ -483,6 +490,8 @@ Design sections 6.6, 7.10, 8 and 10.
 
 **Goal:** the main view and all the work with records.
 
+**Until the exam** ([section 10](#10-deferred-until-after-the-exam)): the private records of steps 1 and 3, the two versions side by side of step 5, and steps 7 and 8 are deferred. Until then a conflict says who changed the record and offers "Reload" and "Overwrite", and the theme of M1 stays. The history and the trash of step 6 and the "Parameters" of step 4 are done only if there is time before the exam.
+
 **Steps:**
 
 1. Main view:
@@ -533,6 +542,8 @@ Design sections 6.6, 7.10, 8 and 10.
 Design sections 9 and 12.
 
 **Goal:** showing MD, Mermaid, PDF and images from the shared folder, from local paths and from http.
+
+**Until the exam:** deferred whole ([section 10](#10-deferred-until-after-the-exam)); `markdown` fields stay text.
 
 **Steps:**
 
@@ -602,21 +613,21 @@ They are resolved at the start of the relevant module. The decisions are also re
 |---|---|
 | after M1 | The checks from design section 14 with the exe from M1. Decided: a probe exe before the code (M1.0b), and later a `--diag` mode (M1.11). Done in M1.0b: the architecture holds; the decisions are in M1, M2, M3, M4 and M6. The checkpoint with the final exe of M1 was done on 2026-10-26 and changes no decision ([tasks/M1.md](tasks/M1.md#checkpoint-in-the-real-environment)). |
 | M1 | Native AOT or plain single-file. Decided after M1.0b: Native AOT. |
-| M3 | Where the private key for signing updates is kept, and how a release is signed. |
+| M3 | Where the private key for signing updates is kept, and how a release is signed. Deferred with the signed updates (section 10). |
 | M1 | How the heartbeat is sent. Decided: SSE. |
 | M1 | GitHub Actions with Claude (`claude-code-action`, PR review). Decided: no. The local `code-reviewer` is enough. |
 | process | Plan mode at the start of a module. Decided: no. Planning stays in the conversation, with multiple-choice questions. |
 | M1.7 or M6 | Whether all UI texts live in one file. Decided in M1.7: yes, `src/ui/src/texts.ts`. |
-| M3 | Binding the encrypted group to the record id and the level (associated data in AES-GCM), so that a group cannot be moved to another record. This is an addition to the design. Decided for private records: the owner and the record id (design section 7.10). |
-| M3 | Where and how the key for the admin seal is kept. |
+| M3 | Binding the encrypted group to the record id and the level (associated data in AES-GCM), so that a group cannot be moved to another record. This is an addition to the design. Decided for private records: the owner and the record id (design section 7.10). Decided by the user on 2026-10-29, before M3: yes, for the groups of the shared records too, the record id and the level, as adding it later would change every encrypted value. |
+| M3 | Where and how the key for the admin seal is kept. Deferred with the seal (section 10). |
 | M5 | Rules for changing a template that has records. Private records are read only by their owner's exe, so the rules must work without the admin rewriting them. |
 | M2 | Whether `share.json` is checked again when it is read: a folder that is no longer a network path is refused (M1.5a security review). A start of the real exe from a folder someone else controls moves the user's data there. Decided at the start of M2: no. Kiler writes only a network folder there, in the protected `%LOCALAPPDATA%\Kiler`, so a check would catch only a mapped drive letter that later became a local drive. A network folder that someone else controls passes such a check; the M6 question below answers it ([tasks/M2.md](tasks/M2.md)). |
 | M2 | How the local copy keeps what it is there to restore (step 10). If it mirrors the share, a file deleted outside Kiler (not through `trash\`), a damaged file or a file edited in place reaches every user's cache within about 10 s, and there is nothing left to restore from. Decided at the start of M2, as proposed: the cache does not delete or overwrite such files; it keeps the last good version apart and reports them for restore ([tasks/M2.md](tasks/M2.md)). |
-| M3 | Whether the first copy checks the copied exe against the signed `version.json` before it starts it. The bytes are copied by path some seconds after the start, and a DLL planted next to the exe in the shared folder runs in it (M1.5a security review). The checkpoint after M1 confirmed it: planted copies of `NTASN1.dll` and `SSPICLI.DLL` replaced the system ones in every start from the shared folder, and more in some ([tasks/M1.md](tasks/M1.md#checkpoint-in-the-real-environment)). |
+| M3 | Whether the first copy checks the copied exe against the signed `version.json` before it starts it. The bytes are copied by path some seconds after the start, and a DLL planted next to the exe in the shared folder runs in it (M1.5a security review). The checkpoint after M1 confirmed it: planted copies of `NTASN1.dll` and `SSPICLI.DLL` replaced the system ones in every start from the shared folder, and more in some ([tasks/M1.md](tasks/M1.md#checkpoint-in-the-real-environment)). Deferred with the signed updates (section 10). |
 | M6 | Whether the UI shows the shared folder that Kiler uses (M1.5a security review). |
 | M6 | UI component library, routing, data loading. |
 | M6 | Whether the redirect of the token exchange sends `Clear-Site-Data: "cache"`, against a browser cache poisoned from another port of 127.0.0.1 (the M1.8 residual risk in [tasks/log/M1.md](tasks/log/M1.md); to be checked in Edge with a test listener first). |
-| M7 | What highlights the code in MD: CodeMirror or a separate library. |
+| M7 | What highlights the code in MD: CodeMirror or a separate library. Deferred with M7 (section 10). |
 | M8 | Which language the README is in. Decided: English, like the other repository documents. |
 
 ---
@@ -634,7 +645,7 @@ The document is 3–6 pages, with up to ½ page per module. That is why the plan
 | UI and documents | M6, M7 |
 | Tests and CI | M8 |
 
-The final grouping is decided when the document is written.
+The final grouping is decided when the document is written. The steps deferred until after the exam (section 10) are described as planned.
 
 **Tool comparison.** Only Claude Code is used. The "Challenges & Tool Comparison" section compares the Claude Code features that were used (subagents, hooks, skills, CLAUDE.md, memory) and says which helped most and why. It does not compare AI products. The material comes from the tool field of each `/note` entry.
 
@@ -703,3 +714,31 @@ After the exam is graded, the public GitHub repo is deleted and the project cont
 | 5 | CI: from GitHub Actions to Bitbucket Pipelines | a Windows build needs a self-hosted runner; without one, build and tests stay local, through the same scripts |
 | 6 | Release: `Kiler.exe` and the signed `version.json` are copied to the shared folder | as in design section 4; the local copies update themselves (M3) |
 | 7 | CLAUDE.md: remove the course parts and update the data rules | `course/` stays personal and goes nowhere |
+
+---
+
+## 10. Deferred until after the exam
+
+Decided by the user on 2026-10-29, after M2 took three days: until the exam, the work keeps to what the screens of M6 need with the demo data, and the steps below are deferred. They stay in the plan, with their tests and screens, and are done after the exam in this order. None of them changes the format of the data on the share: the private records have a shape and a folder of their own (design section 7.10), and an encrypted value carries the version of its format (M3 step 2).
+
+**First, before the trial use in the real environment (phase 4):**
+
+1. The audit of the Prod passwords: M4 step 10, the audit of M5 step 6, and the audit screen of M6 step 7. A view of a Prod password before it is in place is recorded nowhere, so it comes before the first real Prod data. It needs a new mechanism in Kiler.Storage, appending to a file in `audit\`.
+2. Signed updates: M3 step 11, with the open questions on the signing key and on the check of the first copy. A local copy is never overwritten (M1), so every user who started a version without updates installs the first version with them by hand.
+3. The admin seal and the marks of design section 7.8: M3 step 6 and M4 step 8, with the open question on the seal key. The user files made before it get their seal once, from an admin's exe.
+
+**Then:**
+
+4. The personal key and the private records: M3 step 12, M4 step 12, M5 step 11, the private records of M6 steps 1 and 3, and the private records of the demo data (M8 step 4). The notes in [tasks/M2.md](tasks/M2.md#for-later-modules) on the private folders for M4 and M6 go with them.
+5. Changing a level key when someone untrusted leaves: M3 step 9 and M4 step 11.
+6. "Remember me" and the locking per level: M3 step 8, M4 step 6 and the per-level part of M4 step 5. The overall automatic locking stays.
+7. Restoring admin access with the recovery key (M3 step 7). The key itself is made, shown by the wizard and locks the level keys before the exam.
+8. Changing a template that has records, and the template screen: M5 step 10 and M6 step 7.
+9. Renaming, merging and deleting stashes: M5 steps 9 and 12, M6 step 7. Creating a stash stays.
+10. The other admin screens of M6 step 7 (general settings, history, restoring files from the local copy) and the personal configuration file of M6 step 8.
+11. The conflict with the two versions side by side (M6 step 5).
+12. M7 whole.
+13. The read limit of `--diag` (the M2.11 note in [tasks/M2.md](tasks/M2.md#for-later-modules)).
+14. A full review by `security-reviewer` of the tasks done in the light cycle, and the findings that it left under "Left for after the exam" at the end of each module's task file.
+
+**Before the exam only if there is time, else after it:** the history and the trash in the UI (M6 step 6) and "Parameters" for the bind variables (M6 step 4).

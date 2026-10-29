@@ -12,7 +12,7 @@ Here [the plan](../PLAN.md) is broken into small tasks with ticks. The work foll
 | M4 Users and permissions | | not started |
 | M5 Templates, records and search | | not started |
 | M6 User interface | | not started |
-| M7 Documents and diagrams | | not started |
+| M7 Documents and diagrams | | deferred until after the exam ([PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam)) |
 
 M8 (tests and automation) has no file of its own. Its tasks go into the modules when they are needed:
 
@@ -95,12 +95,31 @@ A dropped task stays in the list so the numbers stay stable. It is ticked and st
 8. **Reminder** about `/note`.
 9. **Next step:** a new task or a new session. A new session is better when the context has grown heavy or the module changes. The prompt of a new session names only the task and this cycle, for example "continue with task M1.7 from docs/tasks/M1.md, following the cycle in docs/tasks/README.md". Everything else must already be in the docs: what a session would need beyond the prompt goes into a note under the task, a skill or this cycle, not into the prompt.
 
+## Light cycle (until the exam)
+
+Decided by the user on 2026-10-29, with the steps deferred until after the exam ([PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam)). Until the exam, the reviews of step 5 go so; the rest of the cycle stays.
+
+- `code-reviewer` makes one pass of each task. `security-reviewer` makes one pass, and only of a task of cryptography, sign-in, permissions or the secret values (the code that unlocks, shows or copies them).
+- There is no repeat pass. The main agent verifies the findings, fixes the critical and major ones whose fix stays within the task, and checks the fixes itself, with the tests of the changed projects.
+- A minor finding, and a finding whose fix needs a new mechanism, a decision or a task of its own, is not fixed. It goes under "Left for after the exam" at the end of the module's task file, with the task, the file and line, the finding, its severity and the verdict. A critical finding is left so only with the user's OK.
+- No review finding becomes a new lettered task before the exam.
+
+## Parallel sessions
+
+A piece of work that needs nothing of a task under way can run in a session of its own, at the same time as the main one. Until the exam this is the UI of M6, once the first task of M5 has fixed the API (PLAN.md, M5). The rules:
+
+- The session works in a git worktree of its own, on a branch of its own, never in the main working tree: two builds in one folder fight over `bin\` and `obj\`, and the `git add -A` of step 7 would take the files of the other session.
+- It changes only its own project or folder, such as `src/ui`, and the main session leaves that folder alone while it runs. The shared files are changed only by the main session: `docs/`, `Kiler.slnx`, `Directory.Packages.props`, `.github/` and the startup of Kiler.App. The parallel session puts its ticks and notes into its final report, and the main session writes them into the docs when it merges the branch.
+- `.claude/settings.local.json` is outside git, so a new worktree has no hooks of Claude. Copy it into the `.claude\` of the worktree before the work: its paths point to the scripts of the main working tree, so `log-prompt` writes to the `course/` there. The git hooks need nothing: `core.hooksPath` is shared, and `data-guard` reads the terms file of the main working tree.
+- `KILER_DESIGN.md` and `course/` are not in a worktree either. Read the design in the main working tree, the parent folder of `git rev-parse --path-format=absolute --git-common-dir`.
+- Two sessions that build and test at once slow each other down. A test that fails on a time limit runs again alone before it counts as a failure.
+
 ## Start of a module
 
 1. The module's open questions from [PLAN.md, section 6](../PLAN.md#6-open-questions) are resolved.
-2. The notes for the module are collected from "For later modules" at the end of the earlier module files: search them for the module number, for example `M4`. Each goes under the module's decisions or under its task.
+2. The notes for the module are collected from "For later modules" at the end of the earlier module files: search them for the module number, for example `M4`. Each goes under the module's decisions or under its task. Until the exam, a note that serves only a step deferred in [PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam) stays where it is.
 3. The skills and agents for the module are reviewed. The decisions that were deferred until now go into them. A project that gets its first code gets its area file in `kiler-dotnet`.
-4. From the module's steps in PLAN.md, `M<n>.md` is written with ordered tasks, each small enough for one session with its reviews (step 2 of the cycle, "Size"). Its log, `log/M<n>.md`, starts empty.
+4. From the module's steps in PLAN.md, `M<n>.md` is written with ordered tasks, each small enough for one session with its reviews (step 2 of the cycle, "Size"). Until the exam, the deferred steps get no tasks. Its log, `log/M<n>.md`, starts empty.
 5. The status in the table above becomes "in progress".
 
 ## End of a module
