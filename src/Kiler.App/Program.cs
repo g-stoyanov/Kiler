@@ -85,9 +85,8 @@ if (copyDecision is not LocalCopyDecision.RunHere)
 }
 
 // Let go after the server has stopped, as requests can use the local copy until then.
-using var data = DataPlace.Choose(options.DataFolder, copyDecision, share, UserFolders.Kiler()) is { } dataPlace
-    ? new KilerData(dataPlace, FileOwner.Instance, TimeProvider.System, Console.Out, Console.Error)
-    : null;
+var dataPlace = DataPlace.Choose(options.DataFolder, copyDecision, share, UserFolders.Kiler());
+using var data = new KilerData(dataPlace, FileOwner.Instance, TimeProvider.System, Console.Out, Console.Error);
 await using var app = KilerHost.Build(options, data: data);
 try
 {
@@ -102,7 +101,7 @@ catch (Exception ex) when (options.Port is not null && ex is IOException or Sock
 
 var address = new Uri(app.Urls.Single());
 Console.WriteLine($"Kiler is listening on {address.GetLeftPart(UriPartial.Authority)}. It stops when its last page closes, or with Ctrl+C.");
-if (data is null)
+if (dataPlace is null)
 {
     Console.Error.WriteLine("Kiler runs without data: it has not been started from the shared folder yet. Start it from there once, or give the data folder with --data <folder>.");
 }

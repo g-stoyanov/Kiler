@@ -1,5 +1,8 @@
 using System.Diagnostics;
 using System.Text;
+using System.Text.Json.Nodes;
+using Kiler.Core;
+using Kiler.Crypto;
 using Kiler.Storage;
 using Microsoft.Extensions.Time.Testing;
 
@@ -55,6 +58,8 @@ public sealed class KilerDataTests : IDisposable
             Assert.True(File.Exists(Path.Combine(_place.CopyFolder, "index.json")), "The local copy has no index.");
             Assert.Equal(3, Assert.IsType<DataCopy>(data.Copy).Documents().Count);
             Assert.True(IsLocked(), "The local copy is not locked.");
+            Assert.Equal(DataState.Open, data.State);
+            Assert.Equal(_place.DataFolder, data.Folder);
         }
 
         // Each level is made private (PrivateFolder), so none takes what the profile grants.
@@ -144,6 +149,9 @@ public sealed class KilerDataTests : IDisposable
         await second.Started.WaitAsync(Quick, Cancel);
 
         Assert.Null(second.Copy);
+        Assert.Null(second.Team);
+        Assert.Equal(DataState.InUse, second.State);
+        Assert.Equal(DataState.Open, first.State);
         Assert.Equal(["Kiler runs without data: another Kiler of this user has the same data folder open, in another session, or one started with --data and one without."], errors.Lines);
         Assert.Empty(output.Lines);
         Assert.NotNull(first.Copy);
@@ -158,6 +166,7 @@ public sealed class KilerDataTests : IDisposable
         await data.Started.WaitAsync(Quick, Cancel);
 
         Assert.Null(data.Copy);
+        Assert.Equal(DataState.Missing, data.State);
         Assert.Equal([$"Kiler runs without data: the data folder does not exist: {_place.DataFolder}"], _errors.Lines);
         Assert.Empty(_output.Lines);
         Assert.False(Directory.Exists(_place.DataFolder), "The data folder was made.");
@@ -181,6 +190,7 @@ public sealed class KilerDataTests : IDisposable
             await data.Started.WaitAsync(Quick, Cancel);
 
             Assert.Null(data.Copy);
+            Assert.Equal(DataState.IndexUnreadable, data.State);
             Assert.StartsWith("Kiler runs without data: the index of its local copy cannot be read now, so start Kiler again: ", Assert.Single(_errors.Lines), StringComparison.Ordinal);
             Assert.False(IsLocked(), "The copy stayed locked.");
         }
@@ -196,6 +206,10 @@ public sealed class KilerDataTests : IDisposable
         using var data = new KilerData(_place, FileOwner.Instance, TimeProvider.System, console, _errors);
         data.Start();
         await console.Held.WaitAsync(Quick, Cancel);
+
+        // The copy is open, but its first load has not ended.
+        Assert.NotNull(data.Copy);
+        Assert.Equal(DataState.Opening, data.State);
 
         // The thread of the watch stays in the event of its first load, as in a load that outlives the stop of the host.
         data.Stop(TimeSpan.FromMilliseconds(100));
@@ -224,10 +238,12 @@ public sealed class KilerDataTests : IDisposable
         Directory.Move(_place.DataFolder, away);
         clock.Advance(DataWatch.Interval);
         await _output.WaitForLineAsync("The data folder cannot be reached, so Kiler works from its local copy: ", Quick);
+        await WaitForStateAsync(data, DataState.Offline);
 
         Directory.Move(away, _place.DataFolder);
         clock.Advance(DataWatch.Interval);
         await _output.WaitForLineAsync("The data folder can be reached again.", Quick);
+        await WaitForStateAsync(data, DataState.Open);
         Assert.Empty(_errors.Lines);
     }
 
@@ -240,6 +256,7 @@ public sealed class KilerDataTests : IDisposable
         await data.Started.WaitAsync(Quick, Cancel);
 
         Assert.Null(data.Copy);
+        Assert.Equal(DataState.Unusable, data.State);
         Assert.StartsWith("Kiler runs without data: the data folder cannot be used: ", Assert.Single(_errors.Lines), StringComparison.Ordinal);
         Assert.False(Directory.Exists(_place.LocalFolder), "A local copy was made.");
     }
@@ -255,8 +272,59 @@ public sealed class KilerDataTests : IDisposable
         await data.Started.WaitAsync(Quick, Cancel);
 
         Assert.Null(data.Copy);
+        Assert.Equal(DataState.Failed, data.State);
         Assert.StartsWith("Kiler runs without data: its local copy cannot be made or locked: ", Assert.Single(_errors.Lines), StringComparison.Ordinal);
         Assert.Empty(_output.Lines);
+    }
+
+    [Fact]
+    public async Task Start_WithoutADataFolder_RunsWithoutData_AndSaysNothing()
+    {
+        using var data = new KilerData(null, FileOwner.Instance, TimeProvider.System, _output, _errors);
+        Assert.Equal(DataState.NoFolder, data.State);
+
+        data.Start();
+        await data.Started.WaitAsync(Quick, Cancel);
+
+        Assert.Equal(DataState.NoFolder, data.State);
+        Assert.Null(data.Folder);
+        Assert.Null(data.Copy);
+        Assert.Null(data.Team);
+        Assert.Empty(_output.Lines);
+        Assert.Empty(_errors.Lines);
+    }
+
+    [Fact]
+    public async Task TheTeam_IsReadWhenTheCopyOpens_AndFollowsTheLoads()
+    {
+        var made = MadeUp();
+        made.Create(UserFile.KeyOf("demo.user"), User("demo.user"));
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        using var data = NewData(clock);
+        Assert.Equal(DataState.Opening, data.State);
+        data.Start();
+        await data.Started.WaitAsync(Quick, Cancel);
+        var team = Assert.IsType<Team>(data.Team);
+        Assert.Equal(["demo.user"], team.Files.Users.Keys);
+
+        made.Create(UserFile.KeyOf("another.user"), User("another.user"));
+        clock.Advance(DataWatch.Interval);
+        await _output.WaitForLineAsync($"{FirstLoad}1 new or changed, 0 gone, 0 changed outside Kiler, 0 skipped.", Quick);
+
+        Assert.Equal(["another.user", "demo.user"], team.Files.Users.Keys);
+        Assert.Empty(_errors.Lines);
+    }
+
+    private static JsonObject User(string account) =>
+        new UserFile(account, "Demo User", level: 1, canEdit: false, isAdmin: false, mustChangePassword: false, new LockedKeys("salt", new Dictionary<int, string> { [1] = "locked-1" })).ToContent();
+
+    /// <summary>Waits for a state that a handler of the watch sets after its line.</summary>
+    private static async Task WaitForStateAsync(KilerData data, DataState state)
+    {
+        for (var waited = Stopwatch.StartNew(); data.State != state; await Task.Delay(TimeSpan.FromMilliseconds(20), Cancel))
+        {
+            Assert.True(waited.Elapsed < Quick, $"The state stayed {data.State}, not {state}.");
+        }
     }
 
     private MadeUpData MadeUp() => MadeUpData.Create(_place.DataFolder, Path.Combine(_folder.Path, "writer"));

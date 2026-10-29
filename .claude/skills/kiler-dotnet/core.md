@@ -27,6 +27,11 @@ Part of the `kiler-dotnet` skill. Read it with [SKILL.md](SKILL.md) when a task 
 - A deleted id is not created again (`Exists`): it comes back from the trash and is written over, or a new id is taken (M2.5).
 - `DataWatch.Loaded` gives each load on the thread of the watch, after the load has let go of the copy, so a handler may call the copy. A handler does not throw, which ends the process, and keeps its work short. After `Failed`, and at each `OfflineChanged`, read `Documents()` and `Trash()` again: what the load took is in the copy, and no later load gives it. Each public member of `DataCopy` waits for a load under way, up to about 60 s for a read blocked over SMB; while offline, only for the load that found the share gone (M2.8, M2.8c).
 
+## The team (M4.2)
+
+- `Team` keeps `levels.json`, `settings.json` and `users\*.json` of the local copy as models: each a `TeamFile<T>` with the model and its `Version`, or `Invalid` with a reason (a damaged file has no version). It is made when the copy opens (`KilerData`, host.md), follows each load (`Follow`) and reads the whole copy again after `Failed` and at `OfflineChanged` (`Reload`), all on the thread of the watch. `Files` is one `TeamFiles`, never changed, that each update replaces: a request reads it once and uses what it got.
+- A write of this Kiler through the copy is given by no later load, as the copy takes what it wrote as its own (M2.7a): the writer brings it into the team itself (M4.3 adds the member, under the lock of the team). A `Replace` takes the `Version` of the `TeamFile` it changes, so a write over a change that the team has not followed yet is a `Conflict`. The watch raises a load after it has let go of the copy, so a load that ended before a write can be followed after it: the team must not take that load's older document over the write. That can happen to a document whose owner alone changed, at the version that the write replaced (M2.8b).
+
 ## Keys and the session (M4)
 
 - The decisions are in `docs/tasks/M4.md`, "Decisions for the module": one session per process, whose levels are the keys it holds, never the `level` of the user file.

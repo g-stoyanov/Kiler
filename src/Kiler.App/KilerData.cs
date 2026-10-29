@@ -1,16 +1,20 @@
 using System.Globalization;
+using System.Text.Json.Serialization;
+using Kiler.Core;
 using Kiler.Storage;
 
 namespace Kiler.App;
 
 /// <summary>
 /// The data of a running Kiler (M2.10): the data folder of the start (<see cref="DataPlace"/>), its local copy in the profile,
-/// and the watch of the share (<see cref="DataWatch"/>). It opens once the server listens, on a task of its own, as the first
-/// look at a share that cannot be reached can block for long (M2.8a) and the page should not wait for it; the watch stops on
-/// <c>ApplicationStopping</c> (<see cref="KilerHost"/>), and the copy is let go with <see cref="Dispose"/>, after the server
-/// has stopped. Kiler runs without data, and says so, when the data folder does not exist (nothing makes it; the wizard of M4
-/// does), when another Kiler of the user has the local copy open, or when the index of the copy cannot be read now; the
-/// screens are M4 and M6. What it says goes to the console as lines, at once (decided by the user): what the user acts on to
+/// the watch of the share (<see cref="DataWatch"/>), and the team that follows it (<see cref="Core.Team"/>, M4.2). It opens
+/// once the server listens, on a task of its own, as the first look at a share that cannot be reached can block for long
+/// (M2.8a) and the page should not wait for it; the watch stops on <c>ApplicationStopping</c> (<see cref="KilerHost"/>), and
+/// the copy is let go with <see cref="Dispose"/>, after the server has stopped. It is always in DI (M4.2), also when no data
+/// folder was chosen, and gives its <see cref="State"/> to the page (<see cref="DataApi"/>). Kiler runs without data, and
+/// says so, when the data folder does not exist (nothing makes it; the wizard of M4.3 does) or cannot be used, when another
+/// Kiler of the user has the local copy open, or when the index of the copy cannot be read now; without a data folder chosen,
+/// <c>Program</c> says it. What it says goes to the console as lines, at once (decided by the user): what the user acts on to
 /// the errors.
 /// </summary>
 internal sealed class KilerData : IDisposable
@@ -25,7 +29,7 @@ internal sealed class KilerData : IDisposable
     /// <summary><c>ERROR_SHARING_VIOLATION</c>: another handle holds the file without sharing.</summary>
     private const int SharingViolation = 32;
 
-    private readonly DataPlace _place;
+    private readonly DataPlace? _place;
     private readonly IFileOwner _owners;
     private readonly TimeProvider _time;
     private readonly TextWriter _output;
@@ -47,7 +51,9 @@ internal sealed class KilerData : IDisposable
     private bool? _watchEnded;
     private FileStream? _lock;
     private DataCopy? _copy;
+    private Team? _team;
     private DataWatch? _watch;
+    private DataState _state;
 
     /// <summary>
     /// Whether Kiler stops; read without the lock, so a line never waits for it: a write to the console can block, as while
@@ -62,9 +68,9 @@ internal sealed class KilerData : IDisposable
     private bool _saidLoad;
     private int _saidSkipped;
 
-    public KilerData(DataPlace place, IFileOwner owners, TimeProvider time, TextWriter output, TextWriter errors)
+    /// <summary>The data of the start at <paramref name="place"/>; null when no data folder was chosen, so Kiler runs without data.</summary>
+    public KilerData(DataPlace? place, IFileOwner owners, TimeProvider time, TextWriter output, TextWriter errors)
     {
-        ArgumentNullException.ThrowIfNull(place);
         ArgumentNullException.ThrowIfNull(owners);
         ArgumentNullException.ThrowIfNull(time);
         ArgumentNullException.ThrowIfNull(output);
@@ -74,6 +80,22 @@ internal sealed class KilerData : IDisposable
         _time = time;
         _output = output;
         _errors = errors;
+        _state = place is null ? DataState.NoFolder : DataState.Opening;
+    }
+
+    /// <summary>The full path of the data folder of the start; null when none was chosen.</summary>
+    public string? Folder => _place?.DataFolder;
+
+    /// <summary>The state of the data, which the page shows (decided at the start of M4).</summary>
+    public DataState State
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _state;
+            }
+        }
     }
 
     /// <summary>The local copy once it is open and watched; null before, and when Kiler runs without data. M4 reads and writes through it.</summary>
@@ -88,11 +110,26 @@ internal sealed class KilerData : IDisposable
         }
     }
 
+    /// <summary>The levels, the settings and the users of the local copy, with it; null when <see cref="Copy"/> is.</summary>
+    public Team? Team
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _team;
+            }
+        }
+    }
+
     /// <summary>
     /// Completes when the start of the data has ended: the first load of the watch has ended, offline or failed too, or Kiler
     /// runs without data, or stops before. It never fails.
     /// </summary>
     public Task Started => _started.Task;
+
+    /// <summary>Without a data folder (<see cref="DataState.NoFolder"/>): what <see cref="KilerHost"/> takes when it is given no data, as the API tests are.</summary>
+    public static KilerData WithoutFolder() => new(null, FileOwner.Instance, TimeProvider.System, TextWriter.Null, TextWriter.Null);
 
     /// <summary>Opens the data on a task of its own; once, when the server listens.</summary>
     public void Start()
@@ -105,11 +142,17 @@ internal sealed class KilerData : IDisposable
             }
 
             _starting = true;
-            _opening = true;
+            _opening = _place is not null;
+        }
+
+        if (_place is null)
+        {
+            _started.TrySetResult();
+            return;
         }
 
         _startedAt = _time.GetTimestamp();
-        _ = Task.Run(Open);
+        _ = Task.Run(() => Open(_place));
     }
 
     /// <summary>
@@ -163,17 +206,17 @@ internal sealed class KilerData : IDisposable
 
     private static bool IsSharingViolation(IOException ex) => (ex.HResult & 0xFFFF) == SharingViolation;
 
-    private void Open()
+    private void Open(DataPlace place)
     {
         var watching = false;
         try
         {
-            watching = OpenAndWatch();
+            watching = OpenAndWatch(place);
         }
         catch (Exception ex)
         {
             // A fault of the code: this task has no one to throw to.
-            SayError($"Kiler runs without data: its data could not be opened: {ex}");
+            RunWithout(DataState.Failed, $"Kiler runs without data: its data could not be opened: {ex}");
         }
         finally
         {
@@ -200,27 +243,29 @@ internal sealed class KilerData : IDisposable
         _lock = null;
     }
 
-    /// <summary>Opens the data folder and its local copy, and starts the watch; false when Kiler runs without data, which it has said, or stops.</summary>
-    private bool OpenAndWatch()
+    /// <summary>
+    /// Opens the data folder and its local copy, reads the team from the copy, and starts the watch; false when Kiler runs
+    /// without data, which it has said, or stops. The state stays <see cref="DataState.Opening"/> until the first load has
+    /// ended, as a new local copy has nothing before it.
+    /// </summary>
+    private bool OpenAndWatch(DataPlace place)
     {
         DataFolder share;
         try
         {
-            share = DataFolder.Open(_place.DataFolder, _owners);
+            share = DataFolder.Open(place.DataFolder, _owners);
         }
         catch (DirectoryNotFoundException)
         {
-            SayError($"Kiler runs without data: the data folder does not exist: {_place.DataFolder}");
-            return false;
+            return RunWithout(DataState.Missing, $"Kiler runs without data: the data folder does not exist: {place.DataFolder}");
         }
         catch (IOException ex)
         {
             // A link or a file at its name.
-            SayError($"Kiler runs without data: the data folder cannot be used: {ex.Message}");
-            return false;
+            return RunWithout(DataState.Unusable, $"Kiler runs without data: the data folder cannot be used: {ex.Message}");
         }
 
-        if (_stopping || !LockCopy() || _stopping)
+        if (_stopping || !LockCopy(place) || _stopping)
         {
             return false;
         }
@@ -229,20 +274,20 @@ internal sealed class KilerData : IDisposable
         try
         {
             // No account until M4 decides how an account becomes a folder name (M2.7b).
-            copy = DataCopy.Open(share, _place.CopyFolder, _time);
+            copy = DataCopy.Open(share, place.CopyFolder, _time);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Taken for no index, it would cost the last good bytes of the documents that the share no longer has (M2.7).
-            SayError($"Kiler runs without data: the index of its local copy cannot be read now, so start Kiler again: {ex.Message}");
-            return false;
+            return RunWithout(DataState.IndexUnreadable, $"Kiler runs without data: the index of its local copy cannot be read now, so start Kiler again: {ex.Message}");
         }
 
+        var team = new Team(copy);
         var watch = new DataWatch(copy, _time);
-        watch.Loaded += OnLoaded;
-        watch.Failed += OnFailed;
-        watch.OfflineChanged += OnOfflineChanged;
-        Say($"Kiler opens the data folder {_place.DataFolder}, with its local copy in {_place.CopyFolder}.");
+        watch.Loaded += (_, load) => OnLoaded(team, load);
+        watch.Failed += (_, failure) => OnFailed(copy, team, failure);
+        watch.OfflineChanged += (_, change) => OnOfflineChanged(team, change);
+        Say($"Kiler opens the data folder {place.DataFolder}, with its local copy in {place.CopyFolder}.");
         lock (_gate)
         {
             if (_stopping)
@@ -251,6 +296,7 @@ internal sealed class KilerData : IDisposable
             }
 
             _copy = copy;
+            _team = team;
             _watch = watch;
             watch.Start();
             return true;
@@ -258,25 +304,23 @@ internal sealed class KilerData : IDisposable
     }
 
     /// <summary>Makes the folder of the local copy, each level private, and locks it; false when it cannot, which it has said.</summary>
-    private bool LockCopy()
+    private bool LockCopy(DataPlace place)
     {
         FileStream held;
         try
         {
-            PrivateFolder.Create(_place.LocalFolder);
-            PrivateFolder.Create(_place.CopiesFolder);
-            PrivateFolder.Create(_place.CopyFolder);
-            held = new FileStream(Path.Combine(_place.CopyFolder, LockFile), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            PrivateFolder.Create(place.LocalFolder);
+            PrivateFolder.Create(place.CopiesFolder);
+            PrivateFolder.Create(place.CopyFolder);
+            held = new FileStream(Path.Combine(place.CopyFolder, LockFile), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         }
         catch (IOException ex) when (IsSharingViolation(ex))
         {
-            SayError("Kiler runs without data: another Kiler of this user has the same data folder open, in another session, or one started with --data and one without.");
-            return false;
+            return RunWithout(DataState.InUse, "Kiler runs without data: another Kiler of this user has the same data folder open, in another session, or one started with --data and one without.");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            SayError($"Kiler runs without data: its local copy cannot be made or locked: {ex.Message}");
-            return false;
+            return RunWithout(DataState.Failed, $"Kiler runs without data: its local copy cannot be made or locked: {ex.Message}");
         }
 
         // Let go when the open ends, if it stops or the data is disposed meanwhile.
@@ -288,11 +332,13 @@ internal sealed class KilerData : IDisposable
         return true;
     }
 
-    // Each handler says its line before the start ends, so whoever waits for it finds the line.
-    private void OnLoaded(object? sender, LoadResult load)
+    // Each handler takes the change into the team, then says its line and the state, before the start ends, so whoever waits
+    // for it finds them.
+    private void OnLoaded(Team team, LoadResult load)
     {
         var first = !_heard;
         _heard = true;
+        Update(() => team.Follow(load));
 
         // A load that changed nothing is not said, and neither are the skipped entries that every load repeats (M2.8).
         var skipped = load.Skipped.Count + load.MoreSkipped;
@@ -312,26 +358,64 @@ internal sealed class KilerData : IDisposable
             Say(first ? string.Create(CultureInfo.InvariantCulture, $"{line}, in {_time.GetElapsedTime(_startedAt).TotalSeconds:0.0} s.") : $"{line}.");
         }
 
+        // A load that ends is not offline: the watch says that the copy is back before it.
+        SetState(DataState.Open);
         _started.TrySetResult();
     }
 
-    private void OnFailed(object? sender, Exception failure)
+    private void OnFailed(DataCopy copy, Team team, Exception failure)
     {
         _heard = true;
 
-        // A fault of the code, so the whole exception, with where it was thrown. The screens that read the documents again
-        // after it come with M4 and M6.
+        // What the load took before it threw is in the copy, and no later load gives it (core.md).
+        Update(team.Reload);
+
+        // A fault of the code, so the whole exception, with where it was thrown.
         SayError($"A load of the data folder failed: {failure}");
+        SetState(copy.Offline ? DataState.Offline : DataState.Open);
         _started.TrySetResult();
     }
 
-    private void OnOfflineChanged(object? sender, OfflineChange change)
+    private void OnOfflineChanged(Team team, OfflineChange change)
     {
         _heard = true;
+
+        // As after a failed load: a load that went offline may have taken documents first (core.md).
+        Update(team.Reload);
         Say(change.Offline
             ? $"The data folder cannot be reached, so Kiler works from its local copy: {change.Cause?.Message}"
             : "The data folder can be reached again.");
+        SetState(change.Offline ? DataState.Offline : DataState.Open);
         _started.TrySetResult();
+    }
+
+    /// <summary>Runs an update of the team on the thread of the watch, whose handlers never throw (M2.8): a fault of the code is said, and the watch goes on.</summary>
+    private void Update(Action update)
+    {
+        try
+        {
+            update();
+        }
+        catch (Exception ex)
+        {
+            SayError($"The levels, the settings and the users could not be read from the local copy: {ex}");
+        }
+    }
+
+    private void SetState(DataState state)
+    {
+        lock (_gate)
+        {
+            _state = state;
+        }
+    }
+
+    /// <summary>Sets a state without data and says why; false, for the open to return.</summary>
+    private bool RunWithout(DataState state, string line)
+    {
+        SetState(state);
+        SayError(line);
+        return false;
     }
 
     private void Say(string line) => Write(_output, line);
@@ -355,4 +439,51 @@ internal sealed class KilerData : IDisposable
             // A console that has gone: the line is lost, and the watch goes on.
         }
     }
+}
+
+/// <summary>
+/// The state of the data of a running Kiler (decided at the start of M4), which the page shows (<see cref="DataApi"/>).
+/// Each state without data has its line on the console too, with what the page does not show, such as an exception.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<DataState>))]
+internal enum DataState
+{
+    /// <summary>No data folder was chosen: Kiler has never been started from the shared folder, and there is no <c>--data</c>.</summary>
+    [JsonStringEnumMemberName("noFolder")]
+    NoFolder,
+
+    /// <summary>
+    /// The data folder and its local copy are opening, until the first load has ended. A start whose file server does not
+    /// answer stays here about 37 s before the copy opens (M2.11b).
+    /// </summary>
+    [JsonStringEnumMemberName("opening")]
+    Opening,
+
+    /// <summary>The data folder does not exist: the wizard makes a new Kiler there (M4.3).</summary>
+    [JsonStringEnumMemberName("missing")]
+    Missing,
+
+    /// <summary>The data folder cannot be used: a link, or a file at its name.</summary>
+    [JsonStringEnumMemberName("unusable")]
+    Unusable,
+
+    /// <summary>Another Kiler of the user has the local copy of the data folder open.</summary>
+    [JsonStringEnumMemberName("inUse")]
+    InUse,
+
+    /// <summary>The index of the local copy cannot be read now, so Kiler is started again.</summary>
+    [JsonStringEnumMemberName("indexUnreadable")]
+    IndexUnreadable,
+
+    /// <summary>The local copy cannot be made or locked, or a fault of the code; the console says which.</summary>
+    [JsonStringEnumMemberName("failed")]
+    Failed,
+
+    /// <summary>The local copy is open, and its last load reached the data folder.</summary>
+    [JsonStringEnumMemberName("open")]
+    Open,
+
+    /// <summary>The local copy is open, but the data folder cannot be reached: Kiler works from the copy, and the writes wait (core.md).</summary>
+    [JsonStringEnumMemberName("offline")]
+    Offline,
 }

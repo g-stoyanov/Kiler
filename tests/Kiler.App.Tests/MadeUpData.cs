@@ -40,6 +40,9 @@ internal sealed class MadeUpData
     /// <summary>Makes a record at version 1.</summary>
     public void Create(string id) => Assert.Equal(WriteOutcome.Written, _writer.Create(Record(id), Content(id, 1)).Outcome);
 
+    /// <summary>Makes a document of any other kind, such as a user file (M4.2), at version 1.</summary>
+    public void Create(DocumentKey key, JsonObject content) => Assert.Equal(WriteOutcome.Written, _writer.Create(key, content).Outcome);
+
     /// <summary>Writes a record over its <paramref name="version"/>.</summary>
     public void Replace(string id, int version) => Assert.Equal(WriteOutcome.Written, _writer.Replace(Record(id), version, Content(id, version + 1)).Outcome);
 

@@ -12,12 +12,30 @@ internal sealed class TestData : IDisposable
 {
     private readonly string _folder = Path.Combine(Path.GetTempPath(), "Kiler.Tests", Guid.NewGuid().ToString("N"));
     private readonly DataCopy _copy;
+    private int _copies;
 
     public TestData()
     {
         var copy = Path.Combine(_folder, "copy");
         Directory.CreateDirectory(copy);
-        _copy = DataCopy.Open(DataFolder.Create(Path.Combine(_folder, "data"), new NoOwners()), copy, TimeProvider.System);
+        _copy = DataCopy.Open(DataFolder.Create(Folder, new NoOwners()), copy, TimeProvider.System);
+    }
+
+    /// <summary>The full path of the data folder.</summary>
+    public string Folder => Path.Combine(_folder, "data");
+
+    /// <summary>The local copy that writes the documents of the test.</summary>
+    public DataCopy Copy => _copy;
+
+    /// <summary>
+    /// Another local copy of the same data folder (M4.2), as the Kiler of another user has: what the test writes through
+    /// <see cref="Copy"/> reaches it with its next <see cref="DataCopy.Load"/>.
+    /// </summary>
+    public DataCopy OpenCopy()
+    {
+        var copy = Path.Combine(_folder, $"copy{++_copies}");
+        Directory.CreateDirectory(copy);
+        return DataCopy.Open(DataFolder.Open(Folder, new NoOwners()), copy, TimeProvider.System);
     }
 
     /// <summary>Writes <paramref name="content"/> as a new document and gives it as the local copy reads it.</summary>

@@ -5,6 +5,7 @@ namespace Kiler.App;
 
 /// <summary>JSON with source generation, because Native AOT has no reflection-based serialization.</summary>
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
+[JsonSerializable(typeof(DataResponse))]
 [JsonSerializable(typeof(HealthResponse))]
 [JsonSerializable(typeof(InstanceFileContent))]
 [JsonSerializable(typeof(ShareFileContent))]
