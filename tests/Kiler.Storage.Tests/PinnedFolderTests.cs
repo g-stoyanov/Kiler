@@ -9,16 +9,34 @@ public sealed class PinnedFolderTests : IDisposable
 
     public void Dispose() => _test.Dispose();
 
+    /// <summary>
+    /// A local NTFS disk also refuses to rename a folder above a held folder. The file server of the shared folder lets it (M2.11), so
+    /// there only the folders that a write holds itself stay where they are: a folder above the data folder can be renamed.
+    /// </summary>
     [Fact]
     public void Open_NoOneCanRenameOrDeleteTheFolderOrAFolderAboveIt_UntilItIsLetGo()
     {
         var above = Path.GetDirectoryName(_pinned)!;
+        var movedAbove = false;
 
         using (PinnedFolder.Open(_pinned))
         {
             AssertRefused(() => Directory.Move(_pinned, _pinned + "-moved"));
-            AssertRefused(() => Directory.Move(above, above + "-moved"));
             AssertRefused(() => Directory.Delete(_pinned));
+            if (TestFolder.IsOnLocalDisk(above))
+            {
+                AssertRefused(() => Directory.Move(above, above + "-moved"));
+            }
+            else
+            {
+                movedAbove = Record.Exception(() => Directory.Move(above, above + "-moved")) is null;
+            }
+        }
+
+        if (movedAbove)
+        {
+            Directory.Move(above + "-moved", above);
+            Assert.Skip("The file server lets a folder above a held folder be renamed.");
         }
 
         Directory.Move(above, above + "-moved");

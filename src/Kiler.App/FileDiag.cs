@@ -78,8 +78,8 @@ internal sealed class FileDiag
             Directory.CreateDirectory(work);
             madeWork = true;
 
-            // Held until the files are deleted, so no one can swap the subfolder, or a folder above it, for a link to
-            // another folder, where the writes, the replace and the deletes would land.
+            // Held until the files are deleted, so no one can swap the subfolder for a link to another folder, where the
+            // writes, the replace and the deletes would land. Not every file server keeps the folders above it (M2.11).
             pin = PinnedFolder.Open(work);
             _report.Line($"Temporary subfolder: {name}");
 

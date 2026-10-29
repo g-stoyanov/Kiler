@@ -165,6 +165,13 @@ internal sealed class FileSystem(IFileOwner owners) : IFileSystem
         {
             return false;
         }
+        catch (UnauthorizedAccessException) when (!replace && Attributes(to) is not null)
+        {
+            // A file server may refuse a rename onto a name that an open file takes, or a file deleted while others hold it,
+            // with access denied rather than "exists" (measured on the shared folder in M2.11). The name is taken all the same.
+            // A name that cannot be looked at throws in the filter, which counts as not taken, so the denial stays.
+            return false;
+        }
     }
 
     public void DeleteFile(string path) => File.Delete(path);

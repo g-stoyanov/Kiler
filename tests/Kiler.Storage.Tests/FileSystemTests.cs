@@ -132,11 +132,31 @@ public sealed class FileSystemTests : IDisposable
         var other = Path.Combine(_test.Root, "b72e09.1a2b3c4d.tmp");
 
         using var file = Files.CreateFile(path, "{}"u8);
-        using var second = Files.CreateFile(other, "{}"u8);
+        using (Files.CreateFile(other, "{}"u8))
+        {
+            Assert.True(Files.MoveFile(path, Path.Combine(_test.Root, "8f3a1c.json"), replace: false));
+            Files.DeleteFile(other);
 
-        Assert.True(Files.MoveFile(path, Path.Combine(_test.Root, "8f3a1c.json"), replace: false));
-        Files.DeleteFile(other);
+            // Its name goes at once where the file system takes the POSIX delete, else when the handle is let go (M2.11).
+            Assert.Equal(!TestFolder.HasPosixDeletes(_test.Root), File.Exists(other));
+        }
+
         Assert.False(File.Exists(other));
+    }
+
+    /// <summary>
+    /// The tests that expect a deleted name to go at once ask <see cref="TestFolder.HasPosixDeletes"/>, so a local disk that
+    /// lost the POSIX delete would run their other branch unseen: NTFS has it since Windows 10 (M2.4).
+    /// </summary>
+    [Fact]
+    public void HasPosixDeletes_OnTheLocalDisk_IsTrue()
+    {
+        if (!TestFolder.IsOnLocalDisk(_test.Root))
+        {
+            Assert.Skip("The test folder is not on a local disk.");
+        }
+
+        Assert.True(TestFolder.HasPosixDeletes(_test.Root), "The local disk has no POSIX delete.");
     }
 
     [Fact]
@@ -194,6 +214,53 @@ public sealed class FileSystemTests : IDisposable
 
         Assert.Equal("new", File.ReadAllText(from));
         Assert.Equal("old", File.ReadAllText(to));
+    }
+
+    /// <summary>
+    /// A file server may refuse a rename onto a name that an open file takes with access denied rather than "exists"
+    /// (measured on the shared folder in M2.11), as when the second writer of a version meets the slot of the first, which it
+    /// holds open. The name is taken all the same.
+    /// </summary>
+    [Fact]
+    public void MoveFile_WithoutReplace_OntoAFileThatIsOpen_GivesFalseAndMovesNothing()
+    {
+        var from = Path.Combine(_test.Root, "v1.1a2b3c4d.tmp");
+        var to = Path.Combine(_test.Root, "v1.json");
+        File.WriteAllText(from, "new");
+        File.WriteAllText(to, "old");
+
+        using (Files.OpenRead(to))
+        {
+            Assert.False(Files.MoveFile(from, to, replace: false));
+        }
+
+        Assert.Equal("new", File.ReadAllText(from));
+        Assert.Equal("old", File.ReadAllText(to));
+    }
+
+    /// <summary>
+    /// The classic delete keeps the name of a file taken until the last handle to it is closed, which is the only delete of a
+    /// file server without POSIX deletes (M2.11): a rename onto it finds the name taken, also where the file server says
+    /// access denied.
+    /// </summary>
+    [Fact]
+    public void MoveFile_WithoutReplace_OntoTheNameOfAFileThatGoesWhenItsReaderLetsGo_GivesFalse()
+    {
+        var from = Path.Combine(_test.Root, "v1.1a2b3c4d.tmp");
+        var to = Path.Combine(_test.Root, "v1.json");
+        File.WriteAllText(from, "new");
+        File.WriteAllText(to, "old");
+
+        using (Files.OpenRead(to))
+        {
+            // FILE_FLAG_DELETE_ON_CLOSE deletes in the classic way.
+            new FileStream(to, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1, FileOptions.DeleteOnClose).Dispose();
+
+            Assert.False(Files.MoveFile(from, to, replace: false));
+        }
+
+        Assert.Equal("new", File.ReadAllText(from));
+        Assert.False(File.Exists(to), "The file did not go when its reader let it go.");
     }
 
     [Fact]

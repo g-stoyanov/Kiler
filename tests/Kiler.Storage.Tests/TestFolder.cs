@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
@@ -19,6 +20,8 @@ internal sealed class TestFolder : IDisposable
     public const string Variable = "KILER_TEST_FOLDER";
 
     private const FileAccess GenericWrite = (FileAccess)0x40000000;
+    private const FileAccess ReadAttributes = (FileAccess)0x80;
+    private const uint SupportsPosixUnlinkRename = 0x400;
     private const FileAttributes BackupSemantics = (FileAttributes)0x02000000;
     private const FileAttributes OpenReparsePoint = (FileAttributes)0x00200000;
     private const uint MountPointTag = 0xA0000003;
@@ -131,7 +134,7 @@ internal sealed class TestFolder : IDisposable
             var file = new FileInfo(path);
             var security = file.GetAccessControl();
             security.AddAccessRule(new FileSystemAccessRule(identity.User!, FileSystemRights.WriteAttributes, AccessControlType.Deny));
-            file.SetAccessControl(security);
+            SetAccessControl(file, security);
         }
         else
         {
@@ -179,10 +182,33 @@ internal sealed class TestFolder : IDisposable
     /// </summary>
     public static void SetRawTimes(string path, long creation, long lastWrite)
     {
-        using var handle = CreateFileW(path, GenericWrite, FileShare.ReadWrite | FileShare.Delete, 0, FileMode.Open, BackupSemantics, 0);
+        using var handle = CreateFileW(path, GenericWrite | ReadAttributes, FileShare.ReadWrite | FileShare.Delete, 0, FileMode.Open, BackupSemantics, 0);
         Assert.False(handle.IsInvalid, $"The file could not be opened to write: error {Marshal.GetLastPInvokeError()}");
         var access = lastWrite;
         Assert.True(SetFileTime(handle, ref creation, ref access, ref lastWrite), $"Windows did not set the times: error {Marshal.GetLastPInvokeError()}");
+
+        // The file server of the shared folder takes such a time and keeps another one, of the 20th century (M2.11). A local
+        // disk keeps it, so it fails the test rather than skip it.
+        var latest = Math.Max(creation, lastWrite);
+        Assert.True(GetFileTime(handle, out var kept, out _, out var keptWrite), $"Windows did not give the times: error {Marshal.GetLastPInvokeError()}");
+        if (latest > DateTime.MaxValue.ToFileTimeUtc() && Math.Max(kept, keptWrite) != latest)
+        {
+            Assert.False(IsOnLocalDisk(path), "The local disk did not keep a time after the year 9999.");
+            Assert.Skip("The file server keeps no time after the year 9999.");
+        }
+    }
+
+    /// <summary>
+    /// Whether the file system of a folder takes the POSIX delete, which frees the name of a file at once, also while others
+    /// read it (M2.4). The file server of the shared folder does not (M2.11): its delete keeps the name taken until the last
+    /// handle to the file is closed.
+    /// </summary>
+    public static bool HasPosixDeletes(string folder)
+    {
+        using var handle = CreateFileW(folder, ReadAttributes, FileShare.ReadWrite | FileShare.Delete, 0, FileMode.Open, BackupSemantics, 0);
+        Assert.False(handle.IsInvalid, $"The folder could not be opened: error {Marshal.GetLastPInvokeError()}");
+        Assert.True(GetVolumeInformationByHandleW(handle, 0, 0, 0, 0, out var flags, 0, 0), $"Windows did not describe the volume: error {Marshal.GetLastPInvokeError()}");
+        return (flags & SupportsPosixUnlinkRename) != 0;
     }
 
     /// <summary>
@@ -269,11 +295,26 @@ internal sealed class TestFolder : IDisposable
                 security.RemoveAccessRule(rule);
             }
 
-            file.SetAccessControl(security);
+            SetAccessControl(file, security);
         }
         else
         {
             Assert.Skip("The rights of a file are set through Windows.");
+        }
+    }
+
+    // The file server of the shared folder lets no one change the rights of a file, its owner neither (M2.11). On a local
+    // disk the owner can, so a refusal there fails the test.
+    [SupportedOSPlatform("windows")]
+    private static void SetAccessControl(FileInfo file, FileSecurity security)
+    {
+        try
+        {
+            file.SetAccessControl(security);
+        }
+        catch (UnauthorizedAccessException) when (!IsOnLocalDisk(file.FullName))
+        {
+            Assert.Skip("The file server lets no rights of a file be set here.");
         }
     }
 
@@ -292,7 +333,8 @@ internal sealed class TestFolder : IDisposable
         }
     }
 
-    private static bool IsOnLocalDisk(string path) =>
+    /// <summary>Whether a path is on a fixed disk of this machine, not on a network folder.</summary>
+    public static bool IsOnLocalDisk(string path) =>
         !path.StartsWith(@"\\", StringComparison.Ordinal) && new DriveInfo(Path.GetPathRoot(path)!).DriveType == DriveType.Fixed;
 
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
@@ -302,6 +344,15 @@ internal sealed class TestFolder : IDisposable
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetFileTime(SafeFileHandle file, ref long creation, ref long lastAccess, ref long lastWrite);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetFileTime(SafeFileHandle file, out long creation, out long lastAccess, out long lastWrite);
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetVolumeInformationByHandleW(
+        SafeFileHandle file, nint volumeName, int volumeNameSize, nint serialNumber, nint maxComponentLength, out uint flags, nint fileSystemName, int fileSystemNameSize);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

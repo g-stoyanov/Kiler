@@ -7,11 +7,12 @@ namespace Kiler.App.Tests;
 /// <summary>
 /// The owner that Windows records for a file or a folder (design 7.8): by path for <c>--diag</c> (M1.11), and through a
 /// handle for the data layer (M2.6). On the local disk it is the owner that the process gives new files, which is the user
-/// unless the process runs as administrator (<see cref="FileDiagTests.OwnerIsTheUser"/>).
+/// unless the process runs as administrator (<see cref="FileDiagTests.OwnerIsTheUser"/>). The tests run in the folder that
+/// <see cref="TempFolder.Variable"/> names when it is set, so they show what a file server gives (M2.11).
 /// </summary>
 public sealed class FileOwnerTests : IDisposable
 {
-    private readonly TempFolder _folder = new();
+    private readonly TempFolder _folder = TempFolder.OnTheTestDisk();
 
     public void Dispose() => _folder.Dispose();
 
@@ -59,14 +60,16 @@ public sealed class FileOwnerTests : IDisposable
     }
 
     [Fact]
-    public void CreatePrivate_OnTheLocalDisk_WithTheOwnersOfWindows_MakesThePrivateFolder()
+    public void CreatePrivate_WithTheOwnersOfWindows_MakesThePrivateFolderOfTheUser()
     {
         // The owner of a folder is read through the handles that make and hold it (M2.6), so they must be able to read it.
         var data = DataFolder.Create(Path.Combine(_folder.Path, "data"), FileOwner.Instance);
+        using var identity = WindowsIdentity.GetCurrent();
 
         var mine = data.CreatePrivate("demo.user");
 
         Assert.True(mine.IsPrivate);
         Assert.True(Directory.Exists(Path.Combine(mine.Root, DataFolder.Records)));
+        Assert.Equal(identity.Owner, FileOwner.Of(new DirectoryInfo(mine.Root)));
     }
 }

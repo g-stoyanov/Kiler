@@ -33,7 +33,7 @@ In a temporary subfolder `kiler-diag-<time>-<hex>` of that folder it:
 - reads the files in four parts, one by one and 8, 16 and 32 at a time, then the first part again;
 - deletes only the files it created, then the subfolder when it is empty.
 
-The subfolder is held open until its files are deleted, so during the run (one or two minutes on the shared folder) no one can rename or delete it or a folder above it.
+The subfolder is held open until its files are deleted, so during the run (one or two minutes on the shared folder) no one can rename or delete it. On a local NTFS disk no one can rename a folder above it either; the file server of the shared folder lets one be renamed (M2.11).
 
 The report goes to the console and to `Kiler-diag-<time>-<hex>.txt` next to the exe. The file shows `<test folder>`, `<exe folder>`, `<profile>`, `<user>` and `<another account>` in place of the folders and the account names, because it may stay on the shared folder, which everyone can read. Delete the reports from the shared folder once they are read.
 

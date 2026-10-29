@@ -285,13 +285,19 @@ public sealed class TrashAndHistoryTests : IDisposable
     /// <summary>
     /// Nothing holds the slot of a busy write during its waits, as the slot shares the delete: someone can delete it, and
     /// another write make its own at its name. The busy write lets go of its own slot through its handle and leaves the other
-    /// one (M2.4).
+    /// one (M2.4). Where the file system has no POSIX delete, as the file server of the shared folder (M2.11), the name of a
+    /// deleted slot stays taken while the write holds it, so no one can put another there.
     /// </summary>
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void Write_WhenItIsBusyAndItsSlotIsSwappedDuringTheWaits_DeletesOnlyItsOwnSlot(bool delete)
     {
+        if (!TestFolder.HasPosixDeletes(_test.Root))
+        {
+            Assert.Skip("Without the POSIX delete, the slot that a write holds cannot be swapped.");
+        }
+
         var files = new TestFileSystem();
         var data = DataFolder.Create(_data, files);
         data.CreateDocument(Record, Content("first"));

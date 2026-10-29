@@ -35,6 +35,6 @@ internal sealed class FileTimes(string path, SafeFileHandle handle, FileStamp st
 /// other file of the volume has it at the same time (measured locally and over SMB in M2.5). Not so elsewhere (third security
 /// review): FAT and exFAT make the index from the folder entry, so it changes with a move and every move to the trash would
 /// be refused after it was done; ReFS has 128-bit ids, whose 64-bit form may not be unique; and a file system that gives 0
-/// for every file makes the check pass without telling anything. M2.11 checks the real file server.
+/// for every file makes the check pass without telling anything. M2.11a checks the real file server.
 /// </summary>
 internal readonly record struct FileId(uint Volume, ulong Index);

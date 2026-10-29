@@ -28,8 +28,8 @@ internal interface IFileSystem
 
     /// <summary>
     /// Holds a folder, opened as itself, until the result is disposed (<see cref="PinnedFolder"/>): no one can rename or
-    /// delete it or a folder above it, so it cannot be swapped for a link; an empty one can still be made a link in place,
-    /// which <see cref="PinnedFolder.ThrowIfLink"/> sees. A missing folder is a <see cref="DirectoryNotFoundException"/>; a
+    /// delete it, so it cannot be swapped for a link (the folders above it: <see cref="NativeFiles.OpenFolder"/>); an empty
+    /// one can still be made a link in place, which <see cref="PinnedFolder.ThrowIfLink"/> sees. A missing folder is a <see cref="DirectoryNotFoundException"/>; a
     /// link or a file in its place an <see cref="IOException"/>. With <paramref name="readOwner"/>, <see cref="Owner(PinnedFolder)"/>
     /// can read its owner (M2.6); without it, the owner is <c>null</c>.
     /// </summary>

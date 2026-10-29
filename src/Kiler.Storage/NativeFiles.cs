@@ -117,9 +117,12 @@ internal static partial class NativeFiles
 
     /// <summary>
     /// Opens a folder to hold it: shared to read and write, so others can still list it and work in it, but not to delete,
-    /// which a rename needs. While the handle is open, Windows refuses to rename or delete the folder or a folder above it,
-    /// also over SMB (M1.11). It does not stop anyone who can write the folder from making an empty one a mount point in
-    /// place (measured in M2.3), which <see cref="IsLink"/> sees through the handle. With <paramref name="readOwner"/>, the
+    /// which a rename needs. While the handle is open, Windows refuses to rename or delete the folder, and on a local NTFS
+    /// disk, also over SMB through <c>\\localhost</c>, a folder above it too (M1.11). The file server of the shared folder,
+    /// whose volume also says NTFS, lets a folder above it be renamed (M2.11), so a step by path after the hold can find
+    /// another folder at the same path. It does not stop anyone who can write the
+    /// folder from making an empty one a mount point in place (measured in M2.3), which <see cref="IsLink"/> sees through
+    /// the handle. With <paramref name="readOwner"/>, the
     /// handle can read the owner of the folder too (M2.6); with <paramref name="toDelete"/>, it can delete the folder
     /// (<see cref="DeleteOnClose"/>, M2.7e), which a folder that someone holds open without sharing the delete refuses. A
     /// missing folder is a <see cref="DirectoryNotFoundException"/>; a link or a file in its place, or a folder that cannot be

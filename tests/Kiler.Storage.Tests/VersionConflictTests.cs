@@ -407,7 +407,9 @@ public sealed class VersionConflictTests : IDisposable
 
     /// <summary>
     /// A reader that shares the delete, as Kiler reads a file, does not stop the takeover: the old slot leaves its name at
-    /// once (POSIX semantics, measured on NTFS in M2.4), and the reader still reads it to its end.
+    /// once (POSIX semantics, measured on NTFS in M2.4), and the reader still reads it to its end. A file system without the
+    /// POSIX delete, as the file server of the shared folder (M2.11), keeps the name until the reader lets go: the write meets
+    /// a conflict meanwhile, and the next one takes the version.
     /// </summary>
     [Fact]
     public void ReplaceDocument_AnOldSlotThatSomeoneReads_IsTakenOver()
@@ -416,11 +418,17 @@ public sealed class VersionConflictTests : IDisposable
         data.CreateDocument(Record, Content("first"));
         var before = File.ReadAllBytes(data.DocumentPath(Record));
         var slot = MakeSlot(data, Record, before, Old);
+        var posix = TestFolder.HasPosixDeletes(_data);
 
         using (var reader = new FileStream(slot, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
         {
-            Assert.Equal(WriteOutcome.Written, data.ReplaceDocument(Record, 1, Content("second")).Outcome);
+            Assert.Equal(posix ? WriteOutcome.Written : WriteOutcome.Conflict, data.ReplaceDocument(Record, 1, Content("second")).Outcome);
             Assert.Equal(before, new BinaryReader(reader).ReadBytes(before.Length + 1));
+        }
+
+        if (!posix)
+        {
+            Assert.Equal(WriteOutcome.Written, data.ReplaceDocument(Record, 1, Content("second")).Outcome);
         }
 
         Assert.Equal(before, File.ReadAllBytes(slot));
