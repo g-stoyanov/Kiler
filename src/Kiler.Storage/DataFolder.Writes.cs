@@ -575,7 +575,7 @@ public sealed partial class DataFolder
     /// <summary>
     /// Holds a folder below the root and adds it to <paramref name="holds"/>. With <paramref name="create"/>, a folder that is
     /// there is opened as it was before M2.5, and only a missing one goes through the create, which on a file server may ask
-    /// for the right to make a folder in the one above even when the folder is there (not measured, M2.11a); the create also
+    /// for the right to make a folder in the one above even when the folder is there (with the rights as IT sets them: M2.11b); the create also
     /// holds a folder that someone made in between. Without it, a missing folder is a <see cref="DirectoryNotFoundException"/>.
     /// In a private folder, the folder must have the owner of the root (<see cref="ThrowIfForeign"/>, M2.7d).
     /// </summary>

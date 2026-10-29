@@ -22,11 +22,13 @@ internal sealed class TestFolder : IDisposable
     private const FileAccess GenericWrite = (FileAccess)0x40000000;
     private const FileAccess ReadAttributes = (FileAccess)0x80;
     private const uint SupportsPosixUnlinkRename = 0x400;
+    private const int MaxPath = 260;
     private const FileAttributes BackupSemantics = (FileAttributes)0x02000000;
     private const FileAttributes OpenReparsePoint = (FileAttributes)0x00200000;
     private const uint MountPointTag = 0xA0000003;
     private const uint SetReparsePoint = 0x000900A4;
     private const string NtPrefix = @"\??\";
+    private const string NtUncPrefix = @"\??\UNC\";
 
     public TestFolder()
     {
@@ -82,12 +84,21 @@ internal sealed class TestFolder : IDisposable
     public static int TryMakeMountPoint(string folder, string target)
     {
         SkipWithoutJunctions(folder);
+        return TrySetMountPoint(folder, target);
+    }
+
+    /// <summary>
+    /// Tries to make a folder a mount point in place as <see cref="TryMakeMountPoint"/> does, also where Windows makes no
+    /// junction, such as on a file server, and gives the error of Windows, or 0 when it is made (M2.11a).
+    /// </summary>
+    public static int TrySetMountPoint(string folder, string target)
+    {
         using var handle = CreateFileW(folder, GenericWrite, FileShare.ReadWrite | FileShare.Delete, 0, FileMode.Open, BackupSemantics | OpenReparsePoint, 0);
         Assert.False(handle.IsInvalid, $"The folder could not be opened to write: error {Marshal.GetLastPInvokeError()}");
 
         // REPARSE_DATA_BUFFER of a mount point: the tag, the length of the data, then the offsets and lengths of the two
-        // names in the path buffer, and the names, each with a null after it.
-        var substitute = Encoding.Unicode.GetBytes(NtPrefix + target);
+        // names in the path buffer, and the names, each with a null after it. A network path is \??\UNC\server\share\….
+        var substitute = Encoding.Unicode.GetBytes(target.StartsWith(@"\\", StringComparison.Ordinal) ? NtUncPrefix + target[2..] : NtPrefix + target);
         var print = Encoding.Unicode.GetBytes(target);
         var data = new byte[8 + substitute.Length + 2 + print.Length + 2];
         BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(2), (ushort)substitute.Length);
@@ -203,12 +214,39 @@ internal sealed class TestFolder : IDisposable
     /// read it (M2.4). The file server of the shared folder does not (M2.11): its delete keeps the name taken until the last
     /// handle to the file is closed.
     /// </summary>
-    public static bool HasPosixDeletes(string folder)
+    public static bool HasPosixDeletes(string folder) => (Volume(folder).Flags & SupportsPosixUnlinkRename) != 0;
+
+    /// <summary>The name of the file system of the volume of a folder, such as NTFS, and the flags of the volume (M2.11a).</summary>
+    public static (string Name, uint Flags) Volume(string folder)
     {
         using var handle = CreateFileW(folder, ReadAttributes, FileShare.ReadWrite | FileShare.Delete, 0, FileMode.Open, BackupSemantics, 0);
         Assert.False(handle.IsInvalid, $"The folder could not be opened: error {Marshal.GetLastPInvokeError()}");
-        Assert.True(GetVolumeInformationByHandleW(handle, 0, 0, 0, 0, out var flags, 0, 0), $"Windows did not describe the volume: error {Marshal.GetLastPInvokeError()}");
-        return (flags & SupportsPosixUnlinkRename) != 0;
+        var name = new char[MaxPath + 1];
+        Assert.True(
+            GetVolumeInformationByHandleW(handle, 0, 0, 0, 0, out var flags, name, name.Length),
+            $"Windows did not describe the volume: error {Marshal.GetLastPInvokeError()}");
+        return (new string(name, 0, Array.IndexOf(name, '\0')), flags);
+    }
+
+    /// <summary>
+    /// Opens a folder to list it, shared with everything, as another program that reads the folder may hold it while the
+    /// layer deletes it (M2.11a).
+    /// </summary>
+    public static SafeFileHandle OpenFolderToList(string folder)
+    {
+        var handle = CreateFileW(folder, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 0, FileMode.Open, BackupSemantics, 0);
+        Assert.False(handle.IsInvalid, $"The folder could not be opened: error {Marshal.GetLastPInvokeError()}");
+        return handle;
+    }
+
+    /// <summary>The owner of a file or a folder as a SID, read by its path (M2.11a).</summary>
+    [SupportedOSPlatform("windows")]
+    public static string OwnerOf(string path)
+    {
+        FileSystemSecurity security = Directory.Exists(path)
+            ? new DirectoryInfo(path).GetAccessControl(AccessControlSections.Owner)
+            : new FileInfo(path).GetAccessControl(AccessControlSections.Owner);
+        return security.GetOwner(typeof(SecurityIdentifier))!.Value;
     }
 
     /// <summary>
@@ -352,7 +390,7 @@ internal sealed class TestFolder : IDisposable
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetVolumeInformationByHandleW(
-        SafeFileHandle file, nint volumeName, int volumeNameSize, nint serialNumber, nint maxComponentLength, out uint flags, nint fileSystemName, int fileSystemNameSize);
+        SafeFileHandle file, nint volumeName, int volumeNameSize, nint serialNumber, nint maxComponentLength, out uint flags, [Out] char[] fileSystemName, int fileSystemNameSize);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

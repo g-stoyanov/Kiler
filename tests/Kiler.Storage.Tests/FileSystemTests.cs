@@ -648,7 +648,8 @@ public sealed class FileSystemTests : IDisposable
     /// <summary>
     /// A marker keeps its folder from being made a mount point in place, as NTFS refuses one on a folder that is not empty;
     /// no one can delete or rename it, a file can still be moved into the folder, and the marker goes when it is let go
-    /// (second security review of M2.5).
+    /// (second security review of M2.5). Off a local disk, where Windows makes no mount point, the rest is checked: the file
+    /// server of the shared folder makes no mount point at all (M2.11a, <see cref="FileServerTests"/>).
     /// </summary>
     [Fact]
     public void CreateMarker_KeepsItsFolderFromBeingMadeAMountPoint_AndGoesWhenLetGo()
@@ -657,12 +658,17 @@ public sealed class FileSystemTests : IDisposable
         var elsewhere = Directory.CreateDirectory(Path.Combine(_test.Root, "elsewhere")).FullName;
         var path = Path.Combine(folder, "8f3a1c.1a2b3c4d.tmp");
         var document = Path.Combine(_test.Root, "8f3a1c.json");
+        var local = TestFolder.IsOnLocalDisk(folder);
         File.WriteAllText(document, "{}");
 
         using (var marker = Files.CreateMarker(path))
         {
             Assert.NotNull(marker);
-            Assert.Equal(145, TestFolder.TryMakeMountPoint(folder, elsewhere));
+            if (local)
+            {
+                Assert.Equal(145, TestFolder.TryMakeMountPoint(folder, elsewhere));
+            }
+
             Assert.Throws<IOException>(() => File.Delete(path));
             Assert.Throws<IOException>(() => File.Move(path, path + ".away"));
             Assert.True(Files.MoveFile(document, Path.Combine(folder, "8f3a1c.json"), replace: false));
@@ -670,7 +676,10 @@ public sealed class FileSystemTests : IDisposable
 
         Assert.Equal(["8f3a1c.json"], Directory.GetFileSystemEntries(folder).Select(entry => Path.GetFileName(entry)));
         File.Delete(Path.Combine(folder, "8f3a1c.json"));
-        Assert.Equal(0, TestFolder.TryMakeMountPoint(folder, elsewhere));
+        if (local)
+        {
+            Assert.Equal(0, TestFolder.TryMakeMountPoint(folder, elsewhere));
+        }
     }
 
     [Fact]
