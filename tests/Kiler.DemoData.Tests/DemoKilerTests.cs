@@ -1,17 +1,19 @@
+using System.Globalization;
 using Kiler.Core;
-using Kiler.Storage;
-using Microsoft.Win32.SafeHandles;
 
 namespace Kiler.DemoData.Tests;
 
 /// <summary>
-/// The demo Kiler (M4.10): the data folder that <see cref="DemoKiler.Make"/> writes opens through a new local copy, as Kiler
-/// opens it at its first start, and each demo user signs in with their demo password. It is made once for the class, as each
-/// user costs three PBKDF2.
+/// The demo Kiler (M4.10, M5.5): the data folder that <see cref="DemoKiler.Make"/> writes opens through a new local copy, as
+/// Kiler opens it at its first start; each demo user signs in with their demo password and reads the fields of the demo
+/// records at their levels, and the guest those of level 0.
 /// </summary>
 public sealed class DemoKilerTests(DemoKilerTests.Made made) : IClassFixture<DemoKilerTests.Made>
 {
     public static TheoryData<string> Accounts => [.. DemoKiler.Users.Select(user => user.Account)];
+
+    /// <summary>The demo users, and an empty account for the guest: <see cref="TheoryData{T}"/> takes no <c>null</c>.</summary>
+    public static TheoryData<string> Readers => ["", .. DemoKiler.Users.Select(user => user.Account)];
 
     [Fact]
     public void Make_WritesADataFolderThatOpens_WithTheDemoLevelsSettingsAndUsers()
@@ -38,13 +40,11 @@ public sealed class DemoKilerTests(DemoKilerTests.Made made) : IClassFixture<Dem
     {
         var user = Assert.Single(DemoKiler.Users, user => user.Account == account);
 
-        Assert.True(SignIn.TryStart(made.Files, account, user.Password, out var session, out var refusal), $"{account} did not sign in: {refusal}.");
-        using (session)
-        {
-            // Level 0 has no key, and every session reads it.
-            Assert.Equal(Enumerable.Range(0, user.Level + 1), session.Levels);
-            Assert.Equal((user.DisplayName, user.CanEdit, user.IsAdmin, false), (session.DisplayName, session.CanEdit, session.IsAdmin, session.MustChangePassword));
-        }
+        using var session = made.SignIn(user);
+
+        // Level 0 has no key, and every session reads it.
+        Assert.Equal(Enumerable.Range(0, user.Level + 1), session.Levels);
+        Assert.Equal((user.DisplayName, user.CanEdit, user.IsAdmin, false), (session.DisplayName, session.CanEdit, session.IsAdmin, session.MustChangePassword));
     }
 
     [Fact]
@@ -54,31 +54,91 @@ public sealed class DemoKilerTests(DemoKilerTests.Made made) : IClassFixture<Dem
         Assert.Equal(SignInRefusal.WrongPassword, refusal);
     }
 
-    /// <summary>The demo Kiler in a temporary folder, read through a local copy of its own; the folder is deleted with it.</summary>
-    public sealed class Made : IDisposable
+    [Fact]
+    public void Make_WritesTheDemoStashesAndRecords_EachInItsPath_ByItsAuthor()
     {
-        private readonly string _folder = Path.Combine(Path.GetTempPath(), "Kiler.Tests", Guid.NewGuid().ToString("N"));
+        var set = made.Read(null);
 
-        public Made()
+        var stashes = set.Stashes.Values.Select(stash => Assert.IsType<StashFile>(stash.Model)).ToDictionary(stash => stash.Id);
+        Assert.Equal(
+            DemoRecords.Stashes.Select(stash => $"{stash.Name} by {stash.Author}").Order(StringComparer.Ordinal),
+            stashes.Values.Select(stash => $"{stash.Name} by {stash.Authorship.CreatedBy}").Order(StringComparer.Ordinal));
+        var files = set.Records.Values.Select(view => Assert.IsType<RecordFile>(view.File.Model)).ToList();
+        Assert.Equal(DemoRecords.Set.Count, files.Count);
+        foreach (var demo in DemoRecords.Set)
         {
-            var data = Path.Combine(_folder, "data");
-            var work = Directory.CreateDirectory(Path.Combine(_folder, "work")).FullName;
-            DemoKiler.Make(data, work);
+            var file = Assert.Single(files, file => file.Name == demo.Name);
+            Assert.Equal((demo.Name, demo.Template, demo.Author), (file.Name, file.Template, file.Authorship.CreatedBy));
+            Assert.Equal(demo.Path, file.Stash.Select(id => stashes[id].Name));
+            Assert.Equal(demo.Tags, file.Tags);
 
-            var copy = DataCopy.Open(DataFolder.Open(data, new NoOwners()), Directory.CreateDirectory(Path.Combine(_folder, "copy")).FullName, TimeProvider.System);
-            var load = copy.Load();
-            Assert.Empty(load.Outside);
-            Assert.Empty(load.Skipped);
-            Files = new Team(copy).Files;
+            // A field raised by its author is in the group of the level asked.
+            Assert.All(demo.Levels, pair => Assert.Contains(pair.Key, file.Fields.GetValueOrDefault(pair.Value) ?? []));
         }
 
-        public TeamFiles Files { get; }
-
-        public void Dispose() => Directory.Delete(_folder, recursive: true);
-
-        private sealed class NoOwners : IFileOwner
-        {
-            public string? Of(SafeFileHandle file) => null;
-        }
+        // What the demo is for: each template, paths of 1 to 4 stashes, groups of the levels 1 to 3, and records of the editor.
+        Assert.Equal(["db", "link", "note", "sql"], files.Select(file => file.Template).Distinct().Order(StringComparer.Ordinal));
+        Assert.Equal([1, 2, 3, 4], files.Select(file => file.Stash.Count).Distinct().Order());
+        Assert.Equal([1, 2, 3], files.SelectMany(file => file.Protected.Keys).Distinct().Order());
+        Assert.Contains(files, file => file.Authorship.CreatedBy == DemoKiler.Editor.Account);
     }
+
+    [Theory]
+    [MemberData(nameof(Readers))]
+    public void EachDemoUserAndTheGuest_ReadTheFieldsOfTheirLevels_AndAPadlockOnEachAbove(string account)
+    {
+        var user = DemoKiler.Users.SingleOrDefault(user => user.Account == account);
+        var level = user?.Level ?? 0;
+        using var session = user is null ? null : made.SignIn(user);
+
+        var set = made.Read(session);
+
+        var names = set.Records.Values.Select(view => view.File.Model!).ToDictionary(file => file.Id, file => file.Name);
+        var read = new SortedSet<int>();
+        var locked = new SortedSet<int>();
+        foreach (var demo in DemoRecords.Set)
+        {
+            var view = Assert.Single(set.Records.Values, view => view.File.Model?.Name == demo.Name);
+            var template = Assert.IsType<TemplateFile>(view.Template);
+            foreach (var field in view.Fields.Prepend(Assert.IsType<RecordField>(view.Description)))
+            {
+                var expected = field.Key == RecordFile.Description ? demo.Description : demo.Refs.GetValueOrDefault(field.Key) ?? Show(demo.Fields.GetValueOrDefault(field.Key));
+                if (expected is null)
+                {
+                    Assert.Equal((demo.Name, field.Key, FieldKind.Empty), (demo.Name, field.Key, field.Kind));
+                }
+                else if (field.Level > level)
+                {
+                    Assert.Equal((demo.Name, field.Key, FieldKind.Locked), (demo.Name, field.Key, field.Kind));
+                    locked.Add(field.Level);
+                }
+                else if (template.Fields.Any(templateField => templateField.Key == field.Key && templateField.Type == FieldType.Secret))
+                {
+                    // A secret is never kept in what is read, and never printed here (SKILL.md, "Tests").
+                    Assert.Equal((demo.Name, field.Key, FieldKind.Secret), (demo.Name, field.Key, field.Kind));
+                    read.Add(field.Level);
+                }
+                else
+                {
+                    var actual = demo.Refs.ContainsKey(field.Key) ? names.GetValueOrDefault(field.Value?.Text ?? "") : Show(field.Value);
+                    Assert.Equal((demo.Name, field.Key, FieldKind.Value, expected), (demo.Name, field.Key, field.Kind, actual));
+                    read.Add(field.Level);
+                }
+            }
+        }
+
+        // The demo has values at every level: each one that the reader holds is read, and each above it has a padlock.
+        Assert.Equal(Enumerable.Range(0, level + 1), read);
+        Assert.Equal(Enumerable.Range(level + 1, DemoKiler.Admin.Level - level), locked);
+    }
+
+    /// <summary>A value as a text, to compare: a number in the invariant culture, a code as <c>language: code</c>.</summary>
+    private static string? Show(FieldValue? value) => value switch
+    {
+        { Kind: FieldValueKind.Number } => value.Number.ToString(CultureInfo.InvariantCulture),
+        { Kind: FieldValueKind.Code } => $"{value.Language}: {value.Text}",
+        _ => value?.Text,
+    };
+
+    public sealed class Made() : DemoFolder(volume: false);
 }
