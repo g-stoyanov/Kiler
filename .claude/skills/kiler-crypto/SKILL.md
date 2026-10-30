@@ -12,6 +12,7 @@ Decisions come from sections 7 and 12 of the design (`KILER_DESIGN.md`, local, n
 - Each level has **one** key of 32 random bytes, shared by the users of that level.
 - **Level 0 is not encrypted.**
 - A record's fields are grouped by level, and each group is encrypted with the key of its level. Groups are independent: an editor changes only the groups up to their own level.
+- The record lists in clear the keys of the fields of each group (`fields`, decided at the start of M5): which fields are filled at which level, never their values. For a group that the session can read, the decrypted group is the truth, not the list.
 - Each user keeps a copy of the keys up to their level, locked with a key derived from their personal password.
 - **The password is not stored anywhere.** A wrong password simply does not unlock the keys.
 - A level's `check` value is a known text encrypted with the level key. It proves that an unlocked key is genuine.

@@ -416,7 +416,7 @@ Design sections 5.2, 6, 7.10 and 11.
 
 **Goal:** the record logic and the API for the UI.
 
-**Until the exam** ([section 10](#10-deferred-until-after-the-exam)): steps 10 and 11 are deferred, with what serves the private records in the other steps, the audit of step 6, and renaming, merging and deleting stashes (steps 9 and 12; creating a stash stays). The first task fixes the API, its DTOs and endpoints, so the UI of M6 can be built in a [parallel session](tasks/README.md#parallel-sessions) while M5 goes on.
+**Until the exam** ([section 10](#10-deferred-until-after-the-exam)): steps 10 and 11 are deferred, with what serves the private records in the other steps, the audit of step 6, and renaming, merging and deleting stashes (steps 9 and 12; creating a stash stays). The first task fixes the API, its DTOs and endpoints, so the UI of M6 can be built in a [parallel session](tasks/README.md#parallel-sessions) while M5 goes on. Decided at the start of M5 ([tasks/M5.md](tasks/M5.md)): the templates are read only until the exam, and the general settings of step 9 get no endpoint until their screen (both in section 10); the wizard writes the four initial templates (design 6.1 and 7.7 updated); a record lists in clear the keys of the fields of each protected group (design 5.2 updated); the ids of records and stashes are 8 characters of lowercase Crockford Base32.
 
 **Steps:**
 
@@ -621,7 +621,7 @@ They are resolved at the start of the relevant module. The decisions are also re
 | M1.7 or M6 | Whether all UI texts live in one file. Decided in M1.7: yes, `src/ui/src/texts.ts`. |
 | M3 | Binding the encrypted group to the record id and the level (associated data in AES-GCM), so that a group cannot be moved to another record. This is an addition to the design. Decided for private records: the owner and the record id (design section 7.10). Decided by the user on 2026-10-29, before M3: yes, for the groups of the shared records too, the record id and the level, as adding it later would change every encrypted value. |
 | M3 | Where and how the key for the admin seal is kept. Deferred with the seal (section 10). |
-| M5 | Rules for changing a template that has records. Private records are read only by their owner's exe, so the rules must work without the admin rewriting them. |
+| M5 | Rules for changing a template that has records. Private records are read only by their owner's exe, so the rules must work without the admin rewriting them. Deferred with step 10 at the start of M5 (section 10). |
 | M2 | Whether `share.json` is checked again when it is read: a folder that is no longer a network path is refused (M1.5a security review). A start of the real exe from a folder someone else controls moves the user's data there. Decided at the start of M2: no. Kiler writes only a network folder there, in the protected `%LOCALAPPDATA%\Kiler`, so a check would catch only a mapped drive letter that later became a local drive. A network folder that someone else controls passes such a check; the M6 question below answers it ([tasks/M2.md](tasks/M2.md)). |
 | M2 | How the local copy keeps what it is there to restore (step 10). If it mirrors the share, a file deleted outside Kiler (not through `trash\`), a damaged file or a file edited in place reaches every user's cache within about 10 s, and there is nothing left to restore from. Decided at the start of M2, as proposed: the cache does not delete or overwrite such files; it keeps the last good version apart and reports them for restore ([tasks/M2.md](tasks/M2.md)). |
 | M3 | Whether the first copy checks the copied exe against the signed `version.json` before it starts it. The bytes are copied by path some seconds after the start, and a DLL planted next to the exe in the shared folder runs in it (M1.5a security review). The checkpoint after M1 confirmed it: planted copies of `NTASN1.dll` and `SSPICLI.DLL` replaced the system ones in every start from the shared folder, and more in some ([tasks/M1.md](tasks/M1.md#checkpoint-in-the-real-environment)). Deferred with the signed updates (section 10). |
@@ -735,9 +735,9 @@ Decided by the user on 2026-10-29, after M2 took three days: until the exam, the
 6. "Remember me" and the locking per level: M3 step 8, M4 step 6 and the per-level part of M4 step 5. The overall automatic locking stays.
 7. Restoring admin access with the recovery key (M3 step 7). The key itself is made, shown by the wizard and locks the level keys before the exam.
 8. Adding a level (design 13, decided at the start of M4): the recovery key locks the new level key into the recovery set of `levels.json`, and the users who get the level get new temporary passwords. Until then the levels screen of M4 only renames a level.
-9. Changing a template that has records, and the template screen: M5 step 10 and M6 step 7.
+9. Changing a template that has records, and the template screen: M5 step 10 and M6 step 7, with the open question of section 6. Until then the templates are read only, also those without records (decided at the start of M5): creating and changing a template through the API comes with them.
 10. Renaming, merging and deleting stashes: M5 steps 9 and 12, M6 step 7. Creating a stash stays.
-11. The other admin screens of M6 step 7 (general settings, history, restoring files from the local copy) and the personal configuration file of M6 step 8.
+11. The other admin screens of M6 step 7 (general settings, history, restoring files from the local copy) and the personal configuration file of M6 step 8. The endpoint of the general settings (M5 step 9) comes with their screen (decided at the start of M5); until then the page gets guest mode from the session.
 12. The conflict with the two versions side by side (M6 step 5).
 13. M7 whole.
 14. The read limit of `--diag` (the M2.11 note in [tasks/M2.md](tasks/M2.md#for-later-modules)), and opening the local copy before the look at the share (the M2.11b note there).

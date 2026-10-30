@@ -58,6 +58,14 @@ The limits accepted so far are in the decisions at the top of the module file, f
      - a session that must change its password reaches only the change of password; a guest reads only level 0 and writes nothing;
      - a password, a temporary password and the recovery key never reach a log, a console line, an exception message, an address, a later answer or a file other than the locked keys;
      - `--account` only picks the user file; the password is still asked.
+   - **Records** (added at the start of M5; the decisions in `docs/tasks/M5.md`):
+     - a group is decrypted, sent or written only with a key that the session holds; the level of a field comes from the template, from its `levelByEnv` and the record's `env`, or from a raise by the author, never lower than the template's, and never from the client alone;
+     - an edit keeps the groups above the editor's level as they are, with their lists in `fields`, and refuses a change that would move a field across a level the editor does not hold, also through `env`;
+     - a `secret` value is never in a list, the search text, the answer of a record, a log or the memory that the records keep; only its own request gives one value, of a level the session holds;
+     - the dates and authors of the header come only from the exe;
+     - the clear `fields` lists name fields, never values; a list changed by hand shows wrong padlocks and nothing else, as a group that the session reads is taken from its decrypted bytes;
+     - one group that does not decrypt (damaged, or moved from another record or level) does not fail the record, the list or the search;
+     - the decrypted records are dropped at a lock (`CurrentSession.Changed`).
    - **Kiler as a client and a launcher** (added after M1.5):
      - before Kiler sends a secret to a loopback port or opens the browser there, what proves that the listener is its own;
      - which schemes and hosts can reach `ShellExecute` or `Process.Start`; secrets on a child process's command line, which process-creation auditing and EDR keep; a launcher that captures a child's console output;
