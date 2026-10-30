@@ -45,6 +45,7 @@ Decisions come from `docs/PLAN.md` (section 2, M1, M4, M6, M7), `docs/tasks/M1.m
 ## API
 
 - Requests go only to the same origin, `/api/...`.
+- The API of the templates, stashes and records (M5, M6) is the contract in `docs/api.md` (M5.1): the endpoints, the shapes, the rights and the refusals. `api.ts` follows it, and a change of the API goes there first.
 - Sign-in uses an HttpOnly cookie set by the server. JavaScript never sees or stores the token, not in `localStorage` or anywhere else. The cookie is named per instance (M1.7): `kiler`, and `kiler-<key>` with `--data`.
 - The API client (`api.ts`) handles errors in one place: every failure becomes an `ApiError` with a message for the user (401, 503, another status, no answer, an answer it cannot read), and the page shows it instead of breaking. An abort by the caller passes through. It refuses a path outside `/api/` before any request.
 - `EventSource` on `/api/events` is the heartbeat. Since M4 it also carries `session` (no data): the session was locked or changed, so every page drops the data it shows and reads the session again; it goes through the SharedWorker as another `HubMessage` type. Change notifications come through it later (M6).

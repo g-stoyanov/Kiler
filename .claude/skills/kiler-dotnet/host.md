@@ -111,6 +111,10 @@ Part of the `kiler-dotnet` skill. Read it with [SKILL.md](SKILL.md) when a task 
 - `/api/admin` (`AdminApi`, M4.6) is the admin actions of Kiler.Core (core.md, "Keys and the session"), each endpoint `.Needs(Need.Admin)`. 400 is a value that does not fit, with its reason, the admin's own account and an admin's level below the top level; 403 is `AccessRefusal.LevelsChanged`, a new sign-in; 409 the rest (`AdminApi.Message`). A temporary password is in the answer of its action only (`AdminUserResponse`, whose `ToString` is its name); `AdminApiTests` check that it is in no file of the test folder and no line.
 - Tests: `SessionApiTests` map test endpoints of each need on the app before the start (`KilerServer.StartAsync(app)`). `MadeUpKiler` has the documents of a made-up Kiler with an admin, a user, an editor, a user with a temporary password, one who raised their own level and `isAdmin`, and one who added themselves; they are made once per run, as each lock runs PBKDF2, and written into the data folder of each test.
 
+## The API of the records (M5)
+
+- The endpoints of the templates, stashes and records follow the contract in `docs/api.md` (M5.1): each one's `Need`, request, answer and refusals, the shapes and the rights of delete and restore. A change of the API goes there first, then into the code and `api.ts`.
+
 ## Automatic lock (M4.5b)
 
 - `AutoLock` (Kiler.Core, core.md, "Keys and the session") locks the session after the minutes without activity. It is made in `KilerHost.Build` and disposed on `ApplicationStopped`. `AccessRules` counts the activity: each request of a `RouteEndpoint`, refused ones too, before the session is read, but those of an endpoint with `.NotActivity()`. Only `/api/events`, `/api/health` and `/api/data` have it, as a page asks them of its own again and again (`AutoLockApiTests.OnlyTheStream_TheHealthCheck_AndTheStateOfTheData_AreNoActivity`); another endpoint that a page asks on a timer needs a decision first. The UI files have no endpoint and are no activity.
