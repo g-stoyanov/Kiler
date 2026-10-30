@@ -290,11 +290,14 @@ public sealed class TeamFile<T>
             return new(null, null, Damaged(read.Damage.Value));
         }
 
-        var document = read.Document;
-        return tryRead(document, out var model, out var invalid)
+        return Of(read.Document, tryRead);
+    }
+
+    /// <summary>The model of a document that is not damaged, such as the one on disk at a conflict (M5.8).</summary>
+    internal static TeamFile<T> Of(Document document, TryRead tryRead) =>
+        tryRead(document, out var model, out var invalid)
             ? new(document.Version, model, null)
             : new(document.Version, null, invalid);
-    }
 
     private static string Damaged(DocumentDamage damage) => damage switch
     {

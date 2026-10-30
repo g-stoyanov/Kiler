@@ -20,9 +20,10 @@ public enum FieldValueKind
 /// A value of a field of a record (M5.3), one of the shapes of <see cref="FieldValueKind"/>. Whether it fits the type of its
 /// field is the check of a write (M5.4): a read takes any shape, as a template can change after its records, and the edit
 /// keeps a value that its template no longer allows (docs/api.md, <c>PUT /api/records/{id}</c>). A text is never empty, as
-/// an empty text is no value.
+/// an empty text is no value. Two values are equal when they have the same shape and the same text, number and language,
+/// ordinal, so the edit does not check again a value that the record has (M5.8).
 /// </summary>
-public sealed class FieldValue
+public sealed class FieldValue : IEquatable<FieldValue>
 {
     private FieldValue(FieldValueKind kind, string? text, double number, string? language)
     {
@@ -153,6 +154,17 @@ public sealed class FieldValue
         isValue = !value.ValueEquals(ReadOnlySpan<byte>.Empty);
         return true;
     }
+
+    public bool Equals(FieldValue? other) =>
+        other is not null
+        && Kind == other.Kind
+        && string.Equals(Text, other.Text, StringComparison.Ordinal)
+        && Number.Equals(other.Number)
+        && string.Equals(Language, other.Language, StringComparison.Ordinal);
+
+    public override bool Equals(object? obj) => Equals(obj as FieldValue);
+
+    public override int GetHashCode() => HashCode.Combine(Kind, Text, Number, Language);
 
     /// <summary>The value in the JSON of a document or a group.</summary>
     internal JsonNode ToNode() => Kind switch

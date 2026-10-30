@@ -10,8 +10,8 @@ namespace Kiler.Core;
 /// of the watch after <see cref="Team.Follow"/> (<see cref="Follow"/>), whose templates it reads, and reads the copy again
 /// after <see cref="Team.Reload"/> (<see cref="Reload"/>), both on the thread of the watch. It follows
 /// <see cref="CurrentSession.Changed"/>: a sign-in decrypts for the new session, and a lock drops what was decrypted. The
-/// updates keep a lock of their own. A write of this Kiler goes through it (<see cref="Create(RecordFile)"/>, M5.4), as no
-/// load gives it. The private records come after the exam, so it skips the private folders.
+/// updates keep a lock of their own. A write of this Kiler goes through it (<see cref="Create(RecordFile)"/>, M5.4;
+/// <see cref="Replace"/>, M5.8), as no load gives it. The private records come after the exam, so it skips the private folders.
 /// </summary>
 public sealed class Records : IDisposable
 {
@@ -23,6 +23,13 @@ public sealed class Records : IDisposable
 
     /// <summary>The templates of the last update, kept under the lock, so a load that changes one reads its records again.</summary>
     private ImmutableSortedDictionary<string, TeamFile<TemplateFile>> _templates;
+
+    /// <summary>
+    /// The versions that this Kiler wrote (<see cref="TakeWritten(DocumentKey, WriteResult, Func{RecordSet, int, RecordSet?})"/>) since the set last followed a load, by key; kept under the
+    /// lock, as <see cref="Team"/> keeps its own (core.md, "The team"): <see cref="Follow"/> takes no older version of these
+    /// from a load that ended before the write, such as the version that an edit replaced (M5.8).
+    /// </summary>
+    private readonly Dictionary<DocumentKey, int> _written = [];
 
     /// <summary>
     /// Reads the stashes and the records from the documents of <paramref name="copy"/>, as the last load left them, for a guest:
@@ -106,6 +113,12 @@ public sealed class Records : IDisposable
 
             foreach (var loaded in load.Changed)
             {
+                // A load that ended before a write of this Kiler: its older version does not take the place of the write.
+                if (_written.TryGetValue(loaded.Key, out var wrote) && loaded.Read.Document?.Version < wrote)
+                {
+                    continue;
+                }
+
                 if (IsIn(loaded.Key, DataFolder.Stashes))
                 {
                     stashes = stashes.SetItem(loaded.Key.Id, TeamFile<StashFile>.Of(loaded.Read, StashFile.TryRead));
@@ -116,6 +129,7 @@ public sealed class Records : IDisposable
                 }
             }
 
+            _written.Clear();
             if (stashes != set.Stashes || records != set.Records)
             {
                 _set = new RecordSet(set.Session, stashes, records);
@@ -135,11 +149,37 @@ public sealed class Records : IDisposable
     internal WriteResult Create(RecordFile record)
     {
         ArgumentNullException.ThrowIfNull(record);
-        return TakeWritten(
-            _copy.Create(record.Key, record.ToContent()),
-            (set, version) => set.Records.GetValueOrDefault(record.Id)?.File.Version > version
-                ? null
-                : new RecordSet(set.Session, set.Stashes, set.Records.SetItem(record.Id, RecordView.Read(TeamFile<RecordFile>.Written(version, record), _templates, set.Session))));
+        return TakeWritten(record, _copy.Create(record.Key, record.ToContent()));
+    }
+
+    /// <summary>
+    /// Replaces the version <paramref name="version"/> of a record through the copy with <paramref name="record"/> (M5.8), and
+    /// takes it into the set as <see cref="Create(RecordFile)"/> does. A load that ended before the write can give the version
+    /// that it replaced: <see cref="Follow"/> does not take it over the write.
+    /// </summary>
+    /// <exception cref="ArgumentException">The record is larger than a document can be (<see cref="DocumentFormat.MaxSize"/>).</exception>
+    /// <exception cref="IOException">The share could not be reached before a load said so (core.md, "Calling the layer").</exception>
+    /// <exception cref="UnauthorizedAccessException">The share refused the write before a load said so.</exception>
+    internal WriteResult Replace(RecordFile record, int version)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        return TakeWritten(record, _copy.Replace(record.Key, version, record.ToContent()));
+    }
+
+    /// <summary>
+    /// <paramref name="document"/> of <c>records\</c> read for <paramref name="session"/> with the templates of the set, without
+    /// taking it into the set: the record on the share at a conflict (M5.8), which a later load brings in.
+    /// </summary>
+    internal RecordView ReadDocument(Document document, Session? session)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ImmutableSortedDictionary<string, TeamFile<TemplateFile>> templates;
+        lock (_gate)
+        {
+            templates = _templates;
+        }
+
+        return RecordView.Read(TeamFile<RecordFile>.Of(document, RecordFile.TryRead), templates, session);
     }
 
     /// <summary>Creates <paramref name="stash"/> through the copy (M5.4), and takes it into the set, as <see cref="Create(RecordFile)"/> does a record.</summary>
@@ -149,6 +189,7 @@ public sealed class Records : IDisposable
     {
         ArgumentNullException.ThrowIfNull(stash);
         return TakeWritten(
+            stash.Key,
             _copy.Create(stash.Key, stash.ToContent()),
             (set, version) => set.Stashes.GetValueOrDefault(stash.Id)?.Version > version
                 ? null
@@ -213,11 +254,20 @@ public sealed class Records : IDisposable
         }
     }
 
+    /// <summary>Takes a write of <paramref name="record"/> into the set, read for the session of the set, as <see cref="TakeWritten(DocumentKey, WriteResult, Func{RecordSet, int, RecordSet?})"/> does.</summary>
+    private WriteResult TakeWritten(RecordFile record, WriteResult written) => TakeWritten(
+        record.Key,
+        written,
+        (set, version) => set.Records.GetValueOrDefault(record.Id)?.File.Version > version
+            ? null
+            : new RecordSet(set.Session, set.Stashes, set.Records.SetItem(record.Id, RecordView.Read(TeamFile<RecordFile>.Written(version, record), _templates, set.Session))));
+
     /// <summary>
     /// Takes a write of this Kiler into the set under the lock, when it is written: <paramref name="put"/> gives the set with
-    /// it at its new version, or <c>null</c> when a load has brought in a newer version meanwhile, which stays.
+    /// it at its new version, or <c>null</c> when a load has brought in a newer version meanwhile, which stays. The version is
+    /// kept in <see cref="_written"/> until the next <see cref="Follow"/>.
     /// </summary>
-    private WriteResult TakeWritten(WriteResult written, Func<RecordSet, int, RecordSet?> put)
+    private WriteResult TakeWritten(DocumentKey key, WriteResult written, Func<RecordSet, int, RecordSet?> put)
     {
         if (written.Outcome == WriteOutcome.Written)
         {
@@ -227,6 +277,8 @@ public sealed class Records : IDisposable
                 {
                     _set = set;
                 }
+
+                _written[key] = written.Version;
             }
         }
 

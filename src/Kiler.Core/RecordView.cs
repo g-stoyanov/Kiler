@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Unicode;
@@ -122,13 +123,7 @@ public sealed class RecordView
 
         var entry = templates.GetValueOrDefault(record.Template);
         var template = entry?.Model;
-
-        // The keys that the view reads, and whether each is a secret: the description, and the fields of the template.
-        var secrets = new Dictionary<string, bool>(StringComparer.Ordinal) { [RecordFile.Description] = false };
-        foreach (var field in template?.Fields ?? [])
-        {
-            secrets[field.Key] = field.Type == FieldType.Secret;
-        }
+        var secrets = SecretsOf(template);
 
         // Each key at the highest level that has it: a group that a key holder wrote takes the place of public, which anyone
         // can write, and of a lower group. Kiler writes each key once, so only a file changed by hand has one twice.
@@ -248,6 +243,97 @@ public sealed class RecordView
         }
 
         return session.IsLocked ? throw new SessionLockedException() : SecretOutcome.Unreadable;
+    }
+
+    /// <summary>
+    /// The JSON of each <c>secret</c> with a value in the groups of the levels that <paramref name="session"/> holds, as its
+    /// group has it, by key, for an edit that keeps it (M5.8): the view keeps no value of a secret, so the groups are
+    /// decrypted again, and the edit writes each one into its new group as it is, never decoded to a string (kiler-crypto,
+    /// "Model"). A key in several groups has the JSON of the highest, as the view reads it. <c>null</c> when a group of those
+    /// levels does not decrypt or what it decrypts to does not fit, as the edit would write over what it cannot read. The
+    /// caller zeroes the bytes once they are encrypted; for a record that does not fit, the result is empty.
+    /// </summary>
+    /// <exception cref="SessionLockedException">The session is locked, before or while it decrypts.</exception>
+    internal Dictionary<string, byte[]>? HeldSecrets(Session session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        if (session.IsLocked)
+        {
+            throw new SessionLockedException();
+        }
+
+        var held = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        if (File.Model is not { } record)
+        {
+            return held;
+        }
+
+        var secrets = SecretsOf(Template);
+        foreach (var (level, group) in record.Protected)
+        {
+            if (session.Reads(level) && Decrypt(session, record.Id, level, group, root => KeepSecrets(root, level, secrets, held)) is null)
+            {
+                Zero(held);
+                return session.IsLocked ? throw new SessionLockedException() : null;
+            }
+        }
+
+        return held;
+    }
+
+    /// <summary>Zeroes the JSON of the secrets that <see cref="HeldSecrets"/> gave.</summary>
+    internal static void Zero(Dictionary<string, byte[]> secrets)
+    {
+        foreach (var json in secrets.Values)
+        {
+            CryptographicOperations.ZeroMemory(json);
+        }
+
+        secrets.Clear();
+    }
+
+    /// <summary>The text of a value that a template changed to <c>secret</c> keeps: a number as JSON writes it, the code of a <c>code</c>.</summary>
+    internal static string TextOf(FieldValue value) =>
+        value.Kind == FieldValueKind.Number ? value.Number.ToString(CultureInfo.InvariantCulture) : value.Text!;
+
+    /// <summary>The keys that a view reads, and whether each is a secret by its template: the description, and the fields of the template.</summary>
+    private static Dictionary<string, bool> SecretsOf(TemplateFile? template)
+    {
+        var secrets = new Dictionary<string, bool>(StringComparer.Ordinal) { [RecordFile.Description] = false };
+        foreach (var field in template?.Fields ?? [])
+        {
+            secrets[field.Key] = field.Type == FieldType.Secret;
+        }
+
+        return secrets;
+    }
+
+    /// <summary>
+    /// Copies into <paramref name="held"/> the JSON of each field of a decrypted group that <see cref="ReadGroup"/> reads as a
+    /// <c>secret</c> with a value, over the copy of a lower group; <paramref name="held"/> itself, or <c>null</c> when the group
+    /// does not fit.
+    /// </summary>
+    private static Dictionary<string, byte[]>? KeepSecrets(JsonElement group, int level, Dictionary<string, bool> secrets, Dictionary<string, byte[]> held)
+    {
+        if (ReadGroup(group, level, secrets) is not { } fields)
+        {
+            return null;
+        }
+
+        foreach (var member in group.EnumerateObject())
+        {
+            if (fields.GetValueOrDefault(member.Name) is { Kind: FieldKind.Secret })
+            {
+                if (held.Remove(member.Name, out var lower))
+                {
+                    CryptographicOperations.ZeroMemory(lower);
+                }
+
+                held.Add(member.Name, JsonMarshal.GetRawUtf8Value(member.Value).ToArray());
+            }
+        }
+
+        return held;
     }
 
     /// <summary>
@@ -382,8 +468,4 @@ public sealed class RecordView
 
         return value;
     }
-
-    /// <summary>The text of a value that a template changed to <c>secret</c> keeps: a number as JSON writes it, the code of a <c>code</c>.</summary>
-    private static string TextOf(FieldValue value) =>
-        value.Kind == FieldValueKind.Number ? value.Number.ToString(CultureInfo.InvariantCulture) : value.Text!;
 }

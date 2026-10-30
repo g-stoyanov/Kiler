@@ -324,13 +324,15 @@ The request holds the record as the editor wants it at the levels that they hold
 - The header and every field at a level that the editor holds are as the request has them. A field left out has no value after the edit, but a `secret` left out keeps its value, as the page never has it; a `secret` with `null` or `""` is cleared.
 - A value equal to the one that the record has is not checked again. So a `ref` to a record that has gone does not stop an edit of the other fields, and neither does a value that its template no longer allows.
 - The levels are those of "Levels of a field", with the raises kept.
-- The groups above the editor's level stay as they are, byte for byte, with their lists in `fields`. A field of theirs in the request is 400, and so is the description when it is above.
+- The groups above the editor's level stay as they are, byte for byte, with their lists in `fields`. A field of theirs in the request is 400, also as `null`, as the editor cannot clear it, and so is the description when it is above. So the page sends only the fields of the levels that the editor holds.
 - A field that would move across a level that the editor does not hold is 400: a change of `env` that puts a field of `levelByEnv` above the editor's level or brings one down from there, and a raise or a lowering (M5.8).
+- A `secret` that the edit keeps goes into its new group as its group had it, never decoded (M5.8, kiler-crypto). A field that its group marks as a `secret` never goes to level 0, and a field that a group above the editor also lists is not written: both are 400, and only a file changed by hand has them.
 - `createdAt` and `createdBy` never change, and Kiler sets `updatedAt` and `updatedBy`.
 - The answer is 200 with the record.
 - 400, with `field`: as for a new record, and the cases above.
-- 404: the record is not there.
+- 404: the record is not there, its file does not fit (as for `GET /api/records/{id}`), or it has gone meanwhile.
 - 409: the conflict, with `current`; offline; the slot of another write; a template that cannot be used ("Record"); a group at a level of the editor that does not decrypt, as the edit would write over what it cannot read: "A part of this record cannot be read, so it cannot be changed. An admin restores it from the history."
+- The conflict is found twice: against the version that this Kiler has, and against the share, where another Kiler may have written a version that no load has brought yet. Then `current` is the record on the share, read for this session (M5.8).
 
 ### `GET /api/stashes`
 

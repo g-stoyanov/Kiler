@@ -1,4 +1,6 @@
 using System.Buffers;
+using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -82,6 +84,81 @@ public static class RecordActions
             record => new(RecordOutcome.Done, Record: records.Read(author).Records.GetValueOrDefault(record.Id)));
     }
 
+    /// <summary>
+    /// An edit of the record <paramref name="id"/> by <paramref name="editor"/> over <paramref name="version"/>, the version
+    /// that the editor read (M5.8, docs/api.md, <c>PUT /api/records/{id}</c>): the partial edit of design 5.2.
+    /// <paramref name="draft"/> holds the record as the editor wants it at the levels that they hold, checked as a new record
+    /// is; its template is not read, as an edit keeps the template of the record. A field of those levels that the draft
+    /// leaves out, or gives as null, has no value after it, but a <c>secret</c> left out keeps its value, as the page never
+    /// has it, and one given as null is cleared. A value equal to the one that the record has is not checked again. The
+    /// groups of the levels that the editor does not hold stay as they are, byte for byte, with their lists: a field of theirs
+    /// in the draft is refused, also as null, and so is a field that would move across a level that the editor does not hold,
+    /// by a change of <c>env</c>, a raise or a lowering. The creation stays; the editor and now are the last change. The
+    /// result has the record as the editor reads it after the write, or, at a conflict, as it is on the share now.
+    /// </summary>
+    /// <exception cref="SessionLockedException">The session was locked before the write, or after it, before its record was read.</exception>
+    public static RecordResult Edit(Session editor, Records records, string id, int version, RecordDraft draft, TimeProvider time)
+    {
+        ArgumentNullException.ThrowIfNull(editor);
+        ArgumentNullException.ThrowIfNull(records);
+        ArgumentNullException.ThrowIfNull(id);
+        ArgumentNullException.ThrowIfNull(draft);
+        ArgumentNullException.ThrowIfNull(time);
+        var set = records.Read(editor);
+        if (set.Records.GetValueOrDefault(id) is not { File.Model: { } record } view)
+        {
+            return new(RecordOutcome.Missing);
+        }
+
+        if (view.File.Version != version)
+        {
+            return new(RecordOutcome.Conflict, Record: view);
+        }
+
+        if (view.Template is null)
+        {
+            return new(RecordOutcome.NoTemplate);
+        }
+
+        if (view.HeldSecrets(editor) is not { } held)
+        {
+            return new(RecordOutcome.Unreadable);
+        }
+
+        try
+        {
+            var name = draft.Name?.Trim() ?? "";
+            List<string> stash = [];
+            List<FieldEntry> values = [];
+            if (CheckEdit(editor, set, view, held, draft, name, stash, values) is { } refused)
+            {
+                return refused;
+            }
+
+            var authorship = new Authorship(record.Authorship.CreatedBy, record.Authorship.CreatedAt, editor.Account, time.GetUtcNow().UtcDateTime);
+            var edited = Record(editor, record.Id, record.Template, authorship, stash, name, Tags(draft.Tags), values, record);
+            if (!TryWrite(() => records.Replace(edited, version), out var written, out var failed))
+            {
+                return failed;
+            }
+
+            return written.Outcome switch
+            {
+                WriteOutcome.Written => new(RecordOutcome.Done, Record: records.Read(editor).Records.GetValueOrDefault(id)),
+
+                // A slot in the way has the version that the edit changes (core.md, "Calling the layer").
+                WriteOutcome.Conflict when written.OnDisk!.Version == version => new(RecordOutcome.Busy),
+                WriteOutcome.Conflict => new(RecordOutcome.Conflict, Record: records.ReadDocument(written.OnDisk, editor)),
+                WriteOutcome.Missing => new(RecordOutcome.Missing),
+                _ => NotWritten(written),
+            };
+        }
+        finally
+        {
+            RecordView.Zero(held);
+        }
+    }
+
     /// <summary><see cref="NewStash(Session, Records, string?, TimeProvider)"/> with the ids of <paramref name="newId"/>, for the tests.</summary>
     internal static RecordResult NewStash(Session author, Records records, string? name, TimeProvider time, Func<string> newId)
     {
@@ -113,6 +190,157 @@ public static class RecordActions
     /// </summary>
     private static RecordResult? Check(Session author, RecordSet set, TemplateFile template, RecordDraft draft, string name, List<string> stash, List<FieldEntry> values)
     {
+        if (CheckHeader(set, template, draft, name, stash) is { } header)
+        {
+            return header;
+        }
+
+        if (!string.IsNullOrEmpty(draft.Description) && Add(author, RecordFile.Description, "The description", FieldValue.OfText(draft.Description), secret: false, 0, draft, values) is { } description)
+        {
+            return description;
+        }
+
+        // The environment of levelByEnv; a value that is not one of its options is refused below, before anything is written.
+        var env = EnvOf(draft.Fields.GetValueOrDefault(TemplateField.Env));
+        foreach (var field in template.Fields)
+        {
+            var value = ValueOf(draft, field.Key);
+            if (value is null)
+            {
+                if (field.Required)
+                {
+                    return Refused(field.Key, $"{field.Label} needs a value.");
+                }
+
+                continue;
+            }
+
+            if (Misfit(field, value, set) is { } misfit)
+            {
+                return Refused(field.Key, misfit);
+            }
+
+            if (Add(author, field.Key, field.Label, value, field.Type == FieldType.Secret, field.DefaultLevel(env), draft, values) is { } above)
+            {
+                return above;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The checks of an edit (docs/api.md, <c>PUT /api/records/{id}</c>), or <c>null</c> when it fits, with the path in
+    /// <paramref name="stash"/> and in <paramref name="values"/> each field of the levels of the editor that has a value after
+    /// it, as <see cref="Check"/> gives them; the fields of the groups above the editor are not among them, as their groups
+    /// stay. Each field takes its level as a new one does, with the <c>env</c> of the draft, and a raise counts as asked when
+    /// the draft leaves out its level: a level above the default under the <c>env</c> that the record had ("Levels of a
+    /// field"). <paramref name="held"/> has the JSON of each <c>secret</c> of the groups of the editor (<see cref="RecordView.HeldSecrets"/>).
+    /// </summary>
+    private static RecordResult? CheckEdit(Session editor, RecordSet set, RecordView view, Dictionary<string, byte[]> held, RecordDraft draft, string name, List<string> stash, List<FieldEntry> values)
+    {
+        var record = view.File.Model!;
+        var template = view.Template!;
+        if (CheckHeader(set, template, draft, name, stash) is { } header)
+        {
+            return header;
+        }
+
+        // The keys that the groups above the editor list; those groups stay, so no other part of the record may name them.
+        var aboveLists = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var (level, keys) in record.Fields.Where(group => !editor.Reads(group.Key)))
+        {
+            foreach (var key in keys)
+            {
+                aboveLists[key] = level;
+            }
+        }
+
+        var description = string.IsNullOrEmpty(draft.Description) ? null : FieldValue.OfText(draft.Description);
+        var oldEnv = EnvOf(record.Public.GetValueOrDefault(TemplateField.Env));
+        var newEnv = EnvOf(draft.Fields.GetValueOrDefault(TemplateField.Env));
+        var fields = template.Fields.Zip(view.Fields).Select(pair => (Field: (TemplateField?)pair.First, Current: pair.Second));
+        foreach (var (field, current) in fields.Prepend((null, view.Description!)))
+        {
+            var key = current.Key;
+            var label = field?.Label ?? "The description";
+            var value = field is null ? description : ValueOf(draft, key);
+            var given = field is null ? description is not null : draft.Fields.ContainsKey(key);
+            var secret = field?.Type == FieldType.Secret || current.Kind == FieldKind.Secret;
+
+            // The level asked, or the raise that the field has: a level above its default under the env that the record had.
+            var defaultLevel = field?.DefaultLevel(newEnv) ?? 0;
+            var raised = current.Kind != FieldKind.Empty && current.Level > (field?.DefaultLevel(oldEnv) ?? 0) ? current.Level : 0;
+            var level = Math.Max(defaultLevel, draft.Levels.TryGetValue(key, out var asked) ? asked : raised);
+            switch (current.Kind)
+            {
+                case FieldKind.Unreadable:
+                    // HeldSecrets has decrypted every group of the editor, the same bytes with the same keys, so the view has
+                    // none; the edit never writes over one.
+                    return new(RecordOutcome.Unreadable);
+                case FieldKind.Locked when given:
+                    return Refused(key, $"{label} is at level {current.Level}, which you do not hold.");
+                case FieldKind.Locked when level != current.Level:
+                    return Refused(key, $"{label} would move from level {current.Level}, which you do not hold, to level {level}.");
+                case FieldKind.Locked:
+                    // It stays in its group.
+                    continue;
+            }
+
+            byte[]? kept = null;
+            if (value is null && secret && !given && current.Kind == FieldKind.Secret)
+            {
+                // A secret left out keeps its value: the JSON of its group, or a value in public, which a file changed by hand has.
+                if (current.Level == 0)
+                {
+                    value = record.Public[key];
+                }
+                else
+                {
+                    kept = held[key];
+                }
+            }
+            else if (value is null)
+            {
+                if (field is { Required: true })
+                {
+                    return Refused(key, $"{label} needs a value.");
+                }
+
+                continue;
+            }
+            else if (field is not null && !(current.Kind == FieldKind.Value && value.Equals(current.Value)) && Misfit(field, value, set) is { } misfit)
+            {
+                return Refused(key, misfit);
+            }
+
+            if (!editor.Reads(level))
+            {
+                return Refused(key, $"{label} would be at level {level}, which you do not hold.");
+            }
+
+            if (secret && level == 0)
+            {
+                return Refused(key, $"{label} is a secret, which is never at level 0.");
+            }
+
+            if (aboveLists.TryGetValue(key, out var above))
+            {
+                return Refused(key, $"{label} is also at level {above}, which you do not hold.");
+            }
+
+            values.Add(new(key, value, secret, level, kept));
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The checks of the header of a new record or an edit, or <c>null</c> when it fits, with the ids of the path in
+    /// <paramref name="stash"/>: the path, the name, the levels asked, and the keys of the fields.
+    /// </summary>
+    private static RecordResult? CheckHeader(RecordSet set, TemplateFile template, RecordDraft draft, string name, List<string> stash)
+    {
         if (Path(draft.Stash, set, stash) is { } path)
         {
             return Refused("stash", path);
@@ -142,50 +370,15 @@ public static class RecordActions
             }
         }
 
-        if (draft.Fields.Keys.Any(key => !fields.ContainsKey(key)))
-        {
-            return Refused(null, NoSuchField);
-        }
-
-        if (!string.IsNullOrEmpty(draft.Description) && Add(author, RecordFile.Description, "The description", FieldValue.OfText(draft.Description), secret: false, 0, draft, values) is { } description)
-        {
-            return description;
-        }
-
-        // The environment of levelByEnv; a value that is not one of its options is refused below, before anything is written.
-        var env = draft.Fields.GetValueOrDefault(TemplateField.Env) is { Kind: FieldValueKind.Text } envValue ? envValue.Text : null;
-        foreach (var field in template.Fields)
-        {
-            var value = draft.Fields.GetValueOrDefault(field.Key);
-            if (value is { Kind: FieldValueKind.Code, Text: "" })
-            {
-                // A code with no code is no value, as an empty text is not one (docs/api.md, "Values by type").
-                value = null;
-            }
-
-            if (value is null)
-            {
-                if (field.Required)
-                {
-                    return Refused(field.Key, $"{field.Label} needs a value.");
-                }
-
-                continue;
-            }
-
-            if (Misfit(field, value, set) is { } misfit)
-            {
-                return Refused(field.Key, misfit);
-            }
-
-            if (Add(author, field.Key, field.Label, value, field.Type == FieldType.Secret, field.DefaultLevel(env), draft, values) is { } above)
-            {
-                return above;
-            }
-        }
-
-        return null;
+        return draft.Fields.Keys.Any(key => !fields.ContainsKey(key)) ? Refused(null, NoSuchField) : null;
     }
+
+    /// <summary>The value of <paramref name="key"/> in the draft, or <c>null</c>: a code with no code is no value, as an empty text is not one (docs/api.md, "Values by type").</summary>
+    private static FieldValue? ValueOf(RecordDraft draft, string key) =>
+        draft.Fields.GetValueOrDefault(key) is { } value && !(value is { Kind: FieldValueKind.Code, Text: "" }) ? value : null;
+
+    /// <summary>The environment of <c>levelByEnv</c> in a value of <c>env</c>: its text, or <c>null</c>.</summary>
+    private static string? EnvOf(FieldValue? env) => env is { Kind: FieldValueKind.Text } ? env.Text : null;
 
     /// <summary>
     /// Adds a field with a value at its level: the higher of its default and the level asked ("Levels of a field"). A level
@@ -278,9 +471,13 @@ public static class RecordActions
         return kept;
     }
 
-    /// <summary>The record of <paramref name="id"/>: the fields of level 0 in <c>public</c>, and a group of each other level, encrypted for this id and listed in <c>fields</c>.</summary>
+    /// <summary>
+    /// The record of <paramref name="id"/>: the fields of level 0 in <c>public</c>, and a group of each other level, encrypted
+    /// for this id and listed in <c>fields</c>. An edit keeps the groups of <paramref name="edited"/> that the author does not
+    /// hold, with their lists, as they are.
+    /// </summary>
     /// <exception cref="SessionLockedException">The session was locked while a group was encrypted.</exception>
-    private static RecordFile Record(Session author, string id, string template, Authorship authorship, List<string> stash, string name, List<string> tags, List<FieldEntry> values)
+    private static RecordFile Record(Session author, string id, string template, Authorship authorship, List<string> stash, string name, List<string> tags, List<FieldEntry> values, RecordFile? edited = null)
     {
         var publicFields = new Dictionary<string, FieldValue>(StringComparer.Ordinal);
         var groups = new Dictionary<int, string>();
@@ -289,9 +486,10 @@ public static class RecordActions
         {
             if (group.Key == 0)
             {
+                // A secret is never at level 0, so neither is a value kept as its JSON.
                 foreach (var value in group)
                 {
-                    publicFields.Add(value.Key, value.Value);
+                    publicFields.Add(value.Key, value.Value!);
                 }
 
                 continue;
@@ -301,13 +499,23 @@ public static class RecordActions
             lists.Add(group.Key, [.. group.Select(value => value.Key)]);
         }
 
+        foreach (var (level, group) in edited?.Protected ?? ImmutableDictionary<int, string>.Empty)
+        {
+            if (!author.Reads(level))
+            {
+                groups.Add(level, group);
+                lists.Add(level, edited!.Fields[level]);
+            }
+        }
+
         return new RecordFile(id, template, authorship, stash, name, tags, publicFields, groups, lists);
     }
 
     /// <summary>
     /// The group of <paramref name="level"/>: the UTF-8 of a JSON object of its fields, each <c>secret</c> as
-    /// <c>{ "secret": "&lt;value&gt;" }</c> (kiler-crypto, "Model"), encrypted with the key of the level for the record
-    /// <paramref name="id"/>. The bytes are zeroed once they are encrypted.
+    /// <c>{ "secret": "&lt;value&gt;" }</c> (kiler-crypto, "Model"), the text of a number or a code when a group has marked a
+    /// field of another type (M5.8), and a secret that an edit keeps as its JSON was, encrypted with the key of the level for
+    /// the record <paramref name="id"/>. The bytes are zeroed once they are encrypted.
     /// </summary>
     private static string Encrypt(Session author, string id, int level, IEnumerable<FieldEntry> fields)
     {
@@ -320,15 +528,19 @@ public static class RecordActions
                 foreach (var field in fields)
                 {
                     writer.WritePropertyName(field.Key);
-                    if (field.Secret)
+                    if (field.Kept is { } kept)
+                    {
+                        writer.WriteRawValue(kept);
+                    }
+                    else if (field.Secret)
                     {
                         writer.WriteStartObject();
-                        writer.WriteString("secret"u8, field.Value.Text);
+                        writer.WriteString("secret"u8, RecordView.TextOf(field.Value!));
                         writer.WriteEndObject();
                     }
                     else
                     {
-                        field.Value.ToNode().WriteTo(writer);
+                        field.Value!.ToNode().WriteTo(writer);
                     }
                 }
 
@@ -354,20 +566,9 @@ public static class RecordActions
         for (var tries = 0; tries < IdTries; tries++)
         {
             var model = make(newId());
-            WriteResult written;
-            try
+            if (!TryWrite(() => write(model), out var written, out var failed))
             {
-                written = write(model);
-            }
-            catch (ArgumentException)
-            {
-                // The layer refuses a content larger than a document can be (core.md, "Models"); a record is not nested deep.
-                return Refused(null, TooLarge);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                // A share that cannot be reached before a load has said so (core.md, "Calling the layer").
-                return new(RecordOutcome.NotWritten);
+                return failed;
             }
 
             switch (written.Outcome)
@@ -376,37 +577,75 @@ public static class RecordActions
                     continue;
                 case WriteOutcome.Written:
                     return done(model);
-                case WriteOutcome.Offline:
-                    return new(RecordOutcome.Offline);
-                case WriteOutcome.Busy:
-                    return new(RecordOutcome.Busy);
                 default:
-                    return new(RecordOutcome.NotWritten);
+                    return NotWritten(written);
             }
         }
 
         return new(RecordOutcome.NotWritten);
     }
 
+    /// <summary>
+    /// Runs <paramref name="write"/>, or gives the refusal in <paramref name="failed"/> when the layer throws one before it
+    /// writes: a content larger than a document can be (core.md, "Models"), and a share that cannot be reached before a load
+    /// has said so (core.md, "Calling the layer").
+    /// </summary>
+    private static bool TryWrite(Func<WriteResult> write, [NotNullWhen(true)] out WriteResult? written, [NotNullWhen(false)] out RecordResult? failed)
+    {
+        failed = null;
+        written = null;
+        try
+        {
+            written = write();
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            // A record is not nested deep, so only its size is refused.
+            failed = Refused(null, TooLarge);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            failed = new(RecordOutcome.NotWritten);
+        }
+
+        return false;
+    }
+
+    /// <summary>The result of a write that the layer did not make, for the outcomes that a create and an edit share.</summary>
+    private static RecordResult NotWritten(WriteResult written) => written.Outcome switch
+    {
+        WriteOutcome.Offline => new(RecordOutcome.Offline),
+        WriteOutcome.Busy => new(RecordOutcome.Busy),
+        _ => new(RecordOutcome.NotWritten),
+    };
+
     private static RecordResult Refused(string? field, string invalid) => new(RecordOutcome.Invalid, invalid, field);
 
-    /// <summary>A field of a new record with a value, at its level; never printed, as a <c>secret</c> is among them.</summary>
-    private readonly record struct FieldEntry(string Key, FieldValue Value, bool Secret, int Level)
+    /// <summary>
+    /// A field with a value, at its level: a value, or the JSON of a <c>secret</c> that an edit keeps (<see cref="RecordView.HeldSecrets"/>);
+    /// never printed, as a <c>secret</c> is among them.
+    /// </summary>
+    private readonly record struct FieldEntry(string Key, FieldValue? Value, bool Secret, int Level, byte[]? Kept = null)
     {
         public override string ToString() => Key;
     }
 }
 
 /// <summary>
-/// A new record as the editor sends it (docs/api.md, <c>POST /api/records</c>). Its values are those of the request: the
-/// name, the tags and the levels are checked and trimmed by <see cref="RecordActions"/>, never here.
+/// A new record or an edit as the editor sends it (docs/api.md, <c>POST /api/records</c> and <c>PUT /api/records/{id}</c>).
+/// Its values are those of the request: the name, the tags and the levels are checked and trimmed by
+/// <see cref="RecordActions"/>, never here.
 /// </summary>
-/// <param name="Template">The id of the template.</param>
+/// <param name="Template">The id of the template; an edit does not read it.</param>
 /// <param name="Stash">The ids of the stashes of the path, from the first.</param>
 /// <param name="Name">The name.</param>
 /// <param name="Description">The description; <c>null</c> or empty is none.</param>
 /// <param name="Tags">The tags.</param>
-/// <param name="Fields">The values of the fields of the template, by key; a field left out, or <c>null</c>, has no value.</param>
+/// <param name="Fields">
+/// The values of the fields of the template, by key; a field left out, or <c>null</c>, has no value. In an edit, a
+/// <c>secret</c> left out keeps its value, and one given as <c>null</c> is cleared.
+/// </param>
 /// <param name="Levels">The levels asked, by key: of the description or a field of the template ("Levels of a field").</param>
 public sealed record RecordDraft(
     string? Template,
@@ -441,6 +680,18 @@ public enum RecordOutcome
 
     /// <summary>The file could not be written: the share did not answer or refused it, or every new id met one there.</summary>
     NotWritten,
+
+    /// <summary>An edit over a version that is not the one there now; <see cref="RecordResult.Record"/> has the record as it is now (M5.8).</summary>
+    Conflict,
+
+    /// <summary>The record of an edit is not there, has gone meanwhile, or its file does not fit (M5.8).</summary>
+    Missing,
+
+    /// <summary>The template of the record of an edit is missing or does not fit, so its fields cannot be told apart (M5.8).</summary>
+    NoTemplate,
+
+    /// <summary>A group of a level of the editor does not decrypt, or what it decrypts to does not fit, so an edit would write over it (M5.8).</summary>
+    Unreadable,
 }
 
 /// <param name="Outcome">How the write ended.</param>
@@ -449,6 +700,9 @@ public enum RecordOutcome
 /// The key of what does not fit: <c>stash</c>, <c>name</c>, <c>description</c> or a field of the template; null when it is none
 /// of them, such as the template or a key that the template does not have (docs/api.md, "Conventions").
 /// </param>
-/// <param name="Record">The new record as the author reads it; null for a stash, a refusal, and a record that a load took away at once.</param>
+/// <param name="Record">
+/// The new or edited record as the author reads it, and at <see cref="RecordOutcome.Conflict"/> the record as it is now; null
+/// for a stash, the other refusals, and a record that a load took away at once.
+/// </param>
 /// <param name="Stash">The new stash; null for a record and a refusal.</param>
 public sealed record RecordResult(RecordOutcome Outcome, string? Invalid = null, string? Field = null, RecordView? Record = null, StashFile? Stash = null);
