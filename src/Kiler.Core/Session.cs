@@ -177,13 +177,21 @@ public sealed class SessionLockedException : Exception
 /// <summary>
 /// The session of this Kiler (decided at the start of M4): one per process, as a Kiler runs for one Windows account, so all
 /// its pages share it. A sign-in puts a new one in place and locks the one before; a lock, a sign-out and the stop dispose the
-/// keys. A request reads <see cref="Session"/> once and uses what it got.
+/// keys. A request reads <see cref="Session"/> once and uses what it got. Each sign-in and each lock raise
+/// <see cref="Changed"/>, which every open page gets as the <c>session</c> event (M4.5b).
 /// </summary>
 public sealed class CurrentSession : IDisposable
 {
     private readonly Lock _gate = new();
     private Session? _session;
     private bool _disposed;
+
+    /// <summary>
+    /// Raised after a sign-in (<see cref="Start"/>) and after a lock, once the keys are disposed, on the thread of the change:
+    /// every page then drops what it shows and reads the session again. <see cref="Lock()"/> raises it also when there is no
+    /// session, as a page that asks for the lock wants every page on the lock screen. A handler does not throw and keeps short.
+    /// </summary>
+    public event EventHandler? Changed;
 
     /// <summary>The session; <c>null</c> before a sign-in, after a lock and after the stop.</summary>
     public Session? Session
@@ -205,20 +213,26 @@ public sealed class CurrentSession : IDisposable
     {
         ArgumentNullException.ThrowIfNull(session);
         Session? before;
+        bool started;
         lock (_gate)
         {
-            if (_disposed)
-            {
-                before = session;
-            }
-            else
+            started = !_disposed;
+            if (started)
             {
                 before = _session;
                 _session = session;
             }
+            else
+            {
+                before = session;
+            }
         }
 
         before?.Dispose();
+        if (started)
+        {
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     /// <summary>Locks the session, the sign-out and the "Lock" button alike: the keys are disposed, and the next request has no session.</summary>
@@ -232,6 +246,28 @@ public sealed class CurrentSession : IDisposable
         }
 
         session?.Dispose();
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Locks <paramref name="session"/> only while it is still the one in place, for the automatic lock (<see cref="AutoLock"/>),
+    /// so a sign-in that has put another session in place meanwhile keeps it.
+    /// </summary>
+    public void Lock(Session session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        lock (_gate)
+        {
+            if (_session != session)
+            {
+                return;
+            }
+
+            _session = null;
+        }
+
+        session.Dispose();
+        Changed?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>Locks the session at the stop, and every session that a sign-in brings after it.</summary>

@@ -21,7 +21,7 @@ internal static class HealthApi
         endpoints.MapGet("/api/health", Results<Ok<HealthResponse>, StatusCodeHttpResult> () =>
             heartbeat.TryPostpone()
                 ? TypedResults.Ok(new HealthResponse(Version))
-                : TypedResults.StatusCode(StatusCodes.Status503ServiceUnavailable)).Needs(Need.Nothing);
+                : TypedResults.StatusCode(StatusCodes.Status503ServiceUnavailable)).Needs(Need.Nothing).NotActivity();
 
     private static string ReadVersion()
     {

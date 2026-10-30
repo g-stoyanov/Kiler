@@ -4,4 +4,9 @@
     <ProjectReference Include="..\..\src\Kiler.Core\Kiler.Core.csproj" />
   </ItemGroup>
 
+  <!-- FakeTimeProvider: the automatic lock (M4.5b) without real time. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
+
 </Project>

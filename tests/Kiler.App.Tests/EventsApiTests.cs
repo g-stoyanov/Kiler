@@ -1,24 +1,30 @@
 using System.Net;
 using System.Net.ServerSentEvents;
+using System.Reflection;
+using Kiler.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Kiler.App.Tests;
 
 /// <summary><c>/api/events</c>: the stream on a fake clock, and what reaches the client of the real Kestrel.</summary>
-public class EventsApiTests
+public sealed class EventsApiTests : IDisposable
 {
     private static readonly TimeSpan Interval = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan Tick = TimeSpan.FromTicks(1);
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
 
+    private readonly CurrentSession _sessions = new();
+
     private static CancellationToken Cancel => TestContext.Current.CancellationToken;
+
+    public void Dispose() => _sessions.Dispose();
 
     [Fact]
     public async Task Events_SendPingAtOnceAndThenEveryInterval()
     {
         var time = new FakeTimeProvider();
-        await using var events = EventsApi.Events(Interval, time, CancellationToken.None).GetAsyncEnumerator(Cancel);
+        await using var events = EventsApi.Events(_sessions, Interval, time, CancellationToken.None).GetAsyncEnumerator(Cancel);
 
         var first = events.MoveNextAsync();
         Assert.True(first.IsCompletedSuccessfully);
@@ -41,7 +47,7 @@ public class EventsApiTests
     public async Task Events_WhenTheServerStops_EndWithoutAnError()
     {
         using var stopping = new CancellationTokenSource();
-        await using var events = EventsApi.Events(Interval, new FakeTimeProvider(), stopping.Token).GetAsyncEnumerator(Cancel);
+        await using var events = EventsApi.Events(_sessions, Interval, new FakeTimeProvider(), stopping.Token).GetAsyncEnumerator(Cancel);
         Assert.True(await events.MoveNextAsync());
         var next = events.MoveNextAsync().AsTask();
 
@@ -54,13 +60,70 @@ public class EventsApiTests
     public async Task Events_WhenThePageGoesAway_EndWithoutAnError()
     {
         using var aborted = new CancellationTokenSource();
-        await using var events = EventsApi.Events(Interval, new FakeTimeProvider(), CancellationToken.None).GetAsyncEnumerator(aborted.Token);
+        await using var events = EventsApi.Events(_sessions, Interval, new FakeTimeProvider(), CancellationToken.None).GetAsyncEnumerator(aborted.Token);
         Assert.True(await events.MoveNextAsync());
         var next = events.MoveNextAsync().AsTask();
 
         await aborted.CancelAsync();
 
         Assert.False(await next.WaitAsync(Timeout, Cancel));
+    }
+
+    [Fact]
+    public async Task Events_AtALock_SendSession_BeforeAPingThatIsDueWithIt()
+    {
+        var time = new FakeTimeProvider();
+        await using var events = EventsApi.Events(_sessions, Interval, time, CancellationToken.None).GetAsyncEnumerator(Cancel);
+        Assert.True(await events.MoveNextAsync());
+
+        var next = events.MoveNextAsync().AsTask();
+        _sessions.Lock();
+
+        Assert.True(await next.WaitAsync(Timeout, Cancel));
+        AssertEvent("session", events.Current);
+
+        // Both come before the stream reads on.
+        _sessions.Lock();
+        time.Advance(Interval);
+        Assert.True(await events.MoveNextAsync().AsTask().WaitAsync(Timeout, Cancel));
+        AssertEvent("session", events.Current);
+        Assert.True(await events.MoveNextAsync().AsTask().WaitAsync(Timeout, Cancel));
+        AssertPing(events.Current);
+    }
+
+    [Fact]
+    public async Task Events_ChangesBeforeThePageReads_GiveOneSession()
+    {
+        var time = new FakeTimeProvider();
+        await using var events = EventsApi.Events(_sessions, Interval, time, CancellationToken.None).GetAsyncEnumerator(Cancel);
+        Assert.True(await events.MoveNextAsync());
+        _sessions.Lock();
+        _sessions.Lock();
+        _sessions.Lock();
+
+        Assert.True(await events.MoveNextAsync().AsTask().WaitAsync(Timeout, Cancel));
+        AssertEvent("session", events.Current);
+
+        var next = events.MoveNextAsync().AsTask();
+        await Task.Delay(TimeSpan.FromMilliseconds(100), Cancel);
+        Assert.False(next.IsCompleted);
+        time.Advance(Interval);
+        Assert.True(await next.WaitAsync(Timeout, Cancel));
+        AssertPing(events.Current);
+    }
+
+    [Fact]
+    public async Task Events_WhenTheyEnd_NoLongerFollowTheSession()
+    {
+        // The handler of every page that has ever been open would stay, with its channel, for the life of the process.
+        var changed = typeof(CurrentSession).GetField(nameof(CurrentSession.Changed), BindingFlags.NonPublic | BindingFlags.Instance)!;
+        await using (var events = EventsApi.Events(_sessions, Interval, new FakeTimeProvider(), CancellationToken.None).GetAsyncEnumerator(Cancel))
+        {
+            Assert.True(await events.MoveNextAsync());
+            Assert.NotNull(changed.GetValue(_sessions));
+        }
+
+        Assert.Null(changed.GetValue(_sessions));
     }
 
     [Fact]
@@ -127,9 +190,11 @@ public class EventsApiTests
         }
     }
 
-    private static void AssertPing(SseItem<string> item)
+    private static void AssertPing(SseItem<string> item) => AssertEvent("ping", item);
+
+    private static void AssertEvent(string type, SseItem<string> item)
     {
-        Assert.Equal("ping", item.EventType);
+        Assert.Equal(type, item.EventType);
         Assert.Equal(string.Empty, item.Data);
     }
 }

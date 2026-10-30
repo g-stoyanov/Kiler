@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Kiler.Core;
 using Kiler.Crypto;
 
@@ -36,12 +37,15 @@ internal static class MadeUpKiler
     /// <summary>The check of level 1 in <c>levels.json</c>.</summary>
     public static string CheckOfLevel1 => Made.Value.Levels.Levels[1].Check!;
 
-    /// <summary>Writes <c>levels.json</c>, <c>settings.json</c> and the user files into the data folder of <paramref name="data"/>.</summary>
-    public static MadeUpData WriteTo(MadeUpData data, bool guestMode)
+    /// <summary>
+    /// Writes <c>levels.json</c>, <c>settings.json</c> and the user files into the data folder of <paramref name="data"/>:
+    /// the settings with <paramref name="guestMode"/> and 30 minutes of the automatic lock, or <paramref name="settings"/>.
+    /// </summary>
+    public static MadeUpData WriteTo(MadeUpData data, bool guestMode, JsonObject? settings = null)
     {
         var made = Made.Value;
         data.Create(LevelsFile.Key, made.Levels.ToContent());
-        data.Create(SettingsFile.Key, new SettingsFile(guestMode, autoLockMinutes: 30).ToContent());
+        data.Create(SettingsFile.Key, settings ?? new SettingsFile(guestMode, autoLockMinutes: 30).ToContent());
         foreach (var user in made.Users)
         {
             data.Create(user.Key, user.ToContent());

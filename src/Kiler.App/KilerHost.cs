@@ -25,11 +25,17 @@ internal static class KilerHost
     /// The account of this Kiler (M4.1); by default the one of <c>--account</c>, else of the process
     /// (<see cref="WindowsAccount"/>). The API tests give a fake.
     /// </param>
-    public static WebApplication Build(StartOptions options, IFileProvider? uiFiles = null, KilerData? data = null, ICurrentAccount? account = null)
+    /// <param name="time">
+    /// The clock of the heartbeat, the event stream and the automatic lock; by default the system's. The API tests of the
+    /// automatic lock give a fake one, and keep a page open, as the heartbeat runs on it too.
+    /// </param>
+    public static WebApplication Build(
+        StartOptions options, IFileProvider? uiFiles = null, KilerData? data = null, ICurrentAccount? account = null, TimeProvider? time = null)
     {
         // Always in DI, so every endpoint finds the state of the data (M4.2).
         data ??= KilerData.WithoutFolder();
         account ??= new WindowsAccount(options.Account);
+        time ??= TimeProvider.System;
         // The empty builder reads no config files and no environment variables, so nothing
         // outside the command line can change the address, and nothing watches the exe folder.
         var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions());
@@ -42,11 +48,12 @@ internal static class KilerHost
         var token = new AccessToken();
         builder.Services.AddSingleton(token);
         var times = options.HeartbeatTimes;
-        builder.Services.AddSingleton(services => new Heartbeat(services.GetRequiredService<IHostApplicationLifetime>(), times, TimeProvider.System));
+        builder.Services.AddSingleton(services => new Heartbeat(services.GetRequiredService<IHostApplicationLifetime>(), times, time));
         builder.Services.AddSingleton(data);
         builder.Services.AddSingleton(account);
         var sessions = new CurrentSession();
         builder.Services.AddSingleton(sessions);
+        var autoLock = new AutoLock(sessions, () => data.Files, time);
 
         var app = builder.Build();
         // Once the server listens, so a share that cannot be reached does not hold up the page. The watch stops before the
@@ -55,6 +62,7 @@ internal static class KilerHost
         app.Lifetime.ApplicationStopping.Register(() => data.Stop(ShutdownTimeout));
         // Once the server has stopped, so no request starts with the keys; one that outlived the stop answers as locked.
         app.Lifetime.ApplicationStopped.Register(sessions.Dispose);
+        app.Lifetime.ApplicationStopped.Register(autoLock.Dispose);
 
         // Made now, not on the first request, so the wait for the first page starts with the server.
         var heartbeat = app.Services.GetRequiredService<Heartbeat>();
@@ -62,15 +70,15 @@ internal static class KilerHost
         // ShortCircuit() would run straight from routing, before the guard.
         AccessGuard.Use(app, token, InstancePlace.CookieNameFor(options.DataFolder));
         app.UseRouting();
-        // After routing, so it knows the endpoint and what it needs (M4.4).
-        AccessRules.Use(app, sessions, data);
+        // After routing, so it knows the endpoint, what it needs (M4.4) and whether it is an activity (M4.5b).
+        AccessRules.Use(app, sessions, data, autoLock);
         UiFiles.Use(app, uiFiles ?? UiFiles.Embedded());
         HealthApi.Map(app, heartbeat);
         DataApi.Map(app, data);
         WizardApi.Map(app, data, account);
         SessionApi.Map(app, sessions, data, account);
         PasswordApi.Map(app, sessions, data, account);
-        EventsApi.Map(app, heartbeat, times.PingInterval, TimeProvider.System, app.Lifetime.ApplicationStopping);
+        EventsApi.Map(app, heartbeat, sessions, times.PingInterval, time, app.Lifetime.ApplicationStopping);
         return app;
     }
 }

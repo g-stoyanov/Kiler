@@ -90,6 +90,61 @@ public sealed class SessionTests
         Assert.Null(current.Session);
     }
 
+    [Fact]
+    public void Changed_ComesAfterEachSignInAndEachLock_WithTheChangeMade()
+    {
+        using var current = new CurrentSession();
+        var first = NewSession(1);
+        var second = NewSession(1);
+        var seen = new List<string>();
+        current.Changed += (_, _) => seen.Add($"{current.Session == second}/{first.IsLocked}/{second.IsLocked}");
+
+        current.Start(first);
+        current.Start(second);
+        current.Lock();
+        current.Lock();
+
+        // The second lock has no session, but a page that asks for the lock wants every page on the lock screen.
+        Assert.Equal(["False/False/False", "True/True/False", "False/True/True", "False/True/True"], seen);
+    }
+
+    [Fact]
+    public void LockOfASession_OnlyWhileItIsInPlace_LocksIt()
+    {
+        using var current = new CurrentSession();
+        var idle = NewSession(1);
+        var signedIn = NewSession(1);
+        current.Start(idle);
+        current.Start(signedIn);
+        var changes = 0;
+        current.Changed += (_, _) => changes++;
+
+        current.Lock(idle);
+
+        Assert.Same(signedIn, current.Session);
+        Assert.False(signedIn.IsLocked);
+        Assert.Equal(0, changes);
+
+        current.Lock(signedIn);
+
+        Assert.Null(current.Session);
+        Assert.True(signedIn.IsLocked);
+        Assert.Equal(1, changes);
+    }
+
+    [Fact]
+    public void Start_AfterTheStop_ChangesNothing()
+    {
+        var current = new CurrentSession();
+        current.Dispose();
+        var changes = 0;
+        current.Changed += (_, _) => changes++;
+
+        current.Start(NewSession(1));
+
+        Assert.Equal(0, changes);
+    }
+
     /// <summary>A session with new keys of the levels 1 to <paramref name="top"/>, without PBKDF2.</summary>
     internal static Session NewSession(int top, int level = -1, bool canEdit = false, bool isAdmin = false, bool mustChangePassword = false)
     {

@@ -12,7 +12,8 @@ internal sealed record DataResponse(DataState State, string? Folder, string? Lev
 /// <c>GET /api/data</c> (M4.2): the state of the data (<see cref="KilerData.State"/>), which the page shows with its reason,
 /// and, once the local copy is open, whether its <c>levels.json</c> and <c>settings.json</c> can be used. One that is missing
 /// or does not fit is damage that an admin restores, never a new Kiler (decided at the start of M4); the reason never holds a
-/// value from the share (<see cref="TeamFile{T}.Invalid"/>).
+/// value from the share (<see cref="TeamFile{T}.Invalid"/>). No event says that the state changed, so a page may ask it again
+/// and again: it is no activity for the automatic lock (decided by the user in M4.5).
 /// </summary>
 internal static class DataApi
 {
@@ -20,7 +21,7 @@ internal static class DataApi
     public const string MissingFile = "The file is missing.";
 
     public static void Map(IEndpointRouteBuilder endpoints, KilerData data) =>
-        endpoints.MapGet("/api/data", () => TypedResults.Ok(Read(data))).Needs(Need.Nothing);
+        endpoints.MapGet("/api/data", () => TypedResults.Ok(Read(data))).Needs(Need.Nothing).NotActivity();
 
     private static DataResponse Read(KilerData data)
     {
