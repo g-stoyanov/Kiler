@@ -107,7 +107,7 @@ public class UiFilesTests
     [InlineData("GET", "/api/")]
     [InlineData("GET", "/api/unknown")]
     [InlineData("GET", "/API/Unknown")]
-    [InlineData("GET", "/api/records/12")]
+    [InlineData("GET", "/api/records/12/unknown")]
     [InlineData("HEAD", "/api/unknown")]
     [InlineData("POST", "/api/unknown")]
     public async Task Api_WithoutEndpoint_Returns404(string method, string path)

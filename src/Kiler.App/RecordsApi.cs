@@ -84,17 +84,103 @@ internal sealed record FacetsResponse(IReadOnlyList<TemplateCountResponse> Templ
 /// <param name="Facets">The counts of each filter.</param>
 internal sealed record RecordsResponse(IReadOnlyList<ListItemResponse> Records, IReadOnlyList<StashNodeResponse> Tree, FacetsResponse Facets);
 
+/// <summary>The answer of <c>GET /api/records/{id}</c> and of the writes (docs/api.md, "Record").</summary>
+/// <param name="Id">The id of the record.</param>
+/// <param name="Template">The id of its template.</param>
+/// <param name="Version">The version of its file, which an edit and a delete are over.</param>
+/// <param name="Stash">The stashes of its path, from the first.</param>
+/// <param name="Name">Its name.</param>
+/// <param name="Description">Its description, as a field.</param>
+/// <param name="Tags">Its tags.</param>
+/// <param name="Levels">The levels of its groups, by which the page offers the delete and the restores.</param>
+/// <param name="Fields">Every field of the template, in its order; empty when the template is missing or does not fit.</param>
+/// <param name="CreatedBy">Who created it.</param>
+/// <param name="CreatedAt">When, in UTC.</param>
+/// <param name="UpdatedBy">Who changed it last.</param>
+/// <param name="UpdatedAt">When, in UTC.</param>
+internal sealed record RecordResponse(
+    string Id,
+    string Template,
+    int Version,
+    IReadOnlyList<PathStashResponse> Stash,
+    string Name,
+    FieldResponse Description,
+    IReadOnlyList<string> Tags,
+    IReadOnlyList<int> Levels,
+    IReadOnlyList<FieldResponse> Fields,
+    AuthorResponse CreatedBy,
+    DateTime CreatedAt,
+    AuthorResponse UpdatedBy,
+    DateTime UpdatedAt);
+
+/// <param name="Field">The key of a <c>secret</c> of the record.</param>
+/// <param name="Use"><c>show</c> or <c>copy</c>, which the audit of Prod records after the exam.</param>
+internal sealed record SecretRequest(string? Field, string? Use);
+
+/// <param name="Value">The value of the <c>secret</c>, which only this answer gives.</param>
+internal sealed record SecretResponse(string Value)
+{
+    /// <summary>The name of the type: a record prints its properties, and this one holds a secret (SKILL.md, "Style").</summary>
+    public override string ToString() => nameof(SecretResponse);
+}
+
 /// <summary>
-/// The list of the records (M5.6, docs/api.md): <c>GET /api/records</c>, the search, the filters, the tree and the facets
-/// over the records in memory as the session of the request reads them (<see cref="RecordSearch"/>). It needs
-/// <see cref="Need.Reader"/>, so a guest in guest mode reads level 0.
+/// The records (docs/api.md): the list (M5.6), <c>GET /api/records</c>, with the search, the filters, the tree and the facets
+/// over the records in memory as the session of the request reads them (<see cref="RecordSearch"/>); a record (M5.7),
+/// <c>GET /api/records/{id}</c>; and the value of a <c>secret</c> (M5.7), <c>POST /api/records/{id}/secret</c>, which
+/// decrypts its group again (<see cref="RecordView.Secret"/>). They need <see cref="Need.Reader"/>, so a guest in guest mode
+/// reads level 0, but the secret refuses a guest.
 /// </summary>
 internal static class RecordsApi
 {
+    /// <summary>The 404 of a record that is not there, or is in the trash.</summary>
+    public const string NotThere = "The record is not there. It may have been deleted.";
+
     private const string FieldPrefix = "field.";
 
-    public static void Map(IEndpointRouteBuilder endpoints, KilerData data) =>
+    public static void Map(IEndpointRouteBuilder endpoints, KilerData data)
+    {
         endpoints.MapGet("/api/records", (HttpContext context) => List(context, data)).Needs(Need.Reader);
+        endpoints.MapGet("/api/records/{id}", (HttpContext context, string id) => Get(context, data, id)).Needs(Need.Reader);
+        endpoints.MapPost("/api/records/{id}/secret", (HttpContext context, string id, SecretRequest request) => Secret(context, data, id, request))
+            .Needs(Need.Reader);
+    }
+
+    /// <summary>What the page says when the request of a secret is refused for its field (docs/api.md).</summary>
+    public static string Message(SecretOutcome outcome) => outcome switch
+    {
+        SecretOutcome.NoField => "The template of the record has no field of that key.",
+        SecretOutcome.NotSecret => "The field is not a secret.",
+        SecretOutcome.Locked => "The field is at a level that you do not hold.",
+        SecretOutcome.Empty => "The field has no value now.",
+        _ => "The field cannot be read: its group does not decrypt.",
+    };
+
+    /// <summary>
+    /// A record as the page gets it (docs/api.md, "Record"), for <c>GET /api/records/{id}</c>, the writes and the
+    /// <c>current</c> of a conflict: every field of its template, a <c>secret</c> without its value.
+    /// </summary>
+    internal static RecordResponse Record(RecordView view, RecordSet set, TeamFiles files)
+    {
+        var record = view.File.Model!;
+        var fields = view.Template is { } template
+            ? template.Fields.Zip(view.Fields).Select(pair => Field(pair.Second, pair.First.Type, set, files))
+            : [];
+        return new(
+            record.Id,
+            record.Template,
+            view.File.Version.GetValueOrDefault(),
+            Stash(record, set),
+            record.Name,
+            Field(view.Description!, FieldType.Text, set, files),
+            record.Tags,
+            [.. record.Protected.Keys],
+            [.. fields],
+            Author(record.Authorship.CreatedBy, files),
+            record.Authorship.CreatedAt,
+            Author(record.Authorship.UpdatedBy, files),
+            record.Authorship.UpdatedAt);
+    }
 
     private static Results<Ok<RecordsResponse>, BadRequest<ErrorResponse>, Conflict<ErrorResponse>> List(HttpContext context, KilerData data)
     {
@@ -119,6 +205,66 @@ internal static class RecordsApi
                 [.. found.Tags.Select(tag => new TagCountResponse(tag.Value, tag.Count))],
                 [.. found.Fields.Select(field => new FieldFacetResponse(field.Key, [.. field.Values.Select(value => new ValueCountResponse(value.Value, value.Count))]))])));
     }
+
+    private static Results<Ok<RecordResponse>, NotFound<ErrorResponse>, Conflict<ErrorResponse>> Get(HttpContext context, KilerData data, string id)
+    {
+        if (data.Files is not { } files || data.Records is not { } records)
+        {
+            return TypedResults.Conflict(new ErrorResponse(SessionApi.NoData));
+        }
+
+        var set = records.Read(AccessRules.SessionOf(context));
+        return Find(set, id) is { } view
+            ? TypedResults.Ok(Record(view, set, files))
+            : TypedResults.NotFound(new ErrorResponse(NotThere));
+    }
+
+    /// <summary>
+    /// The value of a <c>secret</c> for "show" and "copy" (docs/api.md), with <c>Cache-Control: no-store</c>: its group is
+    /// decrypted again, and the value is in this answer only.
+    /// </summary>
+    private static Results<Ok<SecretResponse>, BadRequest<ErrorResponse>, NotFound<ErrorResponse>, Conflict<ErrorResponse>, JsonHttpResult<ErrorResponse>> Secret(
+        HttpContext context, KilerData data, string id, SecretRequest request)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+
+        // Need.Reader lets a guest through in guest mode, who reads level 0 only, where a secret is not (design 7.1).
+        if (AccessRules.SessionOf(context) is not { } session)
+        {
+            return Forbidden(AccessRules.Message(AccessRefusal.NotSignedIn));
+        }
+
+        if (request.Use is not ("show" or "copy"))
+        {
+            return TypedResults.BadRequest(new ErrorResponse("use is not show or copy."));
+        }
+
+        if (data.Records is not { } records)
+        {
+            return TypedResults.Conflict(new ErrorResponse(SessionApi.NoData));
+        }
+
+        if (Find(records.Read(session), id) is not { } view)
+        {
+            return TypedResults.NotFound(new ErrorResponse(NotThere));
+        }
+
+        // The use is only checked until the audit of Prod after the exam, which records it (PLAN section 10).
+        var outcome = view.Secret(request.Field ?? string.Empty, session, out var value);
+        return outcome switch
+        {
+            SecretOutcome.Value => TypedResults.Ok(new SecretResponse(value!)),
+            SecretOutcome.Locked => Forbidden(Message(outcome)),
+            SecretOutcome.NoField or SecretOutcome.NotSecret => TypedResults.BadRequest(new ErrorResponse(Message(outcome))),
+            _ => TypedResults.Conflict(new ErrorResponse(Message(outcome))),
+        };
+    }
+
+    /// <summary>The record <paramref name="id"/> of the set, unless its file does not fit, as the list leaves it out (docs/api.md).</summary>
+    private static RecordView? Find(RecordSet set, string id) => set.Records.GetValueOrDefault(id) is { File.IsValid: true } view ? view : null;
+
+    private static JsonHttpResult<ErrorResponse> Forbidden(string error) =>
+        TypedResults.Json(new ErrorResponse(error), KilerJsonContext.Default.ErrorResponse, statusCode: StatusCodes.Status403Forbidden);
 
     /// <summary>The query of the list, or why it does not fit; an empty part counts as left out (docs/api.md).</summary>
     private static bool TryRead(IQueryCollection parts, [NotNullWhen(true)] out RecordQuery? query, [NotNullWhen(false)] out string? error)
@@ -177,7 +323,7 @@ internal static class RecordsApi
             record.Id,
             record.Template,
             view.File.Version.GetValueOrDefault(),
-            [.. record.Stash.Select(id => new PathStashResponse(id, set.StashName(id)))],
+            Stash(record, set),
             record.Name,
             Field(view.Description!, FieldType.Text, set, files),
             record.Tags,
@@ -210,6 +356,8 @@ internal static class RecordsApi
         FieldKind.Locked => "locked",
         _ => "unreadable",
     };
+
+    private static PathStashResponse[] Stash(RecordFile record, RecordSet set) => [.. record.Stash.Select(id => new PathStashResponse(id, set.StashName(id)))];
 
     private static AuthorResponse Author(string account, TeamFiles files) => new(account, files.Users.GetValueOrDefault(account)?.Model?.DisplayName);
 }

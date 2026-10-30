@@ -267,7 +267,7 @@ The answer:
 
 ### `GET /api/records/{id}`
 
-The record. 404 when it is not there.
+The record. 404 when it is not there, and when its file does not fit (M5.3), which the list leaves out too (decided in M5.7).
 
 ### `POST /api/records/{id}/secret`
 
@@ -279,9 +279,10 @@ The value of a `secret`, for "show" and "copy" (design 8.2).
 
 - `use` is `show` or `copy`. One request serves both and says which it is (decided by the user in M5.1): the audit of Prod after the exam (PLAN section 10) records it, and until then it is only checked.
 - The answer is `{ "value": "<the password>" }`, with `Cache-Control: no-store`. Kiler decrypts the group again for it and keeps the value nowhere (M5.7). The page keeps it only while it shows or copies it (`kiler-ui`, "Secret values").
-- 400: a `use` other than these two, or a field that the template does not have or that is not a `secret`.
-- 403: a guest, with "Sign in first." (`AccessRules.Message(AccessRefusal.NotSignedIn)`); a field at a level that the session does not hold.
-- 404: the record is not there.
+- The value is a text. A `secret` as Kiler writes it is one. A value that its group does not mark, where the template says `secret`, such as a number written before the template changed, is its text ("The text of a value" under `GET /api/records`). A `secret` in `public`, which only a file changed by hand has, is answered from there, as it is in clear on the share (decided in M5.7).
+- 400: a `use` other than these two, or a field that the template does not have (a `field` left out too) or that is not a `secret`.
+- 403: a guest, with "Sign in first." (`AccessRules.Message(AccessRefusal.NotSignedIn)`); a field at a level that the session does not hold, whatever its type, as its group may mark it as a `secret`.
+- 404: the record is not there, or its file does not fit.
 - 409: the field has no value now, or its group does not decrypt.
 
 ### `POST /api/records`

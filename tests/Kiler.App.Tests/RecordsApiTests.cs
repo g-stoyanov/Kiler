@@ -7,9 +7,10 @@ using Kiler.Core;
 namespace Kiler.App.Tests;
 
 /// <summary>
-/// <c>GET /api/records</c> (M5.6, docs/api.md) on a made-up Kiler with three records (<see cref="MadeUpKiler.WriteRecords"/>):
-/// what each kind of caller reads, the query, and whom it refuses. It runs with reflection-based JSON off, as Native AOT
-/// does, so it reads records as the published exe does.
+/// <c>GET /api/records</c> (M5.6), <c>GET /api/records/{id}</c> and <c>POST /api/records/{id}/secret</c> (M5.7, docs/api.md)
+/// on a made-up Kiler with five records (<see cref="MadeUpKiler.WriteRecords"/>): what each kind of caller reads, the query,
+/// the value of a secret, and whom each refuses. It runs with reflection-based JSON off, as Native AOT does, so it reads
+/// records as the published exe does.
 /// </summary>
 public sealed class RecordsApiTests : IDisposable
 {
@@ -21,6 +22,9 @@ public sealed class RecordsApiTests : IDisposable
 
     /// <summary>The admin, signed in and then locked.</summary>
     private const string Locked = "locked";
+
+    /// <summary>A record whose file does not fit, which a test writes.</summary>
+    private const string NotFitting = "m9n8p7q6";
 
     /// <summary>The longest wait for a load of a few files on the local disk, on a busy CI machine.</summary>
     private static readonly TimeSpan Quick = TimeSpan.FromSeconds(30);
@@ -44,7 +48,9 @@ public sealed class RecordsApiTests : IDisposable
         var (answer, text) = await GetAsync(client, "/api/records");
 
         var records = answer["records"]!.AsArray();
-        Assert.Equal(["Payments monitoring", "Payments prod database", "Бележки"], records.Select(record => (string?)record!["name"]));
+        Assert.Equal(
+            ["Payments monitoring", "Payments prod database", "Payments report query", "Report of a gone database", "Бележки"],
+            records.Select(record => (string?)record!["name"]));
         Assert.Equal(
             "{\"id\":\"k3x9q2mf\",\"template\":\"db\",\"version\":1,"
             + "\"stash\":[{\"id\":\"a1b2c3d4\",\"name\":\"Payments\"},{\"id\":\"e5f6g7h8\",\"name\":\"Prod\"}],"
@@ -57,9 +63,9 @@ public sealed class RecordsApiTests : IDisposable
         Assert.Equal(
             """[{"key":"url","level":0,"kind":"value","value":"https://monitoring.example.test","levelName":null}]""",
             records[0]!["fields"]!.ToJsonString());
-        Assert.Equal("""[{"id":"a1b2c3d4","name":"Payments","count":3,"children":[{"id":"e5f6g7h8","name":"Prod","count":2,"children":[]}]}]""", answer["tree"]!.ToJsonString());
+        Assert.Equal("""[{"id":"a1b2c3d4","name":"Payments","count":5,"children":[{"id":"e5f6g7h8","name":"Prod","count":2,"children":[]}]}]""", answer["tree"]!.ToJsonString());
         Assert.Equal(
-            """{"templates":[{"id":"db","count":1},{"id":"link","count":1},{"id":"note","count":1}],"tags":[{"tag":"monitoring","count":1},{"tag":"payments","count":1}],"fields":[{"key":"env","values":[{"value":"prod","count":1}]},{"key":"kind","values":[{"value":"monitoring","count":1}]}]}""",
+            """{"templates":[{"id":"db","count":1},{"id":"link","count":1},{"id":"note","count":1},{"id":"sql","count":2}],"tags":[{"tag":"monitoring","count":1},{"tag":"payments","count":1}],"fields":[{"key":"env","values":[{"value":"prod","count":1}]},{"key":"kind","values":[{"value":"monitoring","count":1}]}]}""",
             answer["facets"]!.ToJsonString());
 
         // Not even the admin, who reads its level, gets a secret value from the list.
@@ -69,10 +75,10 @@ public sealed class RecordsApiTests : IDisposable
     [Theory]
     [InlineData(MadeUpKiler.User, "q=месечен", new[] { "Бележки" }, 1)]
     [InlineData(Guest, "q=месечен", new string[0], 0)]
-    [InlineData(MadeUpKiler.User, "q=PAYMENTS%20Prod", new[] { "Payments prod database", "Бележки" }, 2)]
+    [InlineData(MadeUpKiler.User, "q=PAYMENTS%20Prod", new[] { "Payments prod database", "Payments report query", "Бележки" }, 3)]
     [InlineData(MadeUpKiler.User, "stash=a1b2c3d4,e5f6g7h8&field.env=PROD", new[] { "Payments prod database" }, 1)]
     [InlineData(MadeUpKiler.User, "tag=MONITORING&tag=&template=link&q=", new[] { "Payments monitoring" }, 1)]
-    [InlineData(MadeUpKiler.User, "stash=e5f6g7h8", new string[0], 3)]
+    [InlineData(MadeUpKiler.User, "stash=e5f6g7h8", new string[0], 5)]
     public async Task TheQuery_ChoosesTheRecords_AndTheTreeKeepsEveryBranch(string caller, string query, string[] names, int inTree)
     {
         using var data = NewData(guestMode: caller == Guest);
@@ -104,10 +110,147 @@ public sealed class RecordsApiTests : IDisposable
     }
 
     [Theory]
-    [InlineData(NoGuestMode, AccessRefusal.NotSignedIn)]
-    [InlineData(Locked, AccessRefusal.NotSignedIn)]
-    [InlineData(MadeUpKiler.Temporary, AccessRefusal.MustChangePassword)]
-    public async Task TheList_RefusesWhomItMust(string caller, AccessRefusal refusal)
+    [InlineData(Guest, """
+        [{"key":"env","level":0,"kind":"value","value":"prod","levelName":null},
+        {"key":"host","level":1,"kind":"locked","value":null,"levelName":"Team"},
+        {"key":"port","level":1,"kind":"locked","value":null,"levelName":"Team"},
+        {"key":"tns","level":2,"kind":"locked","value":null,"levelName":"Prod"},
+        {"key":"user","level":2,"kind":"locked","value":null,"levelName":"Prod"},
+        {"key":"password","level":2,"kind":"locked","value":null,"levelName":"Prod"}]
+        """)]
+    [InlineData(MadeUpKiler.User, """
+        [{"key":"env","level":0,"kind":"value","value":"prod","levelName":null},
+        {"key":"host","level":1,"kind":"value","value":"db01.example.test","levelName":null},
+        {"key":"port","level":1,"kind":"value","value":1521,"levelName":null},
+        {"key":"tns","level":2,"kind":"locked","value":null,"levelName":"Prod"},
+        {"key":"user","level":2,"kind":"locked","value":null,"levelName":"Prod"},
+        {"key":"password","level":2,"kind":"locked","value":null,"levelName":"Prod"}]
+        """)]
+    [InlineData(MadeUpKiler.Admin, """
+        [{"key":"env","level":0,"kind":"value","value":"prod","levelName":null},
+        {"key":"host","level":1,"kind":"value","value":"db01.example.test","levelName":null},
+        {"key":"port","level":1,"kind":"value","value":1521,"levelName":null},
+        {"key":"tns","level":2,"kind":"value","value":{"language":"text","code":"PAYDB"},"levelName":null},
+        {"key":"user","level":2,"kind":"value","value":"pay_read","levelName":null},
+        {"key":"password","level":2,"kind":"secret","value":null,"levelName":null}]
+        """)]
+    public async Task EveryReader_GetsARecord_WithTheFieldsOfTheirLevels_AndAPadlockOnEachAbove(string caller, string fields)
+    {
+        using var data = NewData(guestMode: caller == Guest);
+        await using var server = await StartAsync(data, caller == Guest ? MadeUpKiler.User : caller);
+        using var client = caller == Guest ? server.CreateSignedInClient() : await SignedInAsync(server);
+
+        var (answer, text) = await GetAsync(client, $"/api/records/{MadeUpKiler.Database}");
+
+        // The TNS is raised from 1 to 2, and a padlock names the level of the field, not that of the template.
+        Assert.Equal(fields.ReplaceLineEndings(string.Empty), answer["fields"]!.ToJsonString());
+        answer.Remove("fields");
+        Assert.Equal(
+            "{\"id\":\"k3x9q2mf\",\"template\":\"db\",\"version\":1,"
+            + "\"stash\":[{\"id\":\"a1b2c3d4\",\"name\":\"Payments\"},{\"id\":\"e5f6g7h8\",\"name\":\"Prod\"}],"
+            + "\"name\":\"Payments prod database\","
+            + "\"description\":{\"key\":\"description\",\"level\":0,\"kind\":\"value\",\"value\":\"The main database\",\"levelName\":null},"
+            + "\"tags\":[\"payments\"],\"levels\":[1,2],"
+            + "\"createdBy\":{\"account\":\"demo.admin\",\"name\":\"Demo demo.admin\"},\"createdAt\":\"2026-09-30T08:10:00Z\","
+            + "\"updatedBy\":{\"account\":\"demo.editor\",\"name\":\"Demo demo.editor\"},\"updatedAt\":\"2026-10-21T11:32:00Z\"}",
+            answer.ToJsonString());
+        Assert.True(!text.Contains(MadeUpKiler.SecretValue, StringComparison.Ordinal), "The record gives a secret value.");
+    }
+
+    [Theory]
+    [InlineData(MadeUpKiler.Query, """
+        [{"key":"db","level":1,"kind":"value","value":{"id":"k3x9q2mf","name":"Payments prod database"},"levelName":null},
+        {"key":"query","level":1,"kind":"value","value":"select count(*) from payments","levelName":null},
+        {"key":"notes","level":1,"kind":"empty","value":null,"levelName":null}]
+        """)]
+    [InlineData(MadeUpKiler.GoneQuery, """
+        [{"key":"db","level":1,"kind":"value","value":{"id":"zzzzzzzz","name":null},"levelName":null},
+        {"key":"query","level":1,"kind":"empty","value":null,"levelName":null},
+        {"key":"notes","level":1,"kind":"empty","value":null,"levelName":null}]
+        """)]
+    public async Task ARef_GivesTheNameOfItsRecord_OrNoneWhenThatRecordHasGone(string id, string fields)
+    {
+        using var data = NewData(guestMode: false);
+        await using var server = await StartAsync(data, MadeUpKiler.User);
+        using var client = await SignedInAsync(server);
+
+        var (answer, _) = await GetAsync(client, $"/api/records/{id}");
+
+        Assert.Equal(fields.ReplaceLineEndings(string.Empty), answer["fields"]!.ToJsonString());
+    }
+
+    [Theory]
+    [InlineData("zzzzzzzz")]
+    [InlineData("K3X9Q2MF")]
+    [InlineData("k3x9")]
+    [InlineData(NotFitting)]
+    public async Task ARecordThatIsNotThere_OrDoesNotFit_IsNotFound(string id)
+    {
+        using var data = NewData(guestMode: false, made => made.Create(MadeUpData.Record(NotFitting), new JsonObject { ["template"] = "db" }));
+        await using var server = await StartAsync(data, MadeUpKiler.Admin);
+        using var client = await SignedInAsync(server);
+
+        using var response = await client.GetAsync($"/api/records/{id}", Cancel);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(RecordsApi.NotThere, (string?)(await ReadAsync(response))["error"]);
+    }
+
+    [Theory]
+    [InlineData("show")]
+    [InlineData("copy")]
+    public async Task TheValueOfASecret_IsGivenToWhoHoldsItsLevel_AndNotKeptByTheBrowser(string use)
+    {
+        using var data = NewData(guestMode: false);
+        await using var server = await StartAsync(data, MadeUpKiler.Admin);
+        using var client = await SignedInAsync(server);
+
+        using var response = await PostSecretAsync(client, MadeUpKiler.Database, "password", use);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+        var answer = await ReadAsync(response);
+        Assert.True(answer.Count == 1 && (string?)answer["value"] == MadeUpKiler.SecretValue, "The answer is not the value of the secret alone.");
+    }
+
+    [Theory]
+    [InlineData(MadeUpKiler.User, MadeUpKiler.Database, "password", "show", HttpStatusCode.Forbidden, SecretOutcome.Locked)]
+    [InlineData(MadeUpKiler.Admin, MadeUpKiler.Database, "host", "copy", HttpStatusCode.BadRequest, SecretOutcome.NotSecret)]
+    [InlineData(MadeUpKiler.Admin, MadeUpKiler.Database, "nope", "show", HttpStatusCode.BadRequest, SecretOutcome.NoField)]
+    [InlineData(MadeUpKiler.Admin, MadeUpKiler.Database, null, "show", HttpStatusCode.BadRequest, SecretOutcome.NoField)]
+    [InlineData(MadeUpKiler.Admin, MadeUpKiler.Database, "password", "print", HttpStatusCode.BadRequest, null)]
+    [InlineData(MadeUpKiler.Admin, MadeUpKiler.Database, "password", null, HttpStatusCode.BadRequest, null)]
+    [InlineData(MadeUpKiler.Admin, "zzzzzzzz", "password", "show", HttpStatusCode.NotFound, null)]
+    [InlineData(Guest, MadeUpKiler.Database, "password", "show", HttpStatusCode.Forbidden, null)]
+    public async Task TheRequestOfASecret_RefusesWhatItMust(string caller, string id, string? field, string? use, HttpStatusCode status, SecretOutcome? outcome)
+    {
+        using var data = NewData(guestMode: caller == Guest);
+        await using var server = await StartAsync(data, caller == Guest ? MadeUpKiler.User : caller);
+        using var client = caller == Guest ? server.CreateSignedInClient() : await SignedInAsync(server);
+
+        using var response = await PostSecretAsync(client, id, field, use);
+
+        Assert.Equal(status, response.StatusCode);
+        var error = (string?)(await ReadAsync(response))["error"];
+        Assert.Equal(
+            outcome is { } refused ? RecordsApi.Message(refused)
+            : status == HttpStatusCode.NotFound ? RecordsApi.NotThere
+            : caller == Guest ? AccessRules.Message(AccessRefusal.NotSignedIn)
+            : "use is not show or copy.",
+            error);
+    }
+
+    [Theory]
+    [InlineData(NoGuestMode, AccessRefusal.NotSignedIn, "list")]
+    [InlineData(Locked, AccessRefusal.NotSignedIn, "list")]
+    [InlineData(MadeUpKiler.Temporary, AccessRefusal.MustChangePassword, "list")]
+    [InlineData(NoGuestMode, AccessRefusal.NotSignedIn, "record")]
+    [InlineData(Locked, AccessRefusal.NotSignedIn, "record")]
+    [InlineData(MadeUpKiler.Temporary, AccessRefusal.MustChangePassword, "record")]
+    [InlineData(NoGuestMode, AccessRefusal.NotSignedIn, "secret")]
+    [InlineData(Locked, AccessRefusal.NotSignedIn, "secret")]
+    [InlineData(MadeUpKiler.Temporary, AccessRefusal.MustChangePassword, "secret")]
+    public async Task TheEndpoints_RefuseWhomTheyMust(string caller, AccessRefusal refusal, string endpoint)
     {
         using var data = NewData(guestMode: false);
         await using var server = await StartAsync(data, caller switch { NoGuestMode => MadeUpKiler.User, Locked => MadeUpKiler.Admin, _ => caller });
@@ -117,10 +260,24 @@ public sealed class RecordsApiTests : IDisposable
             (await client.DeleteAsync("/api/session", Cancel)).Dispose();
         }
 
-        using var response = await client.GetAsync("/api/records", Cancel);
+        using var response = endpoint switch
+        {
+            "list" => await client.GetAsync("/api/records", Cancel),
+            "record" => await client.GetAsync($"/api/records/{MadeUpKiler.Database}", Cancel),
+            _ => await PostSecretAsync(client, MadeUpKiler.Database, "password", "show"),
+        };
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Equal(AccessRules.Message(refusal), (string?)(await ReadAsync(response))["error"]);
+    }
+
+    private static async Task<HttpResponseMessage> PostSecretAsync(HttpClient client, string id, string? field, string? use)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/records/{id}/secret")
+        {
+            Content = new StringContent(new JsonObject { ["field"] = field, ["use"] = use }.ToJsonString(), Encoding.UTF8, "application/json"),
+        };
+        return await client.SendAsync(request, Cancel);
     }
 
     private static async Task<HttpClient> SignedInAsync(KilerServer server)
@@ -164,11 +321,12 @@ public sealed class RecordsApiTests : IDisposable
         return server;
     }
 
-    /// <summary>A data folder with the made-up Kiler and its records, and a local folder of the test.</summary>
-    private KilerData NewData(bool guestMode)
+    /// <summary>A data folder with the made-up Kiler and its records, and <paramref name="more"/>; and a local folder of the test.</summary>
+    private KilerData NewData(bool guestMode, Action<MadeUpData>? more = null)
     {
         var dataFolder = Path.Combine(_folder.Path, "data");
-        MadeUpKiler.WriteRecords(MadeUpKiler.WriteTo(MadeUpData.Create(dataFolder, Path.Combine(_folder.Path, "writer")), guestMode));
+        var made = MadeUpKiler.WriteRecords(MadeUpKiler.WriteTo(MadeUpData.Create(dataFolder, Path.Combine(_folder.Path, "writer")), guestMode));
+        more?.Invoke(made);
         return new(DataPlace.For(dataFolder, Path.Combine(_folder.Path, "Kiler")), FileOwner.Instance, TimeProvider.System, TextWriter.Null, TextWriter.Null);
     }
 }

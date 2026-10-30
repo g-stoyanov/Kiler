@@ -43,6 +43,15 @@ internal static class MadeUpKiler
     /// <summary>The stash Prod of <see cref="WriteRecords"/>, under <see cref="Payments"/>.</summary>
     public const string Prod = "e5f6g7h8";
 
+    /// <summary>The database of prod of <see cref="WriteRecords"/>.</summary>
+    public const string Database = "k3x9q2mf";
+
+    /// <summary>The query of <see cref="WriteRecords"/> whose <c>ref</c> is <see cref="Database"/>.</summary>
+    public const string Query = "s2t3v4w5";
+
+    /// <summary>The query of <see cref="WriteRecords"/> whose <c>ref</c> is a record that is not there.</summary>
+    public const string GoneQuery = "w6x7y8z9";
+
     private static readonly Lazy<Documents> Made = new(Make);
 
     /// <summary>The check of level 1 in <c>levels.json</c>.</summary>
@@ -50,8 +59,9 @@ internal static class MadeUpKiler
 
     /// <summary>
     /// Writes the initial templates of a Kiler of two levels, the stashes <see cref="Payments"/> and <see cref="Prod"/>, and
-    /// three records (M5.6): the database of prod, with its host at level 1 and its user and <see cref="SecretValue"/> at 2;
-    /// a link at level 0; and a note in Cyrillic at level 1.
+    /// five records (M5.6, M5.7): <see cref="Database"/>, the database of prod, with its host and port at level 1, and at 2
+    /// its user, <see cref="SecretValue"/> and its TNS, raised from 1 and written as a code with its language; a link at
+    /// level 0; a note in Cyrillic at level 1; and two queries at level 1, <see cref="Query"/> and <see cref="GoneQuery"/>.
     /// </summary>
     public static MadeUpData WriteRecords(MadeUpData data)
     {
@@ -128,15 +138,21 @@ internal static class MadeUpKiler
                 groups.ToDictionary(group => group.Level, group => (IReadOnlyList<string>)[.. JsonNode.Parse(group.Json)!.AsObject().Select(member => member.Key)]));
         RecordFile[] records =
         [
-            NewRecord("k3x9q2mf", "db", "Payments prod database", [Payments, Prod], ["payments"],
+            NewRecord(Database, "db", "Payments prod database", [Payments, Prod], ["payments"],
                 new() { ["env"] = FieldValue.OfText("prod"), ["description"] = FieldValue.OfText("The main database") },
                 (1, """{"host":"db01.example.test","port":1521}"""),
-                (2, $$$"""{"user":"pay_read","password":{"secret":"{{{SecretValue}}}"}}""")),
+                (2, $$$"""{"tns":{"language":"text","code":"PAYDB"},"user":"pay_read","password":{"secret":"{{{SecretValue}}}"}}""")),
             NewRecord("m4n5p6q7", "link", "Payments monitoring", [Payments], ["monitoring"],
                 new() { ["url"] = FieldValue.OfText("https://monitoring.example.test"), ["kind"] = FieldValue.OfText("monitoring") }),
             NewRecord("r8s9t0v1", "note", "Бележки", [Payments, Prod], [],
                 new(),
                 (1, """{"text":"Месечен отчет"}""")),
+            NewRecord(Query, "sql", "Payments report query", [Payments], [],
+                new(),
+                (1, $$"""{"db":"{{Database}}","query":"select count(*) from payments"}""")),
+            NewRecord(GoneQuery, "sql", "Report of a gone database", [Payments], [],
+                new(),
+                (1, """{"db":"zzzzzzzz"}""")),
         ];
         return new(levels, users, stashes, records);
     }

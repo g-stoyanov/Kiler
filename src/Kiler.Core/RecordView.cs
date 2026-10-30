@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Unicode;
@@ -14,7 +15,7 @@ public enum FieldKind
     /// <summary>The field has no value.</summary>
     Empty,
 
-    /// <summary>A <c>secret</c> with a value, which is not kept: only the request of a secret decrypts it again (M5.7).</summary>
+    /// <summary>A <c>secret</c> with a value, which is not kept: only the request of a secret decrypts it again (<see cref="RecordView.Secret"/>).</summary>
     Secret,
 
     /// <summary>The field is at a level whose key the session does not hold.</summary>
@@ -51,14 +52,37 @@ public sealed class RecordField
     public override string ToString() => $"{Key} ({Level}, {Kind})";
 }
 
+/// <summary>What the request of a secret gives (M5.7, docs/api.md, <c>POST /api/records/{id}/secret</c>).</summary>
+public enum SecretOutcome
+{
+    /// <summary>The value.</summary>
+    Value,
+
+    /// <summary>The template of the record does not have the field, or the record has no template that fits.</summary>
+    NoField,
+
+    /// <summary>The field is not a <c>secret</c>: neither its template nor its group says so.</summary>
+    NotSecret,
+
+    /// <summary>The field is at a level whose key the session does not hold, whatever its type.</summary>
+    Locked,
+
+    /// <summary>The field has no value.</summary>
+    Empty,
+
+    /// <summary>Its group does not decrypt, or what it decrypts to does not fit.</summary>
+    Unreadable,
+}
+
 /// <summary>
 /// A record as a session reads it (M5.3, design 5.3): its file, and its fields in the order of its template, each with what
 /// the session reads of it. A group of a level that the session holds is decrypted (<see cref="Session.Use"/>) and is the
 /// truth; the fields of the other groups are <see cref="FieldKind.Locked"/> at their level, by the lists of
 /// <see cref="RecordFile.Fields"/>; a guest reads level 0. A field is a <c>secret</c> when its template says so or its group
-/// marks it (<see cref="FieldValue.IsSecret"/>); it keeps only that it has a value, and its value never becomes a string
-/// here. A record whose template is missing or does not fit keeps only its header and the description, as Kiler cannot tell
-/// which of its fields is a <c>secret</c> (docs/api.md, "Record").
+/// marks it (<see cref="FieldValue.IsSecret"/>); it keeps only that it has a value, and its value becomes a string only in
+/// the request of that secret (<see cref="Secret"/>), which decrypts its group again. A record whose template is missing or
+/// does not fit keeps only its header and the description, as Kiler cannot tell which of its fields is a <c>secret</c>
+/// (docs/api.md, "Record").
 /// </summary>
 public sealed class RecordView
 {
@@ -122,7 +146,7 @@ public sealed class RecordView
             var kind = FieldKind.Locked;
             if (session is not null && session.Reads(level))
             {
-                if (Decrypt(session, record.Id, level, group, secrets) is { } fields)
+                if (Decrypt(session, record.Id, level, group, root => ReadGroup(root, level, secrets)) is { } fields)
                 {
                     foreach (var (key, field) in fields)
                     {
@@ -156,10 +180,82 @@ public sealed class RecordView
     }
 
     /// <summary>
-    /// The fields of the group of <paramref name="level"/> that the view reads, or <c>null</c> when it does not decrypt, what it
-    /// decrypts to does not fit, or the session is locked. The decrypted bytes are zeroed once they are parsed (core.md).
+    /// The value of the <c>secret</c> <paramref name="key"/> for <paramref name="session"/>, the session that the view was read
+    /// for (M5.7, docs/api.md): the view keeps no value of a secret, so its group is decrypted again, and the value is in
+    /// <paramref name="value"/> only. A secret as Kiler writes it is a text; a value that is not marked, where the template says
+    /// <c>secret</c>, gives its text, as a number written before the template changed. A secret in <c>public</c>, which only a
+    /// file changed by hand has, is given from there, as it is in clear on the share.
     /// </summary>
-    private static Dictionary<string, RecordField>? Decrypt(Session session, string id, int level, string group, Dictionary<string, bool> secrets)
+    /// <exception cref="SessionLockedException">The session is locked, before or while it decrypts.</exception>
+    public SecretOutcome Secret(string key, Session session, out string? value)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(session);
+        value = null;
+        if (session.IsLocked)
+        {
+            throw new SessionLockedException();
+        }
+
+        var (templateField, field) = Template is { } template
+            ? template.Fields.Zip(Fields).FirstOrDefault(pair => string.Equals(pair.First.Key, key, StringComparison.Ordinal))
+            : default;
+        if (templateField is null || field is null)
+        {
+            return SecretOutcome.NoField;
+        }
+
+        // A field that the session does not read may be marked in its group, so its type does not decide before its level.
+        if (field.Kind == FieldKind.Locked)
+        {
+            return SecretOutcome.Locked;
+        }
+
+        if (field.Kind == FieldKind.Unreadable)
+        {
+            return SecretOutcome.Unreadable;
+        }
+
+        if (templateField.Type != FieldType.Secret && field.Kind != FieldKind.Secret)
+        {
+            return SecretOutcome.NotSecret;
+        }
+
+        if (field.Kind != FieldKind.Secret)
+        {
+            return SecretOutcome.Empty;
+        }
+
+        // Only a view of another session has a secret at a level that this one does not read; its key is not there.
+        if (!session.Reads(field.Level))
+        {
+            return SecretOutcome.Locked;
+        }
+
+        var record = File.Model!;
+        if (field.Level == 0)
+        {
+            value = TextOf(record.Public[key]);
+            return SecretOutcome.Value;
+        }
+
+        // The bytes of the group are those that the view read, so what it found is there again, but a text whose escape does
+        // not decode, which the view never read: Decrypt takes it as a group that does not fit.
+        value = Decrypt(session, record.Id, field.Level, record.Protected[field.Level], root => SecretIn(root, key));
+        if (value is not null)
+        {
+            return SecretOutcome.Value;
+        }
+
+        return session.IsLocked ? throw new SessionLockedException() : SecretOutcome.Unreadable;
+    }
+
+    /// <summary>
+    /// What <paramref name="read"/> makes of the group of <paramref name="level"/>, or <c>null</c> when it does not decrypt, what
+    /// it decrypts to does not fit, or the session is locked. The decrypted bytes are zeroed once they are parsed (core.md).
+    /// </summary>
+    private static T? Decrypt<T>(Session session, string id, int level, string group, Func<JsonElement, T?> read)
+        where T : class
     {
         byte[] utf8;
         try
@@ -183,7 +279,7 @@ public sealed class RecordView
 
             // Over the bytes as they are, without a copy, so the zeroing below reaches every one.
             using var document = JsonDocument.Parse(utf8.AsMemory());
-            return ReadGroup(document.RootElement, level, secrets);
+            return read(document.RootElement);
         }
         catch (Exception exception) when (exception is JsonException or InvalidOperationException)
         {
@@ -252,4 +348,42 @@ public sealed class RecordView
 
         return fields;
     }
+
+    /// <summary>
+    /// The value of <paramref name="key"/> in a decrypted group, for the request of a secret, or <c>null</c> when the group does
+    /// not have it once with a value: the text of <c>{ "secret": "&lt;value&gt;" }</c>, or the text of a value that is not marked.
+    /// </summary>
+    private static string? SecretIn(JsonElement group, string key)
+    {
+        if (group.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        string? value = null;
+        var found = false;
+        foreach (var member in group.EnumerateObject())
+        {
+            if (!member.NameEquals(key))
+            {
+                continue;
+            }
+
+            if (found)
+            {
+                return null;
+            }
+
+            found = true;
+            value = FieldValue.IsSecret(member.Value, out var isValue)
+                ? isValue ? member.Value.GetProperty("secret"u8).GetString() : null
+                : FieldValue.TryRead(member.Value, out var read) && read is not null ? TextOf(read) : null;
+        }
+
+        return value;
+    }
+
+    /// <summary>The text of a value that a template changed to <c>secret</c> keeps: a number as JSON writes it, the code of a <c>code</c>.</summary>
+    private static string TextOf(FieldValue value) =>
+        value.Kind == FieldValueKind.Number ? value.Number.ToString(CultureInfo.InvariantCulture) : value.Text!;
 }
