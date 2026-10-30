@@ -9,7 +9,7 @@ Here [the plan](../PLAN.md) is broken into small tasks with ticks. The work foll
 | M1 Host and skeleton | [M1.md](M1.md) | done, with the checkpoint in the real environment |
 | M2 Data layer | [M2.md](M2.md) | done; its checks that need the user's hands go to the [trial use](../real-environment-checks.md#the-trial-use-phase-4) |
 | M3 Cryptography | [M3.md](M3.md) | done; part of it deferred until after the exam ([PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam)) |
-| M4 Users and permissions | [M4.md](M4.md) | in progress; part of it deferred until after the exam ([PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam)) |
+| M4 Users and permissions | [M4.md](M4.md) | done; part of it deferred until after the exam ([PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam)) |
 | M5 Templates, records and search | | not started |
 | M6 User interface | | not started |
 | M7 Documents and diagrams | | deferred until after the exam ([PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam)) |

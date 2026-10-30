@@ -69,6 +69,7 @@ Decisions come from `docs/PLAN.md` (section 2, M1, M4, M6, M7), `docs/tasks/M1.m
   - stops the dev server when Kiler stops (the last page closed, or Ctrl+C, which reaches Kiler through the shared console).
 - `npm run dev -- --no-browser` prints `Open: <dev address with the token>` instead, as Kiler does with `--no-browser`.
 - `npm run dev -- --account <name>` (M4.8) passes `--account` to Kiler, for a second user of `dev-data` (decisions of M4). The single instance is per data folder, so it starts once the first dev Kiler has stopped.
+- `dev-data` with the demo data (M4.10): from the repository root, `dotnet run --project tools\Kiler.DemoData -- dev-data`, with `--replace` over one that is there, while no dev Kiler runs. Then `npm run dev -- --account demo.admin`, or another demo user; the accounts and passwords are in the kiler-dotnet skill, `demodata.md`.
 - A second `npm run dev` while one runs stops with a message: the dev Kiler is running already, or, after a change of the C# code, `dotnet run` cannot rebuild the exe that the first one runs.
 - The proxy (`kilerProxy`) keeps the protection on:
   - only `/api/` (with the slash, so `/apiary` stays with Vite) and the exchange `^/\?t=`, a RegExp on the path with the query. Vite serves `/` without `t`;

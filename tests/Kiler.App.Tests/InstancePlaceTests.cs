@@ -80,6 +80,13 @@ public class InstancePlaceTests
     }
 
     [Fact]
+    public void Key_IsTheValueThatTheDemoDataTakes()
+    {
+        // The demo data finds the local copy of a data folder by the same key (M4.10): DemoTargetTests holds it to this value too.
+        Assert.Equal("9f4636314a0bdf9a", InstancePlace.Key(@"D:\Demo\data"));
+    }
+
+    [Fact]
     public void For_ARelativeFolder_IsTheFullPathFromTheCurrentFolder()
     {
         Assert.Equal(

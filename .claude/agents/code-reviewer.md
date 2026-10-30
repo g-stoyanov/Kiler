@@ -19,7 +19,7 @@ The task number, for example `M1.4`. If it is missing, take the first unticked t
    - the task in `docs/tasks/M<n>.md`: its "What", "Tests", "Done" and notes, and the decisions of the module at the top of the file. The other tasks are not needed; the full notes of the done tasks are in `docs/tasks/log/`, for when a note points there;
    - its module in `docs/PLAN.md`;
    - `CLAUDE.md`, which is already in your context: do not read it again;
-   - the skill for the code being changed: `.claude/skills/kiler-dotnet/SKILL.md` for C#, with the area file it points to for the project changed (`host.md` for Kiler.App, `storage.md` for Kiler.Storage, `crypto.md` for Kiler.Crypto, `core.md` for Kiler.Core), `.claude/skills/kiler-ui/SKILL.md` for `src/ui`, `.claude/skills/kiler-crypto/SKILL.md` for cryptography;
+   - the skill for the code being changed: `.claude/skills/kiler-dotnet/SKILL.md` for C#, with the area file it points to for the project changed (`host.md` for Kiler.App, `storage.md` for Kiler.Storage, `crypto.md` for Kiler.Crypto, `core.md` for Kiler.Core, `demodata.md` for `tools/Kiler.DemoData`), `.claude/skills/kiler-ui/SKILL.md` for `src/ui`, `.claude/skills/kiler-crypto/SKILL.md` for cryptography;
    - for changes in `.claude/` (agents, skills, hooks): the rules in section 8 of `docs/PLAN.md`.
 2. Collect the changes:
    - `git status --short`;

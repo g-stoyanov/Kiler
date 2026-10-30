@@ -74,7 +74,7 @@ One session covers one or several small tasks from one module.
 
 They are described in [docs/PLAN.md, section 8](docs/PLAN.md#8-agents-skills-and-hooks).
 
-- **Skills with the rules:** `kiler-dotnet`, `kiler-crypto`, `kiler-ui`. `kiler-dotnet` keeps the rules of one area in a file of its own (`host.md`, `storage.md`, `crypto.md`, `core.md`), read only for that area.
+- **Skills with the rules:** `kiler-dotnet`, `kiler-crypto`, `kiler-ui`. `kiler-dotnet` keeps the rules of one area in a file of its own (`host.md`, `storage.md`, `crypto.md`, `core.md`, `demodata.md`), read only for that area.
 - **Reviewer subagents:** `code-reviewer` for every task and `security-reviewer` for the security tasks. They only read.
 - **Documentation subagent:** `docs-researcher`.
 - **Hooks:**
@@ -105,3 +105,4 @@ The details are in [docs/PLAN.md](docs/PLAN.md), sections 2 and 3.
   - One test project, or some tests: `dotnet test --project tests\Kiler.App.Tests -- --filter-method "*Name*"`, or `--filter-class`. It builds Debug, so the tests of the embedded UI skip.
   - One UI check, in `src\ui`: `npm.cmd run <script>` with `format:check`, `lint` or `typecheck`, and `npm.cmd test` for Vitest. `npm.cmd run format` fixes the format.
   - UI dev mode, in `src\ui`, after `check-ui.ps1` has installed the packages: `npm.cmd run dev`. It starts Kiler with `dotnet run` and the data folder `dev-data\`, then the Vite dev server with a proxy to Kiler, and opens the browser. When the last tab closes, Kiler stops after the idle wait, and the dev server with it. There is no HMR, so reload the page after a change of the UI; after a change of the C# code, stop it and start it again. Claude runs `npm.cmd run dev -- --no-browser` in the background: it prints the address with the token instead of opening a browser, and without a page that holds `/api/events`, Kiler stops 60 s after the start. The details are in the `kiler-ui` skill.
+  - Demo data: `dotnet run --project tools\Kiler.DemoData -- dev-data`, with `--replace` over a `dev-data` that is there, while no dev Kiler runs. It makes a made-up Kiler for `npm.cmd run dev -- --account demo.admin`; the demo users and their passwords are in the `kiler-dotnet` skill, `demodata.md`.

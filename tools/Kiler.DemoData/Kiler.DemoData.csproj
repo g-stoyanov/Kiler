@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The demo data (PLAN M8 step 4): a made-up Kiler in a data folder, made through the Kiler libraries, so it opens and
+    decrypts as a real one. It grows with M5 to M7. The rules are in the kiler-dotnet skill (demodata.md).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Kiler.Core\Kiler.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Kiler.DemoData.Tests" />
+  </ItemGroup>
+
+</Project>
