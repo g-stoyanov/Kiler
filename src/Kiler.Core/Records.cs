@@ -10,7 +10,8 @@ namespace Kiler.Core;
 /// of the watch after <see cref="Team.Follow"/> (<see cref="Follow"/>), whose templates it reads, and reads the copy again
 /// after <see cref="Team.Reload"/> (<see cref="Reload"/>), both on the thread of the watch. It follows
 /// <see cref="CurrentSession.Changed"/>: a sign-in decrypts for the new session, and a lock drops what was decrypted. The
-/// updates keep a lock of their own. The private records come after the exam, so it skips the private folders.
+/// updates keep a lock of their own. A write of this Kiler goes through it (<see cref="Create(RecordFile)"/>, M5.4), as no
+/// load gives it. The private records come after the exam, so it skips the private folders.
 /// </summary>
 public sealed class Records : IDisposable
 {
@@ -123,6 +124,38 @@ public sealed class Records : IDisposable
     }
 
     /// <summary>
+    /// Creates <paramref name="record"/> through the copy (M5.4) and, when it is written, takes it into the set at its version,
+    /// read for the session of the set: the copy takes what this Kiler wrote as its own, so no load gives it (core.md, "The
+    /// team"). A newer version, which a load has brought in meanwhile, stays. The write runs without the lock, as it can wait
+    /// for a load under way. A load that ended before the write cannot give the record, which was not there.
+    /// </summary>
+    /// <exception cref="ArgumentException">The record is larger than a document can be (<see cref="DocumentFormat.MaxSize"/>).</exception>
+    /// <exception cref="IOException">The share could not be reached before a load said so (core.md, "Calling the layer").</exception>
+    /// <exception cref="UnauthorizedAccessException">The share refused the write before a load said so.</exception>
+    internal WriteResult Create(RecordFile record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        return TakeWritten(
+            _copy.Create(record.Key, record.ToContent()),
+            (set, version) => set.Records.GetValueOrDefault(record.Id)?.File.Version > version
+                ? null
+                : new RecordSet(set.Session, set.Stashes, set.Records.SetItem(record.Id, RecordView.Read(TeamFile<RecordFile>.Written(version, record), _templates, set.Session))));
+    }
+
+    /// <summary>Creates <paramref name="stash"/> through the copy (M5.4), and takes it into the set, as <see cref="Create(RecordFile)"/> does a record.</summary>
+    /// <exception cref="IOException">The share could not be reached before a load said so (core.md, "Calling the layer").</exception>
+    /// <exception cref="UnauthorizedAccessException">The share refused the write before a load said so.</exception>
+    internal WriteResult Create(StashFile stash)
+    {
+        ArgumentNullException.ThrowIfNull(stash);
+        return TakeWritten(
+            _copy.Create(stash.Key, stash.ToContent()),
+            (set, version) => set.Stashes.GetValueOrDefault(stash.Id)?.Version > version
+                ? null
+                : new RecordSet(set.Session, set.Stashes.SetItem(stash.Id, TeamFile<StashFile>.Written(version, stash)), set.Records));
+    }
+
+    /// <summary>
     /// Reads the stashes and the records again from the documents of the copy, after <see cref="Team.Reload"/>: after
     /// <see cref="DataWatch.Failed"/> and at each <see cref="DataWatch.OfflineChanged"/> (core.md, "Calling the layer").
     /// </summary>
@@ -167,6 +200,26 @@ public sealed class Records : IDisposable
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Takes a write of this Kiler into the set under the lock, when it is written: <paramref name="put"/> gives the set with
+    /// it at its new version, or <c>null</c> when a load has brought in a newer version meanwhile, which stays.
+    /// </summary>
+    private WriteResult TakeWritten(WriteResult written, Func<RecordSet, int, RecordSet?> put)
+    {
+        if (written.Outcome == WriteOutcome.Written)
+        {
+            lock (_gate)
+            {
+                if (put(_set, written.Version) is { } set)
+                {
+                    _set = set;
+                }
+            }
+        }
+
+        return written;
     }
 
     private RecordSet WithSession(RecordSet set, Session? session)

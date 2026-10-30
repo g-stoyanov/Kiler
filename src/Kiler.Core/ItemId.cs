@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Security.Cryptography;
 
 namespace Kiler.Core;
 
@@ -14,4 +15,7 @@ public static class ItemId
     /// <summary>Whether <paramref name="id"/> is an id of a record or a stash.</summary>
     public static bool IsValid([NotNullWhen(true)] string? id) =>
         id is { Length: Length } && !id.AsSpan().ContainsAnyExcept(Password.TemporaryAlphabet);
+
+    /// <summary>A new random id (M5.4). A create that meets <see cref="Kiler.Storage.WriteOutcome.Exists"/> takes another one (core.md, "Calling the layer").</summary>
+    public static string New() => RandomNumberGenerator.GetString(Password.TemporaryAlphabet, Length);
 }

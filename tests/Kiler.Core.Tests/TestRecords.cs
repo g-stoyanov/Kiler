@@ -56,6 +56,13 @@ internal sealed class TestRecords : IDisposable
     /// <summary>The group of <paramref name="utf8"/> as it is, for bytes that are not UTF-8.</summary>
     public string Group(string id, int level, byte[] utf8) => FieldGroup.Encrypt(_keys[level], utf8, id, level);
 
+    /// <summary>The JSON of the group of <paramref name="level"/> of <paramref name="record"/>, decrypted (M5.4); it can hold a secret, so a test compares it with <c>Assert.True</c>.</summary>
+    public string Open(RecordFile record, int level) => Encoding.UTF8.GetString(FieldGroup.Decrypt(_keys[level], record.Protected[level], record.Id, level));
+
+    /// <summary>Writes a stash through the copy.</summary>
+    public void WriteStash(string id, string name) =>
+        Assert.Equal(WriteOutcome.Written, Data.Copy.Create(StashFile.KeyOf(id), new StashFile(id, name, Authors).ToContent()).Outcome);
+
     /// <summary>
     /// A record of <paramref name="template"/> whose <c>public</c> has <paramref name="publicFields"/>, and a group of each of
     /// <paramref name="groups"/>, its JSON encrypted with the key of its level and its keys listed in <c>fields</c>.

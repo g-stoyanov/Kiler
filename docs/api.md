@@ -80,7 +80,7 @@ The types are those of design 6.4.
 | `ref` | `{ "id": "k3x9q2mf", "name": "Payments production database" }`; `name` is `null` when that record has gone (deleted, or never there) | the id of a record of `refTemplate` |
 | `secret` | never (`kind` is `secret`) | a string |
 
-- In a request, `null` and `""` are no value.
+- In a request, `null` and `""` are no value, and neither is a code whose `code` is `""` (M5.4).
 - In the file, a `secret` is `{ "secret": "<value>" }` in its group (decided by the user in M5.3, design 5.2). The group is encrypted and authenticated, so Kiler knows the field is a `secret` also when the template on the share, which anyone can write, gives it another type: a field is a `secret` when its template says so or its group marks it.
 - Anyone can write the share, so the page opens a `url` only when it is `http` or `https`, also one that Kiler did not check.
 
@@ -299,7 +299,7 @@ A new record:
 - `stash`: 1 to 4 ids of stashes that are there, without gaps or repeats (design 6.6).
 - `name`: not blank. The name and each tag are trimmed; a blank tag is left out, and the tags are kept once each, without regard to case.
 - `fields`: the fields of the template by key, each a value of its type ("Values by type"). A field left out has no value. A field with `required` needs a value (design 6.5). A key that the template does not have is 400.
-- `levels`: the levels asked, by key ("Levels of a field"). A field left out has its default.
+- `levels`: the levels asked, by key ("Levels of a field"). A field left out has its default. A key that is neither `description` nor a field of the template is 400 with `field` `null`, and a level that is not from 0 to 9 is 400 with that key (M5.4).
 - Kiler sets the id, the dates and the authors (design 6.1).
 - The answer is 201 with the record.
 - 400, with `field`: a value that does not fit, and a field with a value at a level above the author's.
