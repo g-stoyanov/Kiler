@@ -86,5 +86,5 @@ internal static class KeySets
     };
 
     /// <summary>The level of a name that is its digit, from 1 to <paramref name="top"/>: not <c>"01"</c>, <c>"+1"</c> or <c>" 1"</c>.</summary>
-    private static int? LevelOf(string name, int top) => name is [var digit] && digit >= '1' && digit <= '0' + top ? digit - '0' : null;
+    internal static int? LevelOf(string name, int top) => name is [var digit] && digit >= '1' && digit <= '0' + top ? digit - '0' : null;
 }

@@ -62,7 +62,7 @@ Every field of a record, and its description, comes as a field:
   - `empty`: the field has no value;
   - `secret`: a `secret` with a value. Only the request of a secret gives the value; no other answer has it;
   - `locked`: the field is at a level that the session does not hold. `levelName` is the name of that level in `levels.json`, for "🔒 requires level Prod", or `null` when `levels.json` cannot be read;
-  - `unreadable`: its group does not decrypt (damaged, or moved from another record or level).
+  - `unreadable`: its group does not decrypt (damaged, or moved from another record or level), or what it decrypts to does not fit (M5.3).
 - A reader below a group tells `locked` from `empty` by the lists of `fields` in the file, which are in clear (design 5.2): a key that no list names and `public` does not have is `empty`.
 
 ### Values by type
@@ -81,6 +81,7 @@ The types are those of design 6.4.
 | `secret` | never (`kind` is `secret`) | a string |
 
 - In a request, `null` and `""` are no value.
+- In the file, a `secret` is `{ "secret": "<value>" }` in its group (decided by the user in M5.3, design 5.2). The group is encrypted and authenticated, so Kiler knows the field is a `secret` also when the template on the share, which anyone can write, gives it another type: a field is a `secret` when its template says so or its group marks it.
 - Anyone can write the share, so the page opens a `url` only when it is `http` or `https`, also one that Kiler did not check.
 
 ### List item

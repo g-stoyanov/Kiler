@@ -136,6 +136,14 @@ public sealed class TemplateField
     /// <summary>The name of the type in the JSON of the template and of the API, such as <c>secret</c>.</summary>
     public static string NameOf(FieldType type) => TypeNames[(int)type];
 
+    /// <summary>
+    /// The default level of the field in a record whose <see cref="Env"/> is <paramref name="env"/> (docs/api.md, "Levels of a
+    /// field"): its <see cref="LevelByEnv"/> of that value; else its <see cref="Level"/>; else the highest of its
+    /// <see cref="LevelByEnv"/>, so an <see cref="Env"/> left empty does not lower a password.
+    /// </summary>
+    public int DefaultLevel(string? env) =>
+        LevelByEnv is { } byEnv && env is not null && byEnv.TryGetValue(env, out var level) ? level : Level ?? LevelByEnv?.Values.Max() ?? 0;
+
     /// <summary>The field of an entry of <c>fields</c> in the JSON of a template, or why it does not fit, with the number of the entry.</summary>
     internal static bool TryRead(TemplateFieldJson? json, int index, [NotNullWhen(true)] out TemplateField? field, [NotNullWhen(false)] out string? invalid)
     {

@@ -16,7 +16,9 @@ namespace Kiler.Core;
     PropertyNameCaseInsensitive = false,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(LevelsJson))]
+[JsonSerializable(typeof(RecordJson))]
 [JsonSerializable(typeof(SettingsJson))]
+[JsonSerializable(typeof(StashJson))]
 [JsonSerializable(typeof(TemplateJson))]
 [JsonSerializable(typeof(UserJson))]
 internal sealed partial class CoreJsonContext : JsonSerializerContext;
@@ -71,11 +73,62 @@ internal sealed class KeysJson
     public Dictionary<string, string?>? Keys { get; init; }
 }
 
+/// <summary>A record of <c>records\</c> (design 5.2, M5.3); its dates and authors are those of <see cref="Authorship"/>.</summary>
+internal sealed class RecordJson
+{
+    public string? Template { get; init; }
+
+    public string? CreatedBy { get; init; }
+
+    public string? CreatedAt { get; init; }
+
+    public string? UpdatedBy { get; init; }
+
+    public string? UpdatedAt { get; init; }
+
+    public RecordPublicJson? Public { get; init; }
+
+    public Dictionary<string, string?>? Protected { get; init; }
+
+    public Dictionary<string, List<string?>?>? Fields { get; init; }
+}
+
+/// <summary>
+/// The <c>public</c> of a record: the header at level 0 and, beside it, the fields of level 0, the description among them
+/// (<see cref="Fields"/>), each a value of <see cref="FieldValue"/>.
+/// </summary>
+internal sealed class RecordPublicJson
+{
+    public List<string?>? Stash { get; init; }
+
+    public string? Name { get; init; }
+
+    public List<string?>? Tags { get; init; }
+
+    /// <summary>The members that are not of the header, read as they are; <see cref="RecordFile.ToContent"/> writes them itself.</summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Fields { get; set; }
+}
+
 internal sealed class SettingsJson
 {
     public bool? GuestMode { get; init; }
 
     public int? AutoLockMinutes { get; init; }
+}
+
+/// <summary>A stash of <c>stashes\</c> (design 6.6, M5.3); its dates and authors are those of <see cref="Authorship"/>.</summary>
+internal sealed class StashJson
+{
+    public string? Name { get; init; }
+
+    public string? CreatedBy { get; init; }
+
+    public string? CreatedAt { get; init; }
+
+    public string? UpdatedBy { get; init; }
+
+    public string? UpdatedAt { get; init; }
 }
 
 internal sealed class TemplateJson
