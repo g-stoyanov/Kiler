@@ -81,6 +81,25 @@ export interface WizardRequest {
   autoLockMinutes: number;
 }
 
+/** What the change of password sends (`POST /api/session/password`, M4.5a). The page checks the new password twice. */
+export interface PasswordRequest {
+  /** The current password; null in the forced change after a temporary password (`mustChangePassword`). */
+  current: string | null;
+  password: string;
+}
+
+/**
+ * Kiler's sentences of a refused change of password that the page acts on, beyond showing them
+ * (`PasswordApi.Message` of Kiler.App): the two 403s about the password itself, after which the page keeps its form,
+ * and the user file that has changed since the sign-in, after which the page offers a new sign-in.
+ */
+export const passwordRefusals = {
+  wrongPassword: 'The current password is wrong.',
+  levelNotUnlocked:
+    'A level of your user file did not unlock with your password, and a new password would lose it. Contact an admin.',
+  userChanged: 'Your user file has changed since you signed in. Sign in again.',
+} as const;
+
 type Method = 'GET' | 'POST' | 'DELETE';
 
 /**
@@ -169,6 +188,11 @@ export function signIn(password: string): Promise<Session> {
 /** "Lock": the sign-out and the lock alike (M4.4). Answers with the session, now without the keys. */
 export function lockSession(): Promise<Session> {
   return requestJson('DELETE', '/api/session', undefined, readSession);
+}
+
+/** Changes the password of the session, and answers with the session, now without `mustChangePassword` (M4.5a). */
+export function changePassword(request: PasswordRequest): Promise<Session> {
+  return requestJson('POST', '/api/session/password', request, readSession);
 }
 
 export function getData(signal?: AbortSignal): Promise<DataInfo> {

@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
-import { BrowserRouter, Link, Navigate, Route, Routes } from 'react-router';
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from 'react-router';
 import { lockSession, type Session } from './api.ts';
+import { ChangePassword } from './ChangePassword.tsx';
 import { connectEvents } from './connection.ts';
 import { DataGate } from './DataGate.tsx';
 import type { ConnectionState } from './events.ts';
 import { Home } from './Home.tsx';
 import { SessionContext, SessionStore, useSessionSnapshot, useSessionStore, type SessionView } from './session.ts';
 import { SignIn } from './SignIn.tsx';
+import { signInFrom } from './signIn.ts';
 import { texts } from './texts.ts';
 import { applyThemeChoice, readThemeChoice, saveThemeChoice, themeChoices, type ThemeChoice } from './theme.ts';
 
@@ -79,9 +81,13 @@ function ConnectionBadge({ state }: { state: ConnectionState }) {
   );
 }
 
-/** The account of the session, with "Lock" for a signed-in user and "Sign in" for a guest. */
+/**
+ * The account of the session: for a signed-in user "Password", the voluntary change, and "Lock"; for a guest "Sign in".
+ * A session with a temporary password sees only its change, so it gets no "Password".
+ */
 function Account({ view, onLockFailed }: { view: SessionView; onLockFailed: (failed: boolean) => void }) {
   const store = useSessionStore();
+  const location = useLocation();
   const [locking, setLocking] = useState(false);
   if (view.state !== 'ready') {
     return null;
@@ -108,6 +114,11 @@ function Account({ view, onLockFailed }: { view: SessionView; onLockFailed: (fai
     return (
       <span className="account">
         <span title={session.account ?? undefined}>{session.displayName}</span>
+        {!session.mustChangePassword && (
+          <Link className="button" to="/password">
+            {texts.account.password}
+          </Link>
+        )}
         <button type="button" onClick={lock} disabled={locking}>
           {texts.account.lock}
         </button>
@@ -118,7 +129,7 @@ function Account({ view, onLockFailed }: { view: SessionView; onLockFailed: (fai
   return session.guestMode ? (
     <span className="account">
       <span>{texts.account.guest}</span>
-      <Link className="button" to="/sign-in">
+      <Link className="button" to="/sign-in" state={signInFrom(location)}>
         {texts.account.signIn}
       </Link>
     </span>
@@ -168,16 +179,49 @@ function SessionGate({ view }: { view: SessionView }) {
         </section>
       );
     case 'ready':
-      return <AppRoutes session={view.session} />;
+      return <AppRoutes session={view.session} locked={view.locked} />;
   }
 }
 
-function AppRoutes({ session }: { session: Session }) {
+/**
+ * The routes that the session may see (M4.8): without a session and without guest mode only the sign-in, which every
+ * other address leads to and goes back to; with a temporary password only its change; else the screens, where a
+ * screen that needs a session leads a guest to the sign-in the same way. The server checks every request anyway.
+ *
+ * The routes alone send a page to the sign-in after a lock: a screen that also navigates races them, as the store
+ * renders the new session at once and React Router changes the address in a transition (M4.8 code review).
+ */
+function AppRoutes({ session, locked }: { session: Session; locked: boolean }) {
+  if (!session.signedIn && !session.guestMode) {
+    return (
+      <Routes>
+        <Route path="sign-in" element={<SignIn session={session} locked={locked} />} />
+        <Route path="*" element={<ToSignIn />} />
+      </Routes>
+    );
+  }
+
+  if (session.signedIn && session.mustChangePassword) {
+    return (
+      <Routes>
+        <Route path="password" element={<ChangePassword session={session} />} />
+        <Route path="*" element={<Navigate to="/password" replace />} />
+      </Routes>
+    );
+  }
+
   return (
     <Routes>
-      <Route index element={<Home session={session} />} />
-      <Route path="sign-in" element={<SignIn session={session} />} />
+      <Route index element={<Home session={session} locked={locked} />} />
+      <Route path="sign-in" element={<SignIn session={session} locked={locked} />} />
+      <Route path="password" element={session.signedIn ? <ChangePassword session={session} /> : <ToSignIn />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
+}
+
+/** To the sign-in, which goes back to this address once it has a session, as after a lock. */
+function ToSignIn() {
+  const location = useLocation();
+  return <Navigate to="/sign-in" replace state={signInFrom(location)} />;
 }

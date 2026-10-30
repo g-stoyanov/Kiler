@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { maskToken, parseOpenLine } from './kiler.ts';
+import { maskToken, parseDevArgs, parseOpenLine } from './kiler.ts';
 
 /** A made-up token in the form of `AccessToken`: 43 characters of base64url. */
 const token = 'Ab3_-Ab3_-Ab3_-Ab3_-Ab3_-Ab3_-Ab3_-Ab3_-Ab3';
@@ -60,5 +60,27 @@ describe('maskToken', () => {
     const line = 'Kiler is listening on http://127.0.0.1:5050.';
 
     expect(maskToken(line)).toBe(line);
+  });
+});
+
+describe('parseDevArgs', () => {
+  it.each([
+    [[], { noBrowser: false, account: undefined }],
+    [['--no-browser'], { noBrowser: true, account: undefined }],
+    [['--account', 'demo.user'], { noBrowser: false, account: 'demo.user' }],
+    [['--account', 'demo.user', '--no-browser'], { noBrowser: true, account: 'demo.user' }],
+  ])('reads %j', (args, expected) => {
+    expect(parseDevArgs(args)).toEqual(expected);
+  });
+
+  it.each([
+    ['an unknown parameter', ['--data', 'x']],
+    ['a value without its parameter', ['demo.user']],
+    ['--account without a name', ['--account']],
+    ['--account followed by a parameter', ['--account', '--no-browser']],
+    ['--account twice', ['--account', 'a', '--account', 'b']],
+    ['--no-browser twice', ['--no-browser', '--no-browser']],
+  ])('refuses %s', (_, args) => {
+    expect(parseDevArgs(args)).toHaveProperty('error');
   });
 });

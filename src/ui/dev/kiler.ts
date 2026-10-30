@@ -64,14 +64,45 @@ export function maskToken(text: string): string {
   return text.replace(/([?&]t=)[^&#\s]*/g, '$1…');
 }
 
+/** The parameters of `npm run dev`; an error names what does not fit. */
+export type DevArgs = { noBrowser: boolean; account: string | undefined } | { error: string };
+
+/**
+ * Reads the parameters of `npm run dev`: `--no-browser`, and `--account <name>`, which Kiler takes as it is to pick the
+ * user file (M4.1), for a second user in the dev mode.
+ */
+export function parseDevArgs(args: readonly string[]): DevArgs {
+  let noBrowser = false;
+  let account: string | undefined;
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === '--no-browser' && !noBrowser) {
+      noBrowser = true;
+    } else if (arg === '--account' && account === undefined) {
+      const value = args[index + 1];
+      if (value === undefined || value.startsWith('--')) {
+        return { error: '--account needs a name.' };
+      }
+
+      account = value;
+      index++;
+    } else {
+      return { error: `Unknown parameter: ${arg}. The parameters are --no-browser and --account <name>.` };
+    }
+  }
+
+  return { noBrowser, account };
+}
+
 /**
  * Starts Kiler with `dotnet run`, without a browser and with its own data folder, so it is an instance of its own and
- * does not meet the Kiler of the user (M1.5). Its output goes on to the console with the token hidden. Resolves when
- * Kiler prints its address.
+ * does not meet the Kiler of the user (M1.5), and with `--account` when it is given. Its output goes on to the console
+ * with the token hidden. Resolves when Kiler prints its address.
  */
-export function startKiler(repoFolder: string, dataFolder: string): Promise<DevKiler> {
+export function startKiler(repoFolder: string, dataFolder: string, account?: string): Promise<DevKiler> {
   const project = path.join(repoFolder, 'src', 'Kiler.App');
-  const child = spawn('dotnet', ['run', '--project', project, '--', '--no-browser', '--data', dataFolder], {
+  const kilerArgs = ['--no-browser', '--data', dataFolder, ...(account === undefined ? [] : ['--account', account])];
+  const child = spawn('dotnet', ['run', '--project', project, '--', ...kilerArgs], {
     cwd: repoFolder,
     // The console is shared, so Ctrl+C reaches Kiler too and stops it as usual.
     stdio: ['ignore', 'pipe', 'inherit'],

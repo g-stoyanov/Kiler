@@ -4,12 +4,14 @@ import type { ConnectionState } from './events.ts';
 
 /**
  * What the page knows of the session: `waiting` until the stream connects and after it stops, `reading` while
- * `GET /api/session` runs, then the session or why it could not be read.
+ * `GET /api/session` runs, then the session or why it could not be read. `locked` says that this page has seen a
+ * session end (the automatic lock, "Lock", a lock on another page), so its sign-in is the lock screen; it is false once
+ * a session starts again, and for a page that has seen no session since its stream connected.
  */
 export type SessionView =
   | { state: 'waiting' }
   | { state: 'reading' }
-  | { state: 'ready'; session: Session }
+  | { state: 'ready'; session: Session; locked: boolean }
   | { state: 'failed'; message: string };
 
 export interface SessionSnapshot {
@@ -24,7 +26,8 @@ const initial: SessionSnapshot = { connection: 'connecting', view: { state: 'wai
  * the stream has connected, which behind the SharedWorker is once the page's port is in the worker's set, so a lock
  * after it reaches the page as a `session` event; and again on each connect and each `session` event. A lock while no
  * stream held the page gives no event, so the read at the connect is what finds it. On the event and on a stop it drops
- * the session first, so the page drops everything it shows.
+ * the session first, so the page drops everything it shows. A session without a sign-in after one with it is `locked`
+ * (M4.8), so the page shows the lock screen.
  *
  * `GET /api/session` is activity for the automatic lock, so it reads it only on a connect, an event or an action of the
  * user, never on a timer. For `useSyncExternalStore`: each change is a new snapshot.
@@ -34,6 +37,8 @@ export class SessionStore {
   readonly #listeners = new Set<() => void>();
   #snapshot = initial;
   #reading: AbortController | undefined;
+  // Whether a session has been seen since the stream connected, for `locked`.
+  #hadSession = false;
 
   constructor(read: (signal: AbortSignal) => Promise<Session> = getSession) {
     this.#read = read;
@@ -56,6 +61,7 @@ export class SessionStore {
       this.#readAgain(connection);
     } else {
       this.#cancel();
+      this.#hadSession = false;
       this.#set({ connection, view: { state: 'waiting' } });
     }
   }
@@ -76,13 +82,14 @@ export class SessionStore {
   set(session: Session): void {
     if (this.#snapshot.connection === 'connected') {
       this.#cancel();
-      this.#set({ connection: 'connected', view: { state: 'ready', session } });
+      this.#set({ connection: 'connected', view: this.#ready(session) });
     }
   }
 
   /** For a page that goes away, or the effect that StrictMode runs twice: back to the start. */
   stop(): void {
     this.#cancel();
+    this.#hadSession = false;
     this.#set(initial);
   }
 
@@ -92,17 +99,23 @@ export class SessionStore {
     this.#reading = reading;
     this.#set({ connection, view: { state: 'reading' } });
     this.#read(reading.signal).then(
-      (session) => this.#finish(reading, { state: 'ready', session }),
-      (error: unknown) => this.#finish(reading, { state: 'failed', message: messageOf(error) }),
+      (session) => this.#finish(reading, () => this.#ready(session)),
+      (error: unknown) => this.#finish(reading, () => ({ state: 'failed', message: messageOf(error) })),
     );
   }
 
-  #finish(reading: AbortController, view: SessionView): void {
+  #finish(reading: AbortController, view: () => SessionView): void {
     // A read that a later one replaced, or that a stop cancelled, gives nothing.
     if (this.#reading === reading) {
       this.#reading = undefined;
-      this.#set({ connection: this.#snapshot.connection, view });
+      this.#set({ connection: this.#snapshot.connection, view: view() });
     }
+  }
+
+  #ready(session: Session): SessionView {
+    const locked = !session.signedIn && this.#hadSession;
+    this.#hadSession ||= session.signedIn;
+    return { state: 'ready', session, locked };
   }
 
   #cancel(): void {

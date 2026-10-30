@@ -27,7 +27,11 @@ internal static class PasswordApi
         endpoints.MapPost("/api/session/password", (HttpContext context, PasswordRequest request) => Change(context, sessions, data, account, request))
             .Needs(Need.SignedIn);
 
-    /// <summary>What the page says when the password was not changed.</summary>
+    /// <summary>
+    /// What the page says when the password was not changed. The page acts on the sentences of <c>WrongPassword</c>,
+    /// <c>LevelNotUnlocked</c> and <c>UserChanged</c> (<c>passwordRefusals</c> in <c>src/ui/src/api.ts</c>), so a change of them
+    /// changes it too.
+    /// </summary>
     public static string Message(PasswordChangeOutcome outcome) => outcome switch
     {
         PasswordChangeOutcome.WrongPassword => "The current password is wrong.",

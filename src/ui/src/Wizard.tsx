@@ -1,5 +1,6 @@
-import { useId, useReducer, useState, type FormEvent, type ReactNode } from 'react';
+import { useId, useReducer, useState, type FormEvent } from 'react';
 import { ApiError, messageOf, runWizard } from './api.ts';
+import { Field } from './Field.tsx';
 import { texts } from './texts.ts';
 import {
   checkWizard,
@@ -252,26 +253,6 @@ function RecoveryKey({
         </button>
       </div>
     </section>
-  );
-}
-
-function Field({
-  id,
-  label,
-  problem,
-  children,
-}: {
-  id: string;
-  label: string;
-  problem: string | undefined;
-  children: ReactNode;
-}) {
-  return (
-    <div className="field">
-      <label htmlFor={id}>{label}</label>
-      {children}
-      {problem !== undefined && <span className="field-problem">{problem}</span>}
-    </div>
   );
 }
 

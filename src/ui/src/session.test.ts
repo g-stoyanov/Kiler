@@ -84,7 +84,10 @@ describe('SessionStore', () => {
     await lastRead(reads).answer(admin);
 
     expect(reads).toHaveLength(1);
-    expect(store.getSnapshot()).toEqual({ connection: 'connected', view: { state: 'ready', session: admin } });
+    expect(store.getSnapshot()).toEqual({
+      connection: 'connected',
+      view: { state: 'ready', session: admin, locked: false },
+    });
   });
 
   it('drops the session on the "session" event, and shows the one it reads then', async () => {
@@ -98,7 +101,7 @@ describe('SessionStore', () => {
 
     expect(reads).toHaveLength(2);
     expect(snapshots.map((snapshot) => snapshot.view.state)).toEqual(['reading', 'ready', 'reading', 'ready']);
-    expect(store.getSnapshot().view).toEqual({ state: 'ready', session: guest });
+    expect(store.getSnapshot().view).toEqual({ state: 'ready', session: guest, locked: true });
   });
 
   it('drops the session when the stream stops, and reads nothing then', async () => {
@@ -126,7 +129,7 @@ describe('SessionStore', () => {
     await lastRead(reads).answer(guest);
 
     expect(reads).toHaveLength(2);
-    expect(store.getSnapshot().view).toEqual({ state: 'ready', session: guest });
+    expect(store.getSnapshot().view).toEqual({ state: 'ready', session: guest, locked: false });
   });
 
   it('cancels a read that a stop overtakes, and takes nothing from it', async () => {
@@ -152,7 +155,7 @@ describe('SessionStore', () => {
     await first.answer(admin);
 
     expect(first.signal.aborted).toBe(true);
-    expect(store.getSnapshot().view).toEqual({ state: 'ready', session: guest });
+    expect(store.getSnapshot().view).toEqual({ state: 'ready', session: guest, locked: false });
   });
 
   it('shows why the session could not be read, and reads it again for the user', async () => {
@@ -164,7 +167,7 @@ describe('SessionStore', () => {
     store.reload();
     await lastRead(reads).answer(guest);
 
-    expect(store.getSnapshot().view).toEqual({ state: 'ready', session: guest });
+    expect(store.getSnapshot().view).toEqual({ state: 'ready', session: guest, locked: false });
   });
 
   it('takes the session of an action, over a read under way', async () => {
@@ -176,7 +179,48 @@ describe('SessionStore', () => {
     await read.answer(guest);
 
     expect(read.signal.aborted).toBe(true);
-    expect(store.getSnapshot().view).toEqual({ state: 'ready', session: admin });
+    expect(store.getSnapshot().view).toEqual({ state: 'ready', session: admin, locked: false });
+  });
+
+  it('marks a session without a sign-in after one with it as locked, until the next sign-in', async () => {
+    const { store, reads } = newStore();
+    store.connectionChanged('connected');
+    await lastRead(reads).answer(guest);
+    expect(store.getSnapshot().view).toEqual({ state: 'ready', session: guest, locked: false });
+
+    store.set(admin);
+    store.set(guest);
+    expect(store.getSnapshot().view).toEqual({ state: 'ready', session: guest, locked: true });
+    store.reload();
+    await lastRead(reads).answer(guest);
+    expect(store.getSnapshot().view).toEqual({ state: 'ready', session: guest, locked: true });
+
+    store.set(admin);
+    expect(store.getSnapshot().view).toEqual({ state: 'ready', session: admin, locked: false });
+  });
+
+  it('takes no session as seen from a read that a later one replaced', async () => {
+    const { store, reads } = newStore();
+    store.connectionChanged('connected');
+    const first = lastRead(reads);
+
+    store.sessionChanged();
+    await first.answer(admin);
+    await lastRead(reads).answer(guest);
+
+    expect(store.getSnapshot().view).toEqual({ state: 'ready', session: guest, locked: false });
+  });
+
+  it('forgets the session it has seen on a stop of the page, so a new start is no lock', async () => {
+    const { store, reads } = newStore();
+    store.connectionChanged('connected');
+    await lastRead(reads).answer(admin);
+
+    store.stop();
+    store.connectionChanged('connected');
+    await lastRead(reads).answer(guest);
+
+    expect(store.getSnapshot().view).toEqual({ state: 'ready', session: guest, locked: false });
   });
 
   it('goes back to the start on a stop of the page, so the next connect reads again', async () => {

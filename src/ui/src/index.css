@@ -12,6 +12,7 @@
   --color-border: light-dark(#d9dde5, #343944);
   --color-accent: light-dark(#2f6fdb, #6b9cf0);
   --color-ok: light-dark(#1f7a45, #5cc98a);
+  --color-ok-surface: light-dark(#e6f4ec, #17301f);
   --color-danger: light-dark(#b42318, #ff8a80);
   --color-danger-surface: light-dark(#fdecea, #3a1d1b);
   --color-warning: light-dark(#8a5a00, #f2c26b);
@@ -139,6 +140,11 @@ body {
 .banner-warning {
   color: var(--color-warning);
   background: var(--color-warning-surface);
+}
+
+.banner-ok {
+  color: var(--color-ok);
+  background: var(--color-ok-surface);
 }
 
 .card .banner {

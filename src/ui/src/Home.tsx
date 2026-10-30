@@ -1,18 +1,21 @@
 import { useEffect, useState } from 'react';
-import { Navigate } from 'react-router';
 import { getHealth, messageOf, type Health, type Session } from './api.ts';
 import { texts } from './texts.ts';
 
-/** The start page of a signed-in user or a guest; the records come in M5 and M6. Without either, the sign-in. */
-export function Home({ session }: { session: Session }) {
+/**
+ * The start page of a signed-in user or a guest (the routes send a page with neither to the sign-in); the records come
+ * in M5 and M6. After a lock in guest mode, it shows the guest and says so.
+ */
+export function Home({ session, locked }: { session: Session; locked: boolean }) {
   const health = useHealth();
-  if (!session.signedIn && !session.guestMode) {
-    return <Navigate to="/sign-in" replace />;
-  }
-
   return (
     <section className="card stack">
       <h1>{texts.home.title}</h1>
+      {locked && (
+        <p className="banner banner-warning" role="status">
+          {texts.home.locked}
+        </p>
+      )}
       <p>{session.signedIn ? texts.home.signedIn(session.displayName ?? '') : texts.home.guest}</p>
       {session.signedIn && <p>{texts.home.levels(session.levels.join(', '))}</p>}
       {session.canEdit && <p>{texts.home.editor}</p>}

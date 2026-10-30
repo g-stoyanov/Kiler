@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ApiError,
+  changePassword,
   getData,
   getHealth,
   getJson,
@@ -193,6 +194,19 @@ describe('the session', () => {
     expect(path).toBe('/api/session');
     expect(init).toMatchObject({ method: 'DELETE', body: undefined });
     expect(init?.headers).toEqual({ Accept: 'application/json' });
+  });
+
+  it.each([
+    ['the forced change, with no current password', { current: null, password: 'new-password' }],
+    ['a voluntary change, with the current password', { current: 'old-password', password: 'new-password' }],
+  ])('changes the password with POST for %s, and gives the session of the answer', async (_, request) => {
+    const fetch = stubFetch(() => json(session));
+
+    expect(await changePassword(request)).toEqual(session);
+
+    const [path, init] = fetch.mock.calls[0] ?? [];
+    expect(path).toBe('/api/session/password');
+    expect(init).toMatchObject({ method: 'POST', body: JSON.stringify(request) });
   });
 
   it.each([

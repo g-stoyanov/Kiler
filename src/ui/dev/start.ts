@@ -3,25 +3,25 @@
 // Ctrl+C), the dev server stops too.
 //
 // `npm run dev -- --no-browser` opens no browser and prints the address with the token instead, as Kiler does.
+// `npm run dev -- --account <name>` gives Kiler the account whose user file it signs in to, for a second user.
 import { spawn } from 'node:child_process';
 import path from 'node:path';
-import { startKiler } from './kiler.ts';
+import { parseDevArgs, startKiler } from './kiler.ts';
 import { devServerAddress, startDevServer, uiFolder } from './vite-server.ts';
 
-const args = process.argv.slice(2);
-const unknown = args.filter((arg) => arg !== '--no-browser');
-if (unknown.length > 0) {
-  console.error(`Unknown parameter: ${unknown.join(' ')}. The only one is --no-browser.`);
+const args = parseDevArgs(process.argv.slice(2));
+if ('error' in args) {
+  console.error(args.error);
   process.exit(2);
 }
 
-const noBrowser = args.includes('--no-browser');
+const { noBrowser, account } = args;
 const repoFolder = path.resolve(uiFolder, '..', '..');
 // Out of git (.gitignore). A data folder of its own makes this Kiler an instance of its own.
 const dataFolder = path.join(repoFolder, 'dev-data');
 
 console.log('Starting Kiler with dotnet run…');
-const kiler = await startKiler(repoFolder, dataFolder).catch((error: unknown) => {
+const kiler = await startKiler(repoFolder, dataFolder, account).catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : error);
   process.exit(1);
 });

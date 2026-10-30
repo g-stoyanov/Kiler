@@ -17,7 +17,10 @@ internal sealed record DataResponse(DataState State, string? Folder, string? Lev
 /// </summary>
 internal static class DataApi
 {
-    /// <summary>The reason of a file of the team that the local copy does not have.</summary>
+    /// <summary>
+    /// The reason of a file of the team that the local copy does not have. The page acts on it (<c>missingFile</c> in
+    /// <c>src/ui/src/api.ts</c>), so a change of it changes the page too.
+    /// </summary>
     public const string MissingFile = "The file is missing.";
 
     public static void Map(IEndpointRouteBuilder endpoints, KilerData data) =>
