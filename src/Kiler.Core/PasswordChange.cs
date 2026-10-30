@@ -12,7 +12,7 @@ namespace Kiler.Core;
 public static class PasswordChange
 {
     /// <summary>
-    /// Changes the password of <paramref name="session"/> through <paramref name="team"/> (<see cref="Team.Replace"/>), and,
+    /// Changes the password of <paramref name="session"/> through <paramref name="team"/> (<see cref="Team.Replace(UserFile, int)"/>), and,
     /// when the user file is written, clears the mark of a temporary password in the session. It refuses a user file at another
     /// version than the session knows, as the admin may have changed its level or given a new temporary password meanwhile
     /// (decided by the user in M4.5), and one with a level whose key the session does not hold, as the level did not unlock or

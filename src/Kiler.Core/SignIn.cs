@@ -57,15 +57,16 @@ public static class SignIn
             return false;
         }
 
-        var verified = Verified(unlocked, levelsFile.Model);
+        var levels = levelsFile.Model;
+        var verified = Verified(unlocked, levels);
         if (verified.Count == 0)
         {
             refusal = SignInRefusal.NoAccess;
             return false;
         }
 
-        // A file that fits its model is not damaged, so it has a version.
-        session = new Session(user, file.Version!.Value, verified);
+        // A file that fits its model is not damaged, so it has a version. A key verified only against a check, so it has one.
+        session = new Session(user, file.Version!.Value, verified, verified.Keys.ToDictionary(level => level, level => levels.Levels[level].Check!));
         refusal = default;
         return true;
     }

@@ -46,6 +46,7 @@ internal static class AccessRules
         AccessRefusal.NotSignedIn => "Sign in first.",
         AccessRefusal.MustChangePassword => "Change your temporary password first.",
         AccessRefusal.CannotEdit => "Your account cannot edit.",
+        AccessRefusal.LevelsChanged => "levels.json has changed since you signed in. Sign in again.",
         _ => "Only an admin who holds the keys of every level can do this.",
     };
 

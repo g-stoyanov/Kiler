@@ -77,15 +77,16 @@ public sealed class AccessTests
     public void Check_GivesEachNeedOnlyToWhomItMust(Caller caller, Need need, AccessRefusal? expected)
     {
         var files = caller is Caller.Guest or Caller.LockedWithGuests ? Teams.Value.Guests : Teams.Value.Closed;
+        var levels = Levels;
         using var session = caller switch
         {
             Caller.Nobody or Caller.Guest => null,
-            Caller.Locked or Caller.LockedWithGuests => SessionTests.NewSession(top: 3, canEdit: true, isAdmin: true),
-            Caller.Temporary => SessionTests.NewSession(top: 3, canEdit: true, isAdmin: true, mustChangePassword: true),
-            Caller.User => SessionTests.NewSession(top: 1),
-            Caller.Editor => SessionTests.NewSession(top: 2, canEdit: true),
-            Caller.Admin => SessionTests.NewSession(top: 3, canEdit: true, isAdmin: true),
-            _ => SessionTests.NewSession(top: 1, level: 3, canEdit: true, isAdmin: true),
+            Caller.Locked or Caller.LockedWithGuests => SessionTests.NewSession(top: 3, canEdit: true, isAdmin: true, levels: levels),
+            Caller.Temporary => SessionTests.NewSession(top: 3, canEdit: true, isAdmin: true, mustChangePassword: true, levels: levels),
+            Caller.User => SessionTests.NewSession(top: 1, levels: levels),
+            Caller.Editor => SessionTests.NewSession(top: 2, canEdit: true, levels: levels),
+            Caller.Admin => SessionTests.NewSession(top: 3, canEdit: true, isAdmin: true, levels: levels),
+            _ => SessionTests.NewSession(top: 1, level: 3, canEdit: true, isAdmin: true, levels: levels),
         };
         if (caller is Caller.Locked or Caller.LockedWithGuests)
         {
@@ -112,6 +113,20 @@ public sealed class AccessTests
 
         Assert.Equal(NotAdmin, Access.Check(Need.Admin, admin, Teams.Value.Closed));
     }
+
+    [Fact]
+    public void Check_WhereACheckOfLevelsJsonIsNotTheOneThatTheKeysOfTheAdminVerifiedAgainst_AsksForANewSignIn()
+    {
+        // As a check planted after the sign-in (M4.4 security review): the keys of the session verified against others.
+        using var admin = SessionTests.NewSession(top: 3, canEdit: true, isAdmin: true);
+        using var user = SessionTests.NewSession(top: 1);
+
+        Assert.Equal(AccessRefusal.LevelsChanged, Access.Check(Need.Admin, admin, Teams.Value.Closed));
+        Assert.Null(Access.Check(Need.Editor, admin, Teams.Value.Closed));
+        Assert.Equal(NotAdmin, Access.Check(Need.Admin, user, Teams.Value.Closed));
+    }
+
+    private static LevelsFile Levels => Teams.Value.Closed.Levels!.Model!;
 
     private static TeamFiles Team(TestKiler kiler, bool guestMode) =>
         TestKiler.Files(kiler.Levels.ToContent(), new SettingsFile(guestMode, autoLockMinutes: 30).ToContent(), []);

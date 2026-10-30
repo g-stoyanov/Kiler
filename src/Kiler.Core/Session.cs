@@ -12,6 +12,7 @@ namespace Kiler.Core;
 public sealed class Session : IDisposable
 {
     private readonly IReadOnlyDictionary<int, SecretKey> _keys;
+    private readonly IReadOnlyDictionary<int, string> _checks;
     private volatile bool _locked;
 
     /// <summary>Kept for the two below, which a change of password changes together (M4.5a).</summary>
@@ -22,7 +23,8 @@ public sealed class Session : IDisposable
     /// <param name="user">The user file of the sign-in.</param>
     /// <param name="userVersion">The version of the user file.</param>
     /// <param name="keys">The keys that verified, by level from 1; the session owns them.</param>
-    internal Session(UserFile user, int userVersion, IReadOnlyDictionary<int, SecretKey> keys)
+    /// <param name="checks">The check of <c>levels.json</c> that each key verified against, by level (M4.6).</param>
+    internal Session(UserFile user, int userVersion, IReadOnlyDictionary<int, SecretKey> keys, IReadOnlyDictionary<int, string> checks)
     {
         Account = user.Account;
         DisplayName = user.DisplayName;
@@ -31,6 +33,7 @@ public sealed class Session : IDisposable
         _userVersion = userVersion;
         _mustChangePassword = user.MustChangePassword;
         _keys = keys;
+        _checks = checks;
         Levels = [0, .. keys.Keys.Order()];
     }
 
@@ -82,6 +85,17 @@ public sealed class Session : IDisposable
     public bool Reads(int level) => level == 0 || _keys.ContainsKey(level);
 
     /// <summary>
+    /// Whether the session holds the key of every level of <paramref name="levels"/>, each verified at the sign-in against the
+    /// check that <paramref name="levels"/> has now (ordinal). A check planted after the sign-in, which a key of the session
+    /// would not verify, is not written back by an admin action under the admin's name (M4.6, the M4.4 security review).
+    /// </summary>
+    public bool HoldsEvery(LevelsFile levels)
+    {
+        ArgumentNullException.ThrowIfNull(levels);
+        return Enumerable.Range(1, levels.Top).All(level => _checks.TryGetValue(level, out var check) && string.Equals(check, levels.Levels[level].Check, StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// Runs <paramref name="use"/> with the key of <paramref name="level"/>, which it must not keep. A lock before it or
     /// during it is <see cref="SessionLockedException"/>: a use of the key under way ends first (M3.1).
     /// </summary>
@@ -116,22 +130,23 @@ public sealed class Session : IDisposable
     /// for a change of password (M4.5a). PBKDF2 runs once. A lock before or during it is <see cref="SessionLockedException"/>, as for <see cref="Use"/>.
     /// </summary>
     /// <exception cref="SessionLockedException">The session is locked.</exception>
-    internal LockedKeys LockKeys(ReadOnlySpan<char> password)
+    internal LockedKeys LockKeys(ReadOnlySpan<char> password) => Lock(_keys, password);
+
+    /// <summary>
+    /// The keys of the levels 1 to <paramref name="top"/> locked with <paramref name="password"/>, for an admin action that
+    /// gives them to a user with a temporary password (M4.6, design 7.6). PBKDF2 runs once. A lock before or during it is
+    /// <see cref="SessionLockedException"/>, as for <see cref="Use"/>.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">The session has no key of a level up to <paramref name="top"/>; the caller checks <see cref="HoldsEvery"/>.</exception>
+    /// <exception cref="SessionLockedException">The session is locked.</exception>
+    internal LockedKeys LockKeys(int top, ReadOnlySpan<char> password)
     {
-        if (_locked)
+        if (!Enumerable.Range(1, top).All(_keys.ContainsKey))
         {
-            throw new SessionLockedException();
+            throw new ArgumentOutOfRangeException(nameof(top), top, "The session has no key of a level up to it.");
         }
 
-        try
-        {
-            return LevelKeys.Lock(_keys, password);
-        }
-        // As in Use: Dispose sets the mark before it disposes a key.
-        catch (ObjectDisposedException) when (_locked)
-        {
-            throw new SessionLockedException();
-        }
+        return Lock(_keys.Where(key => key.Key <= top).ToDictionary(), password);
     }
 
     /// <summary>A change of password wrote the user file at <paramref name="userVersion"/>: the password is no longer a temporary one.</summary>
@@ -141,6 +156,24 @@ public sealed class Session : IDisposable
         {
             _userVersion = userVersion;
             _mustChangePassword = false;
+        }
+    }
+
+    private LockedKeys Lock(IReadOnlyDictionary<int, SecretKey> keys, ReadOnlySpan<char> password)
+    {
+        if (_locked)
+        {
+            throw new SessionLockedException();
+        }
+
+        try
+        {
+            return LevelKeys.Lock(keys, password);
+        }
+        // As in Use: Dispose sets the mark before it disposes a key.
+        catch (ObjectDisposedException) when (_locked)
+        {
+            throw new SessionLockedException();
         }
     }
 

@@ -10,7 +10,8 @@ namespace Kiler.Core;
 /// (<see cref="Reload"/>, core.md, "Calling the layer"). What it has is one <see cref="TeamFiles"/>, never changed, which
 /// each update replaces whole, so a request reads it without a lock and finds the files of one moment. The updates come on
 /// the thread of the watch; they keep a lock of their own, so one from a request too (M4.3) never interleaves with them. A
-/// write of this Kiler goes through the team (<see cref="Replace"/>, M4.5a), as no load gives it.
+/// write of this Kiler goes through the team (<see cref="Replace(UserFile, int)"/>, M4.5a; <see cref="Create"/> and
+/// <see cref="Replace(LevelsFile, int)"/>, M4.6), as no load gives it.
 /// </summary>
 public sealed class Team
 {
@@ -19,7 +20,7 @@ public sealed class Team
     private volatile TeamFiles _files;
 
     /// <summary>
-    /// The versions that this Kiler wrote (<see cref="Replace"/>) since the team last followed a load, by key; kept under the
+    /// The versions that this Kiler wrote (<see cref="TakeWritten"/>) since the team last followed a load, by key; kept under the
     /// lock. The watch raises a load after it has let go of the copy, so the next load that the team follows may have ended
     /// before the write: <see cref="Follow"/> takes no older version of these from it (core.md, "The team"). The loads after it
     /// started after the write, as the watch runs one load at a time and raises its events before the next.
@@ -93,25 +94,28 @@ public sealed class Team
     public WriteResult Replace(UserFile user, int version)
     {
         ArgumentNullException.ThrowIfNull(user);
-        var written = _copy.Replace(user.Key, version, user.ToContent());
-        if (written.Outcome != WriteOutcome.Written)
-        {
-            return written;
-        }
+        return TakeWritten(user.Key, _copy.Replace(user.Key, version, user.ToContent()), (files, written) => WithUser(files, user, written));
+    }
 
-        lock (_gate)
-        {
-            var files = _files;
-            var newer = files.Users.TryGetValue(user.Account, out var had) && had.Version > written.Version;
-            if (!newer)
-            {
-                _files = new TeamFiles(files.Levels, files.Settings, files.Users.SetItem(user.Account, TeamFile<UserFile>.Written(written.Version, user)));
-            }
+    /// <summary>Creates the user file of a new user through the copy (M4.6), and takes it into <see cref="Files"/>, as <see cref="Replace(UserFile, int)"/> does.</summary>
+    /// <exception cref="IOException">The share could not be reached before a load said so (core.md, "Calling the layer").</exception>
+    /// <exception cref="UnauthorizedAccessException">The share refused the write before a load said so.</exception>
+    public WriteResult Create(UserFile user)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        return TakeWritten(user.Key, _copy.Create(user.Key, user.ToContent()), (files, written) => WithUser(files, user, written));
+    }
 
-            _written[user.Key] = written.Version;
-        }
-
-        return written;
+    /// <summary>Replaces the version <paramref name="version"/> of <c>levels.json</c> through the copy (M4.6), as <see cref="Replace(UserFile, int)"/> does a user file.</summary>
+    /// <exception cref="IOException">The share could not be reached before a load said so (core.md, "Calling the layer").</exception>
+    /// <exception cref="UnauthorizedAccessException">The share refused the write before a load said so.</exception>
+    public WriteResult Replace(LevelsFile levels, int version)
+    {
+        ArgumentNullException.ThrowIfNull(levels);
+        return TakeWritten(
+            LevelsFile.Key,
+            _copy.Replace(LevelsFile.Key, version, levels.ToContent()),
+            (files, written) => files.Levels?.Version > written ? null : new TeamFiles(TeamFile<LevelsFile>.Written(written, levels), files.Settings, files.Users));
     }
 
     /// <summary>
@@ -126,6 +130,35 @@ public sealed class Team
             _files = Read(_copy.Documents());
         }
     }
+
+    /// <summary>
+    /// Takes a write of this Kiler into <see cref="Files"/> under the lock, when it is written: <paramref name="put"/> gives the
+    /// files with it at its new version, or <c>null</c> when a load has brought in a newer version meanwhile, which stays.
+    /// </summary>
+    private WriteResult TakeWritten(DocumentKey key, WriteResult written, Func<TeamFiles, int, TeamFiles?> put)
+    {
+        if (written.Outcome != WriteOutcome.Written)
+        {
+            return written;
+        }
+
+        lock (_gate)
+        {
+            if (put(_files, written.Version) is { } files)
+            {
+                _files = files;
+            }
+
+            _written[key] = written.Version;
+        }
+
+        return written;
+    }
+
+    private static TeamFiles? WithUser(TeamFiles files, UserFile user, int version) =>
+        files.Users.TryGetValue(user.Account, out var had) && had.Version > version
+            ? null
+            : new TeamFiles(files.Levels, files.Settings, files.Users.SetItem(user.Account, TeamFile<UserFile>.Written(version, user)));
 
     private static TeamFiles Read(IReadOnlyList<LoadedDocument> documents)
     {
@@ -219,7 +252,7 @@ public sealed class TeamFile<T>
     [MemberNotNullWhen(false, nameof(Invalid))]
     public bool IsValid => Model is not null;
 
-    /// <summary>A model that this Kiler wrote at <paramref name="version"/> (<see cref="Team.Replace"/>).</summary>
+    /// <summary>A model that this Kiler wrote at <paramref name="version"/> (<see cref="Team.Replace(UserFile, int)"/>).</summary>
     internal static TeamFile<T> Written(int version, T model) => new(version, model, null);
 
     internal static TeamFile<T> Of(DocumentRead read, TryRead tryRead)

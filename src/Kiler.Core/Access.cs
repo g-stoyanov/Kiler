@@ -15,7 +15,10 @@ public enum Need
     /// <summary>A session whose user file has <c>canEdit</c>.</summary>
     Editor,
 
-    /// <summary>A session whose user file has <c>isAdmin</c>, and which holds the key of every level of <c>levels.json</c>.</summary>
+    /// <summary>
+    /// A session whose user file has <c>isAdmin</c>, and which holds the key of every level of <c>levels.json</c>, verified at
+    /// the sign-in against the checks that it has now (<see cref="Session.HoldsEvery"/>, M4.6).
+    /// </summary>
     Admin,
 }
 
@@ -33,6 +36,12 @@ public enum AccessRefusal
 
     /// <summary>The session is not an admin, or does not hold the key of every level.</summary>
     NotAdmin,
+
+    /// <summary>
+    /// An admin whose keys verified at the sign-in against other checks than <c>levels.json</c> has now (M4.6): the session
+    /// signs in again, so no admin action writes a check planted meanwhile back under the admin's name.
+    /// </summary>
+    LevelsChanged,
 }
 
 /// <summary>
@@ -73,9 +82,9 @@ public static class Access
         {
             Need.Reader => null,
             Need.Editor => session.CanEdit ? null : AccessRefusal.CannotEdit,
-            Need.Admin => session.IsAdmin && files?.Levels?.Model is { } levels && Enumerable.Range(1, levels.Top).All(session.Reads)
-                ? null
-                : AccessRefusal.NotAdmin,
+            Need.Admin => !session.IsAdmin || files?.Levels?.Model is not { } levels || !Enumerable.Range(1, levels.Top).All(session.Reads)
+                ? AccessRefusal.NotAdmin
+                : session.HoldsEvery(levels) ? null : AccessRefusal.LevelsChanged,
             _ => throw new ArgumentOutOfRangeException(nameof(need), need, "An endpoint needs one of the values of Need."),
         };
     }

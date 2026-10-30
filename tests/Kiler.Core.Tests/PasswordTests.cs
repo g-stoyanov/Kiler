@@ -25,4 +25,16 @@ public class PasswordTests
         Assert.Single(LevelKeys.Lock(keys, new string('p', Password.MaxLength)).Keys);
         Assert.Throws<ArgumentException>(() => LevelKeys.Lock(keys, new string('p', Password.MaxLength + 1)));
     }
+
+    [Fact]
+    public void ATemporaryPassword_Is16CharactersOfLowercaseCrockfordBase32_NewEachTime()
+    {
+        var first = Password.NewTemporary();
+        var second = Password.NewTemporary();
+
+        // Compared with Assert.True, as it is a password (SKILL.md, "Tests").
+        Assert.True(first.Length == 16 && first.All("0123456789abcdefghjkmnpqrstvwxyz".Contains), "The temporary password is not 16 characters of the alphabet.");
+        Assert.True(Password.Invalid(first) is null, "The temporary password is not a password.");
+        Assert.True(first != second, "Two temporary passwords are the same.");
+    }
 }

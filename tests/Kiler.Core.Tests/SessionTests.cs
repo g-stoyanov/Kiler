@@ -145,11 +145,16 @@ public sealed class SessionTests
         Assert.Equal(0, changes);
     }
 
-    /// <summary>A session with new keys of the levels 1 to <paramref name="top"/>, without PBKDF2.</summary>
-    internal static Session NewSession(int top, int level = -1, bool canEdit = false, bool isAdmin = false, bool mustChangePassword = false)
+    /// <summary>
+    /// A session with new keys of the levels 1 to <paramref name="top"/>, without PBKDF2, which verified against the checks of
+    /// <paramref name="levels"/> (M4.6), or against made-up ones without it.
+    /// </summary>
+    internal static Session NewSession(int top, int level = -1, bool canEdit = false, bool isAdmin = false, bool mustChangePassword = false, LevelsFile? levels = null)
     {
         level = level < 0 ? top : level;
         var user = new UserFile("demo.user", "Demo User", level, canEdit, isAdmin, mustChangePassword, new LockedKeys("salt", new Dictionary<int, string>()));
-        return new Session(user, userVersion: 1, Enumerable.Range(1, top).ToDictionary(key => key, _ => SecretKey.New()));
+        var keys = Enumerable.Range(1, top).ToDictionary(key => key, _ => SecretKey.New());
+        var checks = keys.Keys.ToDictionary(key => key, key => levels is not null && key <= levels.Top ? levels.Levels[key].Check! : $"made-up check {key}");
+        return new Session(user, userVersion: 1, keys, checks);
     }
 }
