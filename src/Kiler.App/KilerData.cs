@@ -110,7 +110,7 @@ internal sealed partial class KilerData : IDisposable
         }
     }
 
-    /// <summary>The levels, the settings and the users of the local copy, with it; null when <see cref="Copy"/> is.</summary>
+    /// <summary>The levels, the settings, the users and the templates of the local copy, with it; null when <see cref="Copy"/> is.</summary>
     public Team? Team
     {
         get
@@ -441,7 +441,7 @@ internal sealed partial class KilerData : IDisposable
         }
         catch (Exception ex)
         {
-            SayError($"The levels, the settings and the users could not be read from the local copy: {ex}");
+            SayError($"The levels, the settings, the users and the templates could not be read from the local copy: {ex}");
         }
     }
 

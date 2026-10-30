@@ -114,6 +114,7 @@ Part of the `kiler-dotnet` skill. Read it with [SKILL.md](SKILL.md) when a task 
 ## The API of the records (M5)
 
 - The endpoints of the templates, stashes and records follow the contract in `docs/api.md` (M5.1): each one's `Need`, request, answer and refusals, the shapes and the rights of delete and restore. A change of the API goes there first, then into the code and `api.ts`.
+- `TemplatesApi` (M5.2) gives `GET /api/templates` and `GET /api/levels` from `KilerData.Files`, 409 with `SessionApi.NoData` without them or without a `levels.json` that fits. `LevelsResponse` is the answer of `GET /api/levels` and of the admin's screen of the levels alike (`AdminApi`).
 
 ## Automatic lock (M4.5b)
 

@@ -17,6 +17,7 @@ namespace Kiler.Core;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(LevelsJson))]
 [JsonSerializable(typeof(SettingsJson))]
+[JsonSerializable(typeof(TemplateJson))]
 [JsonSerializable(typeof(UserJson))]
 internal sealed partial class CoreJsonContext : JsonSerializerContext;
 
@@ -75,6 +76,45 @@ internal sealed class SettingsJson
     public bool? GuestMode { get; init; }
 
     public int? AutoLockMinutes { get; init; }
+}
+
+internal sealed class TemplateJson
+{
+    public string? Name { get; init; }
+
+    public string? Icon { get; init; }
+
+    public List<TemplateFieldJson?>? Fields { get; init; }
+}
+
+/// <summary>A field of a template (design 6.2 to 6.5), its settings in the order of the examples of the design.</summary>
+internal sealed class TemplateFieldJson
+{
+    public string? Key { get; init; }
+
+    public string? Label { get; init; }
+
+    public string? Type { get; init; }
+
+    public List<string?>? Options { get; init; }
+
+    public string? Language { get; init; }
+
+    public string? Dialect { get; init; }
+
+    public List<string?>? Languages { get; init; }
+
+    public string? RefTemplate { get; init; }
+
+    public int? Level { get; init; }
+
+    public Dictionary<string, int?>? LevelByEnv { get; init; }
+
+    public bool? Required { get; init; }
+
+    public bool? Filter { get; init; }
+
+    public bool? List { get; init; }
 }
 
 internal sealed class UserJson

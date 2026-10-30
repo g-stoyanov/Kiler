@@ -52,13 +52,6 @@ internal sealed record AdminUserResponse(AdminUser User, string? TemporaryPasswo
     public override string ToString() => nameof(AdminUserResponse);
 }
 
-/// <param name="Level">The number of the level.</param>
-/// <param name="Name">Its name.</param>
-internal sealed record AdminLevel(int Level, string Name);
-
-/// <param name="Levels">The levels 0 to the top level of <c>levels.json</c>.</param>
-internal sealed record AdminLevelsResponse(IReadOnlyList<AdminLevel> Levels);
-
 /// <summary>
 /// <c>/api/admin</c> (M4.6, step 7 of M4 without the seal): the list of users with the marks and the warning, a new user, a
 /// new temporary password with the level that the admin gives (a change of level, or a forgotten password), the editor and admin
@@ -115,9 +108,9 @@ internal static class AdminApi
         return TypedResults.Ok(new AdminUsersResponse(users, AdminActions.FewAdmins(files)));
     }
 
-    private static Results<Ok<AdminLevelsResponse>, Conflict<ErrorResponse>> Levels(KilerData data) =>
+    private static Results<Ok<LevelsResponse>, Conflict<ErrorResponse>> Levels(KilerData data) =>
         data.Files?.Levels?.Model is { } levels
-            ? TypedResults.Ok(Describe(levels))
+            ? TypedResults.Ok(LevelsResponse.Of(levels))
             : TypedResults.Conflict(new ErrorResponse(SessionApi.NoData));
 
     private static Results<Ok<AdminUserResponse>, BadRequest<ErrorResponse>, Conflict<ErrorResponse>, JsonHttpResult<ErrorResponse>> Act(
@@ -136,7 +129,7 @@ internal static class AdminApi
         return Answer(result, () => new AdminUserResponse(Describe(result.User!), result.TemporaryPassword));
     }
 
-    private static Results<Ok<AdminLevelsResponse>, BadRequest<ErrorResponse>, Conflict<ErrorResponse>, JsonHttpResult<ErrorResponse>> Rename(
+    private static Results<Ok<LevelsResponse>, BadRequest<ErrorResponse>, Conflict<ErrorResponse>, JsonHttpResult<ErrorResponse>> Rename(
         HttpContext context, KilerData data, int level, RenameRequest request)
     {
         var admin = AccessRules.SessionOf(context) ?? throw new InvalidOperationException("The rename of a level has no session.");
@@ -148,7 +141,7 @@ internal static class AdminApi
         var result = AdminActions.RenameLevel(admin, team, level, request.Name);
 
         // A rename gives the levels when it is done.
-        return Answer(result, () => Describe(result.Levels!));
+        return Answer(result, () => LevelsResponse.Of(result.Levels!));
     }
 
     private static Results<Ok<T>, BadRequest<ErrorResponse>, Conflict<ErrorResponse>, JsonHttpResult<ErrorResponse>> Answer<T>(AdminResult result, Func<T> done) =>
@@ -164,6 +157,4 @@ internal static class AdminApi
 
     private static AdminUser Describe(UserFile user) =>
         new(user.Account, user.DisplayName, user.Level, user.CanEdit, user.IsAdmin, user.MustChangePassword, AdminActions.KeysMatchLevel(user), null);
-
-    private static AdminLevelsResponse Describe(LevelsFile levels) => new([.. levels.Levels.Select(level => new AdminLevel(level.Level, level.Name))]);
 }

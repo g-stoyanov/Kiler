@@ -5,7 +5,7 @@ using Kiler.Storage;
 namespace Kiler.Core;
 
 /// <summary>
-/// The levels, the settings and the users of the local copy, in memory (M4.2): made when the copy opens, it follows each load
+/// The levels, the settings, the users and the templates (M5.2) of the local copy, in memory (M4.2): made when the copy opens, it follows each load
 /// of the watch (<see cref="Follow"/>) and reads the copy again after a load that failed or a change of offline
 /// (<see cref="Reload"/>, core.md, "Calling the layer"). What it has is one <see cref="TeamFiles"/>, never changed, which
 /// each update replaces whole, so a request reads it without a lock and finds the files of one moment. The updates come on
@@ -48,6 +48,7 @@ public sealed class Team
             var levels = files.Levels;
             var settings = files.Settings;
             var users = files.Users;
+            var templates = files.Templates;
             foreach (var key in load.Gone)
             {
                 if (key == LevelsFile.Key)
@@ -62,6 +63,10 @@ public sealed class Team
                 {
                     users = users.Remove(key.Id);
                 }
+                else if (IsTemplate(key))
+                {
+                    templates = templates.Remove(key.Id);
+                }
             }
 
             foreach (var loaded in load.Changed)
@@ -72,13 +77,13 @@ public sealed class Team
                     continue;
                 }
 
-                Take(loaded, ref levels, ref settings, ref users);
+                Take(loaded, ref levels, ref settings, ref users, ref templates);
             }
 
             _written.Clear();
-            if (levels != files.Levels || settings != files.Settings || users != files.Users)
+            if (levels != files.Levels || settings != files.Settings || users != files.Users || templates != files.Templates)
             {
-                _files = new TeamFiles(levels, settings, users);
+                _files = new TeamFiles(levels, settings, users, templates);
             }
         }
     }
@@ -115,7 +120,9 @@ public sealed class Team
         return TakeWritten(
             LevelsFile.Key,
             _copy.Replace(LevelsFile.Key, version, levels.ToContent()),
-            (files, written) => files.Levels?.Version > written ? null : new TeamFiles(TeamFile<LevelsFile>.Written(written, levels), files.Settings, files.Users));
+            (files, written) => files.Levels?.Version > written
+                ? null
+                : new TeamFiles(TeamFile<LevelsFile>.Written(written, levels), files.Settings, files.Users, files.Templates));
     }
 
     /// <summary>
@@ -158,26 +165,28 @@ public sealed class Team
     private static TeamFiles? WithUser(TeamFiles files, UserFile user, int version) =>
         files.Users.TryGetValue(user.Account, out var had) && had.Version > version
             ? null
-            : new TeamFiles(files.Levels, files.Settings, files.Users.SetItem(user.Account, TeamFile<UserFile>.Written(version, user)));
+            : new TeamFiles(files.Levels, files.Settings, files.Users.SetItem(user.Account, TeamFile<UserFile>.Written(version, user)), files.Templates);
 
     private static TeamFiles Read(IReadOnlyList<LoadedDocument> documents)
     {
         TeamFile<LevelsFile>? levels = null;
         TeamFile<SettingsFile>? settings = null;
         var users = TeamFiles.Empty.Users;
+        var templates = TeamFiles.Empty.Templates;
         foreach (var loaded in documents)
         {
-            Take(loaded, ref levels, ref settings, ref users);
+            Take(loaded, ref levels, ref settings, ref users, ref templates);
         }
 
-        return new TeamFiles(levels, settings, users);
+        return new TeamFiles(levels, settings, users, templates);
     }
 
     private static void Take(
         LoadedDocument loaded,
         ref TeamFile<LevelsFile>? levels,
         ref TeamFile<SettingsFile>? settings,
-        ref ImmutableSortedDictionary<string, TeamFile<UserFile>> users)
+        ref ImmutableSortedDictionary<string, TeamFile<UserFile>> users,
+        ref ImmutableSortedDictionary<string, TeamFile<TemplateFile>> templates)
     {
         var key = loaded.Key;
         if (key == LevelsFile.Key)
@@ -192,10 +201,17 @@ public sealed class Team
         {
             users = users.SetItem(key.Id, TeamFile<UserFile>.Of(loaded.Read, UserFile.TryRead));
         }
+        else if (IsTemplate(key))
+        {
+            templates = templates.SetItem(key.Id, TeamFile<TemplateFile>.Of(loaded.Read, TemplateFile.TryRead));
+        }
     }
 
     /// <summary>A document of <c>users\</c> of the data folder, not of a private folder.</summary>
     private static bool IsUser(DocumentKey key) => key.Account is null && key.Folder == DataFolder.Users;
+
+    /// <summary>A document of <c>templates\</c> of the data folder.</summary>
+    private static bool IsTemplate(DocumentKey key) => key.Account is null && key.Folder == DataFolder.Templates;
 }
 
 /// <summary>
@@ -204,14 +220,23 @@ public sealed class Team
 /// </summary>
 public sealed class TeamFiles
 {
-    internal TeamFiles(TeamFile<LevelsFile>? levels, TeamFile<SettingsFile>? settings, ImmutableSortedDictionary<string, TeamFile<UserFile>> users)
+    internal TeamFiles(
+        TeamFile<LevelsFile>? levels,
+        TeamFile<SettingsFile>? settings,
+        ImmutableSortedDictionary<string, TeamFile<UserFile>> users,
+        ImmutableSortedDictionary<string, TeamFile<TemplateFile>> templates)
     {
         Levels = levels;
         Settings = settings;
         Users = users;
+        Templates = templates;
     }
 
-    public static TeamFiles Empty { get; } = new(null, null, ImmutableSortedDictionary.Create<string, TeamFile<UserFile>>(StringComparer.Ordinal));
+    public static TeamFiles Empty { get; } = new(
+        null,
+        null,
+        ImmutableSortedDictionary.Create<string, TeamFile<UserFile>>(StringComparer.Ordinal),
+        ImmutableSortedDictionary.Create<string, TeamFile<TemplateFile>>(StringComparer.Ordinal));
 
     /// <summary><c>levels.json</c>; <c>null</c> when the copy does not have it.</summary>
     public TeamFile<LevelsFile>? Levels { get; }
@@ -221,6 +246,9 @@ public sealed class TeamFiles
 
     /// <summary>The user files of <c>users\</c>, by account, in the order of the accounts.</summary>
     public ImmutableSortedDictionary<string, TeamFile<UserFile>> Users { get; }
+
+    /// <summary>The templates of <c>templates\</c> (M5.2), by id, in the order of the ids; read only until the exam (decided at the start of M5).</summary>
+    public ImmutableSortedDictionary<string, TeamFile<TemplateFile>> Templates { get; }
 }
 
 /// <summary>

@@ -67,6 +67,8 @@ public sealed partial class WizardApiTests : IDisposable
             Assert.Equal(45, Valid(files.Settings).AutoLockMinutes);
             Assert.Equal([Account], files.Users.Keys);
             Assert.True(Valid(files.Users[Account]).IsAdmin, "The first user is not an admin.");
+            Assert.Equal(["db", "link", "note", "sql"], files.Templates.Keys);
+            Assert.All(files.Templates.Values, file => Assert.True(file.IsValid, file.Invalid));
             Assert.False((await client.GetStringAsync("/api/data", Cancel)).Contains(recoveryKey, StringComparison.Ordinal), "The state of the data gives the recovery key.");
         }
 
@@ -99,6 +101,7 @@ public sealed partial class WizardApiTests : IDisposable
         // No load gives what this Kiler wrote through the copy, so the team has read the copy again.
         Assert.Equal([Account], team.Files.Users.Keys);
         Assert.Equal(2, Valid(team.Files.Levels).Top);
+        Assert.Equal(["db", "link", "note", "sql"], team.Files.Templates.Keys);
         var state = Assert.IsType<JsonObject>(JsonNode.Parse(await client.GetStringAsync("/api/data", Cancel)));
         Assert.Equal("open", (string?)state["state"]);
         Assert.Null(state["levels"]);

@@ -8,17 +8,19 @@ namespace Kiler.Core;
 /// <summary>
 /// The documents of a new Kiler, which the wizard makes (M4.3, design 13, decided at the start of M4): <c>levels.json</c>, with
 /// a new key and its check for each level from 1 and the recovery set, the keys locked with a new recovery key;
-/// <c>settings.json</c>; and the user file of the first admin, the current account, with the keys locked with their password.
-/// The level keys and the recovery key live only while it is made (kiler-crypto, "Rules"): it keeps the locked documents,
-/// and the recovery key as it is shown, once, in the answer of the wizard.
+/// <c>settings.json</c>; the user file of the first admin, the current account, with the keys locked with their password; and
+/// the four initial templates (M5.2, <see cref="InitialTemplates"/>). The level keys and the recovery key live only while it
+/// is made (kiler-crypto, "Rules"): it keeps the locked documents, and the recovery key as it is shown, once, in the answer of
+/// the wizard.
 /// </summary>
 public sealed class NewKiler
 {
-    private NewKiler(LevelsFile levels, SettingsFile settings, UserFile admin, string recoveryKey)
+    private NewKiler(LevelsFile levels, SettingsFile settings, UserFile admin, IReadOnlyList<TemplateFile> templates, string recoveryKey)
     {
         Levels = levels;
         Settings = settings;
         Admin = admin;
+        Templates = templates;
         RecoveryKey = recoveryKey;
     }
 
@@ -28,6 +30,9 @@ public sealed class NewKiler
 
     /// <summary>The user file of the first admin: the top level, an editor and an admin, with the password that they chose, not a temporary one.</summary>
     public UserFile Admin { get; }
+
+    /// <summary>The initial templates, with no level above the top level (<see cref="InitialTemplates.For"/>).</summary>
+    public IReadOnlyList<TemplateFile> Templates { get; }
 
     /// <summary>
     /// The recovery key as it is shown (<see cref="Crypto.RecoveryKey.ToDisplayString"/>): for the answer of the wizard only,
@@ -86,7 +91,7 @@ public sealed class NewKiler
             using var recoveryKey = Crypto.RecoveryKey.New();
             var levels = new LevelsFile(entries, LevelKeys.Lock(keys, recoveryKey));
             var admin = new UserFile(account, displayName, top, canEdit: true, isAdmin: true, mustChangePassword: false, LevelKeys.Lock(keys, password));
-            return new(levels, new SettingsFile(guestMode, autoLockMinutes), admin, recoveryKey.ToDisplayString());
+            return new(levels, new SettingsFile(guestMode, autoLockMinutes), admin, InitialTemplates.For(top), recoveryKey.ToDisplayString());
         }
         finally
         {
@@ -100,8 +105,9 @@ public sealed class NewKiler
     /// <summary>
     /// Writes the documents through <paramref name="copy"/> (core.md, "Calling the layer"): <c>levels.json</c> first, as a
     /// create, so of two wizards at once the second meets it and writes nothing (decided at the start of M4); then
-    /// <c>settings.json</c> and the user file of the admin. It stops at the first document that is not written, and repeats
-    /// none. Whether the data folder may become a new Kiler is the caller's check (<see cref="DataFolder.Create"/>).
+    /// <c>settings.json</c>, the templates and, last, the user file of the admin, so a Kiler that its admin signs in to has
+    /// every document. It stops at the first document that is not written, and repeats none. Whether the data folder may
+    /// become a new Kiler is the caller's check (<see cref="DataFolder.Create"/>).
     /// </summary>
     public NewKilerWrite Write(DataCopy copy)
     {
@@ -118,8 +124,14 @@ public sealed class NewKiler
                 notLevels);
         }
 
-        var failure = Create(copy, SettingsFile.Key, Settings.ToContent(), "settings.json", out _)
-            ?? Create(copy, Admin.Key, Admin.ToContent(), "The user file of the admin", out _);
+        var failure = Create(copy, SettingsFile.Key, Settings.ToContent(), "settings.json", out _);
+        foreach (var template in Templates)
+        {
+            failure ??= Create(copy, template.Key, template.ToContent(), $"The template {template.Id}", out _);
+        }
+
+        // The admin last, so a Kiler that someone signs in to is whole; nothing writes a template until the exam (code review).
+        failure ??= Create(copy, Admin.Key, Admin.ToContent(), "The user file of the admin", out _);
         return failure is null ? new(NewKilerOutcome.Made, null) : new(NewKilerOutcome.Partial, failure);
     }
 
@@ -160,7 +172,7 @@ public sealed class NewKiler
 /// <summary>How the writes of the wizard ended (<see cref="NewKiler.Write"/>).</summary>
 public enum NewKilerOutcome
 {
-    /// <summary>The three documents are written.</summary>
+    /// <summary>Every document is written.</summary>
     Made,
 
     /// <summary><c>levels.json</c> is there: another wizard was first. Nothing was written.</summary>
@@ -173,8 +185,8 @@ public enum NewKilerOutcome
     NotWritten,
 
     /// <summary>
-    /// <c>levels.json</c> was written, but <c>settings.json</c> or the user file of the admin was not, so the Kiler has no
-    /// admin, or no settings. Nothing removes it: the data folder is deleted, and the wizard runs again.
+    /// <c>levels.json</c> was written, but <c>settings.json</c>, the user file of the admin or a template was not, so the Kiler
+    /// has no admin, no settings or not every template. Nothing removes it: the data folder is deleted, and the wizard runs again.
     /// </summary>
     Partial,
 }

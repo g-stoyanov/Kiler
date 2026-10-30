@@ -55,6 +55,12 @@ public sealed class NewKilerTests : IDisposable
         var admin = Valid(files.Users[Account]);
         Assert.Equal(("Demo Admin", 2, true, true, false), (admin.DisplayName, admin.Level, admin.CanEdit, admin.IsAdmin, admin.MustChangePassword));
 
+        // The four initial templates (M5.2), with no level above the top level, 2.
+        var initial = InitialTemplates.For(2).ToDictionary(template => template.Id, template => template.ToContent().ToJsonString());
+        Assert.Equal(["db", "link", "note", "sql"], files.Templates.Keys);
+        Assert.All(files.Templates, pair => Assert.Equal(initial[pair.Key], Valid(pair.Value).ToContent().ToJsonString()));
+        Assert.Equal(2, Assert.Single(Valid(files.Templates["db"]).Fields, field => field.Key == "password").LevelByEnv?["prod"]);
+
         // Both sets verify against the same checks, so they hold the same keys.
         AssertEveryLevelVerifies(levels, LevelKeys.Unlock(admin.Keys, DemoPassword));
         Assert.True(RecoveryKey.TryParse(kiler.RecoveryKey, out var recoveryKey), "The recovery key is not in the form that is shown.");
@@ -114,6 +120,24 @@ public sealed class NewKilerTests : IDisposable
         Assert.NotNull(files.Levels);
         Assert.Equal(30, Valid(files.Settings).AutoLockMinutes);
         Assert.Empty(files.Users);
+        Assert.Empty(files.Templates);
+    }
+
+    [Fact]
+    public void Write_WhenATemplateCannotBeWritten_StopsThere_AndIsPartial()
+    {
+        Assert.Equal(WriteOutcome.Written, _data.OpenCopy().Create(TemplateFile.KeyOf("link"), new TemplateFile("link", "Other", "link", [new("url", "Address", FieldType.Url, level: 0)]).ToContent()).Outcome);
+        var kiler = NewKiler.Make(Account, Names, "Demo Admin", DemoPassword, guestMode: true, autoLockMinutes: 45);
+
+        var written = kiler.Write(_data.Copy);
+
+        Assert.Equal(new NewKilerWrite(NewKilerOutcome.Partial, "The template link was not written, as it is there already."), written);
+        var files = Load();
+
+        // The admin comes last, so no one signs in to a Kiler without every template.
+        Assert.Empty(files.Users);
+        Assert.Equal(["db", "link", "sql"], files.Templates.Keys);
+        Assert.Equal("Other", Valid(files.Templates["link"]).Name);
     }
 
     [Theory]

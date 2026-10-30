@@ -166,7 +166,7 @@ An item of `GET /api/records/{id}/history`:
 ```
 
 - The members are those of design 6.2 to 6.5. `required`, `filter` and `list` are `false` when the file leaves them out. `level` is `null` when the field has only `levelByEnv`. The settings that do not belong to the type of the field are `null`.
-- A template that does not fit is not used (`core.md`, "Models"). Besides the rules of M5.2, it does not fit when a `secret` is below level 1 (design 7.1: passwords are at level 1 or higher) or has `list` or `filter`.
+- A template that does not fit is not used (`core.md`, "Models"). Besides the rules of M5.2 (`core.md`, "Templates, stashes and records"), it does not fit when a `secret` is below level 1 (design 7.1: passwords are at level 1 or higher) or has `list` or `filter`.
 
 ### Conflict
 

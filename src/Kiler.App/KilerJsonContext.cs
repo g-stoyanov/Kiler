@@ -5,7 +5,6 @@ namespace Kiler.App;
 
 /// <summary>JSON with source generation, because Native AOT has no reflection-based serialization.</summary>
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
-[JsonSerializable(typeof(AdminLevelsResponse))]
 [JsonSerializable(typeof(AdminUserResponse))]
 [JsonSerializable(typeof(AdminUsersResponse))]
 [JsonSerializable(typeof(DataResponse))]
@@ -13,6 +12,7 @@ namespace Kiler.App;
 [JsonSerializable(typeof(HealthResponse))]
 [JsonSerializable(typeof(InstanceFileContent))]
 [JsonSerializable(typeof(LevelRequest))]
+[JsonSerializable(typeof(LevelsResponse))]
 [JsonSerializable(typeof(NewUserRequest))]
 [JsonSerializable(typeof(PasswordRequest))]
 [JsonSerializable(typeof(RenameRequest))]
@@ -20,6 +20,7 @@ namespace Kiler.App;
 [JsonSerializable(typeof(SessionResponse))]
 [JsonSerializable(typeof(ShareFileContent))]
 [JsonSerializable(typeof(SignInRequest))]
+[JsonSerializable(typeof(TemplatesResponse))]
 [JsonSerializable(typeof(WizardRequest))]
 [JsonSerializable(typeof(WizardResponse))]
 internal sealed partial class KilerJsonContext : JsonSerializerContext;

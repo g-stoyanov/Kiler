@@ -4,7 +4,7 @@ using Kiler.Storage;
 
 namespace Kiler.Core.Tests;
 
-/// <summary>The levels, the settings and the users of the local copy in memory (M4.2), following its loads.</summary>
+/// <summary>The levels, the settings, the users (M4.2) and the templates (M5.2) of the local copy in memory, following its loads.</summary>
 public sealed class TeamTests : IDisposable
 {
     private readonly TestData _data = new();
@@ -144,6 +144,41 @@ public sealed class TeamTests : IDisposable
     }
 
     [Fact]
+    public void ANewTeam_ReadsTheTemplates_ThatFitAndThatDoNot()
+    {
+        Write(TemplateFile.KeyOf("note"), Note("Note").ToContent());
+        Write(TemplateFile.KeyOf("bad"), new JsonObject { ["name"] = "Bad" });
+
+        var files = new Team(_data.Copy).Files;
+
+        Assert.Equal(["bad", "note"], files.Templates.Keys);
+        Assert.Equal("Note", Valid(files.Templates["note"]).Name);
+        Assert.Equal(("icon is missing.", 1), (files.Templates["bad"].Invalid, files.Templates["bad"].Version));
+    }
+
+    [Fact]
+    public void Follow_TakesATemplate_New_Changed_Damaged_AndGone()
+    {
+        Write(TemplateFile.KeyOf("note"), Note("Note").ToContent());
+        Write(TemplateFile.KeyOf("link"), Note("Link").ToContent());
+        var (copy, team) = Follower();
+        Write(TemplateFile.KeyOf("new"), Note("New").ToContent());
+        Assert.Equal(WriteOutcome.Written, _data.Copy.Replace(TemplateFile.KeyOf("note"), 1, Note("Renamed").ToContent()).Outcome);
+        Assert.Equal(WriteOutcome.Deleted, _data.Copy.Delete(TemplateFile.KeyOf("link"), 1).Outcome);
+
+        team.Follow(copy.Load());
+
+        Assert.Equal(["new", "note"], team.Files.Templates.Keys);
+        Assert.Equal("New", Valid(team.Files.Templates["new"]).Name);
+        Assert.Equal(("Renamed", 2), (Valid(team.Files.Templates["note"]).Name, team.Files.Templates["note"].Version));
+
+        File.WriteAllText(Path.Combine(_data.Folder, DataFolder.Templates, "note.json"), "Not JSON.");
+        team.Follow(copy.Load());
+
+        Assert.Equal(("The file is not valid JSON.", null), (team.Files.Templates["note"].Invalid, team.Files.Templates["note"].Version));
+    }
+
+    [Fact]
     public void Reload_ReadsTheCopyAgain_WithWhatNoLoadGaveTheTeam()
     {
         var (copy, team) = Follower();
@@ -226,6 +261,8 @@ public sealed class TeamTests : IDisposable
 
     private static UserFile User(string account, string displayName) =>
         new(account, displayName, level: 1, canEdit: true, isAdmin: false, mustChangePassword: false, new LockedKeys("salt", new Dictionary<int, string> { [1] = "locked-1" }));
+
+    private static TemplateFile Note(string name) => new("note", name, "note", [new("text", "Text", FieldType.Markdown, level: 1)]);
 
     private static T Valid<T>(TeamFile<T>? file)
         where T : class

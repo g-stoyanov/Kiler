@@ -24,6 +24,12 @@ public sealed class DemoKilerTests(DemoKilerTests.Made made) : IClassFixture<Dem
         Assert.Equal((true, 30), (settings.GuestMode, settings.AutoLockMinutes));
         Assert.Equal(DemoKiler.Users.Select(user => user.Account).Order(StringComparer.Ordinal), files.Users.Keys);
         Assert.All(files.Users.Values, file => Assert.True(file.IsValid, file.Invalid));
+
+        // The initial templates come with the wizard (M5.2), at the levels of the demo, 0 to 3.
+        Assert.Equal(["db", "link", "note", "sql"], files.Templates.Keys);
+        Assert.All(files.Templates.Values, file => Assert.True(file.IsValid, file.Invalid));
+        var password = Assert.Single(Assert.IsType<TemplateFile>(files.Templates["db"].Model).Fields, field => field.Key == "password");
+        Assert.Equal(3, password.LevelByEnv?["prod"]);
     }
 
     [Theory]
