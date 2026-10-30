@@ -51,7 +51,8 @@ internal static class KilerHost
         builder.Services.AddSingleton(services => new Heartbeat(services.GetRequiredService<IHostApplicationLifetime>(), times, time));
         builder.Services.AddSingleton(data);
         builder.Services.AddSingleton(account);
-        var sessions = new CurrentSession();
+        // The data makes it, as its records follow it (M5.6).
+        var sessions = data.Sessions;
         builder.Services.AddSingleton(sessions);
         var autoLock = new AutoLock(sessions, () => data.Files, time);
 
@@ -80,6 +81,7 @@ internal static class KilerHost
         PasswordApi.Map(app, sessions, data, account);
         AdminApi.Map(app, data);
         TemplatesApi.Map(app, data);
+        RecordsApi.Map(app, data);
         EventsApi.Map(app, heartbeat, sessions, times.PingInterval, time, app.Lifetime.ApplicationStopping);
         return app;
     }

@@ -13,6 +13,7 @@ namespace Kiler.App;
 [JsonSerializable(typeof(InstanceFileContent))]
 [JsonSerializable(typeof(LevelRequest))]
 [JsonSerializable(typeof(LevelsResponse))]
+[JsonSerializable(typeof(RecordsResponse))]
 [JsonSerializable(typeof(NewUserRequest))]
 [JsonSerializable(typeof(PasswordRequest))]
 [JsonSerializable(typeof(RenameRequest))]

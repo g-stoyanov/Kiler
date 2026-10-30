@@ -81,6 +81,7 @@ The types are those of design 6.4.
 | `secret` | never (`kind` is `secret`) | a string |
 
 - In a request, `null` and `""` are no value, and neither is a code whose `code` is `""` (M5.4).
+- In an answer, a value keeps the shape that it was written in, so a template changed after its records can give another shape than its type says, such as a number of a `text` or a `code` without `language`. A `ref` is the object above whenever its template says `ref` and the value is a text (M5.6).
 - In the file, a `secret` is `{ "secret": "<value>" }` in its group (decided by the user in M5.3, design 5.2). The group is encrypted and authenticated, so Kiler knows the field is a `secret` also when the template on the share, which anyone can write, gives it another type: a field is a `secret` when its template says so or its group marks it.
 - Anyone can write the share, so the page opens a `url` only when it is `http` or `https`, also one that Kiler did not check.
 
@@ -103,7 +104,7 @@ An item of `GET /api/records`:
 }
 ```
 
-`fields` are the fields of the template with `list`, in the order of the template. A `secret` is never there, whatever its `list`.
+`fields` are the fields of the template with `list`, in the order of the template, each as in a record ("Field", "Values by type"): a `code` and a `ref` too, and a long value whole, which the page shortens (decided in M5.6). A `secret` is never there, whatever its `list`.
 
 ### Record
 
@@ -233,13 +234,17 @@ The levels 0 to the top level of `levels.json`, for the names in the form (the r
 
 ### `GET /api/records`
 
-The query, every part optional; without any, every record that the session reads:
+The query, every part optional, and a part that is empty counts as left out; without any, every record that the session reads:
 
-- `q`: the search text. A record matches when its search text has every word, without regard to case, in Cyrillic and in Latin; the words are split at white space (design 11);
+- `q`: the search text. A record matches when its search text has every word, without regard to case, in Cyrillic and in Latin; the words are split at white space (design 11). The search text of a record is its name, its description, its tags, the names of the stashes of its path, and the text of each field that the session reads, never a `secret`;
 - `stash`: the path of the chosen node, 1 to 4 ids joined by commas. A record matches when its path starts with it;
 - `template`: the id of a template;
 - `tag`: a tag, repeated for each one, such as `tag=payments&tag=reports`. A record matches when it has every one, without regard to case (design 8.1);
-- `field.<key>`: a value of a field with `filter`, one per key, such as `field.env=prod`. A record matches when its template has the field and the session reads that value in it, without regard to case.
+- `field.<key>`: a value of a field with `filter`, one per key, such as `field.env=prod`. A record matches when its template has the field with `filter`, and the text of the value that the session reads in it is that one, without regard to case.
+
+The text of a value, for the search, the filters and the facets (decided in M5.6): a text as it is, a number as JSON writes it, the code of a `code` without its language, and the name of the record of a `ref`, which has none when that record has gone. So a `doc`, a `markdown` and a `code` with `filter` count by their whole text, and a `ref` by the name that the page shows.
+
+A record whose file does not fit (M5.3) is in neither the list, the tree nor the facets, as it has no name or path to show (decided in M5.6). A record whose template is missing or does not fit is there with its header ("Record"): the search reads its name, description, tags and stashes, and no `field.<key>` matches it.
 
 The answer:
 
@@ -255,10 +260,10 @@ The answer:
 }
 ```
 
-- `records`: list items of the records that match everything, by name without regard to case.
-- `tree`: the nodes of the paths of the records that match everything but `stash`, so the tree keeps every branch with results while a node is chosen (design 6.6). `count` counts those records at the node and under it, and a node without any is not there. The nodes are by name; `name` is `null` for a stash that cannot be read.
-- `facets`: each counts the records that match `q`, `stash` and every filter but its own, so each choice shows how many records it gives. `templates` counts without `template`, and each key of `fields` without its own `field.<key>`. `tags` counts with the tags chosen, as a record has every one. `fields` holds the fields with `filter` of the templates, by key, never a `secret`. A value is its text (a number as JSON writes it), and only values that the session reads count.
-- 400: a `stash` that is not 1 to 4 ids.
+- `records`: list items of every record that matches everything, without paging, by name without regard to case.
+- `tree`: the nodes of the paths of the records that match everything but `stash`, so the tree keeps every branch with results while a node is chosen (design 6.6). `count` counts those records at the node and under it, and a node without any is not there. The nodes are by name without regard to case, a stash that cannot be read last; `name` is `null` for it.
+- `facets`: each counts the records that match `q`, `stash` and every filter but its own, so each choice shows how many records it gives. `templates` counts without `template`, and each key of `fields` without its own `field.<key>`. `tags` counts with the tags chosen, as a record has every one. `fields` holds the fields with `filter` of the templates, by key, never a `secret`. A value is its text, and only values that the session reads count. The templates are by id, and the tags and the values by their text without regard to case; a tag or a value written in several cases counts once, in one of them.
+- 400: a `stash` that is not 1 to 4 ids, and a part other than `tag` given more than once.
 
 ### `GET /api/records/{id}`
 

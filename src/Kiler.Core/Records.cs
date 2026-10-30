@@ -168,7 +168,18 @@ public sealed class Records : IDisposable
         }
     }
 
-    public void Dispose() => _current.Changed -= OnSessionChanged;
+    /// <summary>
+    /// Stops following the session, and drops what was decrypted, also when it is disposed before the session, whose lock at
+    /// the stop it no longer hears (M5.3 security review). A load that outlives it reads for a guest.
+    /// </summary>
+    public void Dispose()
+    {
+        _current.Changed -= OnSessionChanged;
+        lock (_gate)
+        {
+            _set = RecordSet.Empty;
+        }
+    }
 
     /// <summary>
     /// A sign-in reads the records for the new session, and a lock for a guest, which drops what was decrypted (core.md,
@@ -275,6 +286,8 @@ public sealed class Records : IDisposable
 /// </summary>
 public sealed class RecordSet
 {
+    private SearchIndex? _index;
+
     internal RecordSet(
         Session? session,
         ImmutableSortedDictionary<string, TeamFile<StashFile>> stashes,
@@ -298,4 +311,13 @@ public sealed class RecordSet
 
     /// <summary>The shared records of <c>records\</c>, by id, each as <see cref="Session"/> reads it.</summary>
     public ImmutableSortedDictionary<string, RecordView> Records { get; }
+
+    /// <summary>What the search reads of the records, made at the first search of this set (M5.6, <see cref="RecordSearch"/>).</summary>
+    internal SearchIndex Index => LazyInitializer.EnsureInitialized(ref _index, () => new SearchIndex(this));
+
+    /// <summary>The name of the stash <paramref name="id"/>; null when it is missing or does not fit.</summary>
+    public string? StashName(string id) => Stashes.GetValueOrDefault(id)?.Model?.Name;
+
+    /// <summary>The name of the record <paramref name="id"/>, at level 0 for every reader, as of a <c>ref</c>; null when it has gone or does not fit.</summary>
+    public string? RecordName(string id) => Records.GetValueOrDefault(id)?.File.Model?.Name;
 }

@@ -34,6 +34,7 @@ internal sealed partial class KilerData
             var place = _place;
             DataCopy? copy;
             Team? team;
+            Records? records;
             lock (_gate)
             {
                 var now = RefusalNow();
@@ -46,6 +47,7 @@ internal sealed partial class KilerData
 
                 copy = _copy;
                 team = _team;
+                records = _records;
 
                 // As at the start, the open lets the copy go meanwhile, not Dispose, and the state is opening until its first
                 // load has ended.
@@ -81,7 +83,7 @@ internal sealed partial class KilerData
                 written = notWritten is null ? documents : null;
             }
 
-            if (copy is not null && team is not null)
+            if (copy is not null && team is not null && records is not null)
             {
                 // Before the check of the data folder, which would make one that has gone again; the copy writes through the
                 // one that it opened.
@@ -89,6 +91,7 @@ internal sealed partial class KilerData
                 {
                     Create(copy);
                     Update(team.Reload);
+                    Update(records.Reload);
                 }
             }
             else

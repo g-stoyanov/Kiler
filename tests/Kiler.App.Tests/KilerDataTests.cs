@@ -315,6 +315,34 @@ public sealed class KilerDataTests : IDisposable
         Assert.Empty(_errors.Lines);
     }
 
+    [Fact]
+    public async Task TheRecords_FollowTheLoads_AndTheDispose_DropsThem()
+    {
+        var made = MadeUp();
+        made.Create(StashFile.KeyOf("a1b2c3d4"), Stash("a1b2c3d4", "Payments"));
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        using var data = NewData(clock);
+        data.Start();
+        await data.Started.WaitAsync(Quick, Cancel);
+
+        // A new local copy has nothing before its first load, so the records have what the loads gave them (M5.6).
+        var records = Assert.IsType<Records>(data.Records);
+        Assert.Equal(["a1b2c3d4"], records.Read(null).Stashes.Keys);
+
+        made.Create(StashFile.KeyOf("e5f6g7h8"), Stash("e5f6g7h8", "Prod"));
+        clock.Advance(DataWatch.Interval);
+        await _output.WaitForLineAsync($"{FirstLoad}1 new or changed, 0 gone, 0 changed outside Kiler, 0 skipped.", Quick);
+        Assert.Equal(["a1b2c3d4", "e5f6g7h8"], records.Read(null).Stashes.Keys);
+
+        // After the server has stopped, as in Program.
+        data.Dispose();
+        Assert.Empty(records.Read(null).Stashes);
+        Assert.Empty(_errors.Lines);
+    }
+
+    private static JsonObject Stash(string id, string name) =>
+        new StashFile(id, name, new Authorship("demo.admin", new DateTime(2026, 10, 30, 8, 0, 0, DateTimeKind.Utc), "demo.admin", new DateTime(2026, 10, 30, 8, 0, 0, DateTimeKind.Utc))).ToContent();
+
     private static JsonObject User(string account) =>
         new UserFile(account, "Demo User", level: 1, canEdit: false, isAdmin: false, mustChangePassword: false, new LockedKeys("salt", new Dictionary<int, string> { [1] = "locked-1" })).ToContent();
 

@@ -7,7 +7,8 @@ namespace Kiler.App;
 
 /// <summary>
 /// The data of a running Kiler (M2.10): the data folder of the start (<see cref="DataPlace"/>), its local copy in the profile,
-/// the watch of the share (<see cref="DataWatch"/>), and the team that follows it (<see cref="Core.Team"/>, M4.2). It opens
+/// the watch of the share (<see cref="DataWatch"/>), and the team and the records that follow it (<see cref="Core.Team"/>,
+/// M4.2; <see cref="Core.Records"/>, M5.6). It opens
 /// once the server listens, on a task of its own, as the first look at a share that cannot be reached can block for long
 /// (M2.8a) and the page should not wait for it; the watch stops on <c>ApplicationStopping</c> (<see cref="KilerHost"/>), and
 /// the copy is let go with <see cref="Dispose"/>, after the server has stopped. It is always in DI (M4.2), also when no data
@@ -52,6 +53,7 @@ internal sealed partial class KilerData : IDisposable
     private FileStream? _lock;
     private DataCopy? _copy;
     private Team? _team;
+    private Records? _records;
     private DataWatch? _watch;
     private DataState _state;
 
@@ -139,6 +141,27 @@ internal sealed partial class KilerData : IDisposable
     }
 
     /// <summary>
+    /// The stashes and the records of the local copy in memory (M5.6, <see cref="Core.Records"/>), when <see cref="Files"/>
+    /// are there; null otherwise. A request reads them once, with the session that it read once.
+    /// </summary>
+    public Records? Records
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _state is DataState.Open or DataState.Offline ? _records : null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The session of this Kiler (M4.4), which the host puts in DI and locks at the stop. It is made here, as the records in
+    /// memory follow it from the open of the copy on (M5.6).
+    /// </summary>
+    public CurrentSession Sessions { get; } = new();
+
+    /// <summary>
     /// Completes when the start of the data has ended: the first load of the watch has ended, offline or failed too, or Kiler
     /// runs without data, or stops before. It never fails.
     /// </summary>
@@ -210,14 +233,19 @@ internal sealed partial class KilerData : IDisposable
         }
 
         Stop(stopped ? TimeSpan.Zero : KilerHost.ShutdownTimeout);
+        Records? records;
         lock (_gate)
         {
             _disposed = true;
+            records = _records;
             if (!_opening && _watchEnded == true)
             {
                 LetGo();
             }
         }
+
+        // Drops what was decrypted, after the server has stopped (core.md, "Templates, stashes and records").
+        records?.Dispose();
     }
 
     private static bool IsSharingViolation(IOException ex) => (ex.HResult & 0xFFFF) == SharingViolation;
@@ -308,20 +336,23 @@ internal sealed partial class KilerData : IDisposable
         }
 
         var team = new Team(copy);
+        var records = new Records(copy, team, Sessions);
         var watch = new DataWatch(copy, _time);
-        watch.Loaded += (_, load) => OnLoaded(team, load);
-        watch.Failed += (_, failure) => OnFailed(copy, team, failure);
-        watch.OfflineChanged += (_, change) => OnOfflineChanged(team, change);
+        watch.Loaded += (_, load) => OnLoaded(team, records, load);
+        watch.Failed += (_, failure) => OnFailed(copy, team, records, failure);
+        watch.OfflineChanged += (_, change) => OnOfflineChanged(team, records, change);
         Say($"Kiler opens the data folder {place.DataFolder}, with its local copy in {place.CopyFolder}.");
         lock (_gate)
         {
             if (_stopping)
             {
+                records.Dispose();
                 return false;
             }
 
             _copy = copy;
             _team = team;
+            _records = records;
             _watch = watch;
             watch.Start();
             return true;
@@ -377,11 +408,14 @@ internal sealed partial class KilerData : IDisposable
 
     // Each handler takes the change into the team, then says its line and the state, before the start ends, so whoever waits
     // for it finds them.
-    private void OnLoaded(Team team, LoadResult load)
+    private void OnLoaded(Team team, Records records, LoadResult load)
     {
         var first = !_heard;
         _heard = true;
+
+        // The records after the team, whose templates they read (core.md).
         Update(() => team.Follow(load));
+        Update(() => records.Follow(load));
 
         // A load that changed nothing is not said, and neither are the skipped entries that every load repeats (M2.8).
         var skipped = load.Skipped.Count + load.MoreSkipped;
@@ -406,12 +440,13 @@ internal sealed partial class KilerData : IDisposable
         _started.TrySetResult();
     }
 
-    private void OnFailed(DataCopy copy, Team team, Exception failure)
+    private void OnFailed(DataCopy copy, Team team, Records records, Exception failure)
     {
         _heard = true;
 
         // What the load took before it threw is in the copy, and no later load gives it (core.md).
         Update(team.Reload);
+        Update(records.Reload);
 
         // A fault of the code, so the whole exception, with where it was thrown.
         SayError($"A load of the data folder failed: {failure}");
@@ -419,12 +454,13 @@ internal sealed partial class KilerData : IDisposable
         _started.TrySetResult();
     }
 
-    private void OnOfflineChanged(Team team, OfflineChange change)
+    private void OnOfflineChanged(Team team, Records records, OfflineChange change)
     {
         _heard = true;
 
         // As after a failed load: a load that went offline may have taken documents first (core.md).
         Update(team.Reload);
+        Update(records.Reload);
         Say(change.Offline
             ? $"The data folder cannot be reached, so Kiler works from its local copy: {change.Cause?.Message}"
             : "The data folder can be reached again.");
@@ -432,7 +468,7 @@ internal sealed partial class KilerData : IDisposable
         _started.TrySetResult();
     }
 
-    /// <summary>Runs an update of the team on the thread of the watch, whose handlers never throw (M2.8): a fault of the code is said, and the watch goes on.</summary>
+    /// <summary>Runs an update of the team or the records on the thread of the watch, whose handlers never throw (M2.8): a fault of the code is said, and the watch goes on.</summary>
     private void Update(Action update)
     {
         try
@@ -441,7 +477,7 @@ internal sealed partial class KilerData : IDisposable
         }
         catch (Exception ex)
         {
-            SayError($"The levels, the settings, the users and the templates could not be read from the local copy: {ex}");
+            SayError($"The team or the records could not be read from the local copy: {ex}");
         }
     }
 
