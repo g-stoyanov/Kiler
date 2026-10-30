@@ -6,6 +6,11 @@ function newEvents(): KilerEvents {
   return new KilerEvents((url) => new FakeEventSource(url) as unknown as EventSource);
 }
 
+/** The states that a page got from the hub, without its other messages. */
+function states(port: FakePort): ConnectionState[] {
+  return port.received.flatMap((message) => (message.type === 'state' ? [message.state] : []));
+}
+
 beforeEach(() => {
   FakeEventSource.created = [];
 });
@@ -103,6 +108,35 @@ describe('KilerEvents', () => {
 
     expect(states).toEqual(['connecting', 'connected']);
   });
+
+  it('tells a listener of each "session" event, until it unsubscribes', () => {
+    const events = newEvents();
+    let sessions = 0;
+    const unsubscribe = events.onSession(() => sessions++);
+    events.start();
+    lastSource().emit('ping');
+
+    lastSource().emit('session');
+    lastSource().emit('session');
+    unsubscribe();
+    lastSource().emit('session');
+
+    expect(sessions).toBe(2);
+  });
+
+  it('tells nothing of a "session" event of a stream that has stopped', () => {
+    const events = newEvents();
+    let sessions = 0;
+    events.onSession(() => sessions++);
+    events.start();
+    const stopped = lastSource();
+    stopped.emit('error');
+    events.start();
+
+    stopped.emit('session');
+
+    expect(sessions).toBe(0);
+  });
 });
 
 describe('createEventsHub', () => {
@@ -130,8 +164,8 @@ describe('createEventsHub', () => {
     lastSource().emit('error');
 
     expect(FakeEventSource.created).toHaveLength(1);
-    expect(first.received.map((message) => message.state)).toEqual(['connecting', 'connected', 'stopped']);
-    expect(second.received.map((message) => message.state)).toEqual(['connected', 'stopped']);
+    expect(states(first)).toEqual(['connecting', 'connected', 'stopped']);
+    expect(states(second)).toEqual(['connected', 'stopped']);
   });
 
   it('sends nothing more to a page that said bye', () => {
@@ -141,8 +175,25 @@ describe('createEventsHub', () => {
 
     page.deliver({ type: 'bye' } satisfies PageMessage);
     lastSource().emit('open');
+    lastSource().emit('session');
 
     expect(page.received).toEqual([{ type: 'state', state: 'connecting' }]);
+  });
+
+  it('sends each "session" event to every page', () => {
+    const hub = createEventsHub(newEvents());
+    const first = new FakePort();
+    const second = new FakePort();
+    hub.connect(first);
+    hub.connect(second);
+    lastSource().emit('ping');
+
+    lastSource().emit('session');
+
+    for (const page of [first, second]) {
+      expect(page.received.at(-1)).toEqual({ type: 'session' });
+      expect(page.received.filter((message) => message.type === 'session')).toHaveLength(1);
+    }
   });
 
   it('opens a new stream for a page that loads after a stop, and tells the open pages', () => {
@@ -155,7 +206,7 @@ describe('createEventsHub', () => {
     hub.connect(fresh);
 
     expect(FakeEventSource.created).toHaveLength(2);
-    expect(old.received.map((message) => message.state)).toEqual(['connecting', 'stopped', 'connecting']);
+    expect(states(old)).toEqual(['connecting', 'stopped', 'connecting']);
     expect(fresh.received).toEqual([{ type: 'state', state: 'connecting' }]);
   });
 });

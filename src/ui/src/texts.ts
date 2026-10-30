@@ -16,8 +16,98 @@ export const texts = {
     stopped: 'Stopped',
     stoppedMessage: 'Kiler has stopped. Start Kiler again to go on.',
   },
+  account: {
+    guest: 'Guest',
+    signIn: 'Sign in',
+    lock: 'Lock',
+    lockFailed: 'Kiler did not lock. Try again.',
+  },
+  session: {
+    reading: 'Reading the session…',
+    tryAgain: 'Try again',
+  },
+  data: {
+    reading: 'Asking Kiler about its data…',
+    folder: (folder: string) => `Data folder: ${folder}`,
+    noFolder:
+      'No data folder has been chosen. Start Kiler from the shared folder, or give it the data folder with --data.',
+    opening:
+      'The data folder is opening. When its file server does not answer, this takes about 40 seconds, and then Kiler works from its local copy.',
+    unusable:
+      'The data folder cannot be used: it is a link, or a file has its name. The console of Kiler says which. Start Kiler with another data folder.',
+    inUse:
+      'Another Kiler of this Windows account has the local copy of this data folder open. Use that Kiler, or close it and start this one again.',
+    indexUnreadable: 'The index of the local copy cannot be read now. Start Kiler again.',
+    failed: 'The local copy cannot be made or locked. The console of Kiler says why.',
+    offline:
+      'The shared folder cannot be reached. Kiler shows its local copy, and nothing can be saved until the folder is back.',
+    offlineNew:
+      'The shared folder cannot be reached, and this computer has no copy of its data yet. Kiler opens it once the folder is back.',
+    levels: (reason: string) => `levels.json: ${reason}`,
+    settings: (reason: string) => `settings.json: ${reason}`,
+    levelsDamaged:
+      'No one can sign in, as Kiler cannot check the keys without levels.json. An admin restores it from its history.',
+    settingsDamaged:
+      'Kiler uses its defaults: no guest mode, and the lock after 30 minutes. An admin restores the file.',
+    halfMade:
+      'When an admin can sign in, an admin restores the file from its history. Only when the wizard has just stopped halfway and no one can sign in: stop Kiler, delete the new data folder and its local copy, and start Kiler again for the wizard.',
+  },
+  wizard: {
+    title: 'New Kiler',
+    intro:
+      'This data folder has no Kiler yet. Set its levels and the first admin, who is you, the current Windows account. Kiler makes a key for each level from 1.',
+    levels: 'Levels',
+    levelsHint:
+      'Level 0 is not encrypted: anyone who can open the data folder reads it. A user of a level reads every level up to it. The top level is the admin’s.',
+    levelName: (level: number) => `Name of level ${level}`,
+    addLevel: 'Add a level',
+    removeLevel: 'Remove the top level',
+    admin: 'The first admin',
+    displayName: 'Display name',
+    password: 'Password',
+    repeat: 'Password again',
+    settings: 'Settings',
+    guestMode: 'Guest mode: anyone who starts Kiler reads level 0 without signing in',
+    autoLockMinutes: 'Lock after this many minutes without activity',
+    make: 'Make the new Kiler',
+    making: 'Making the keys…',
+    problems: {
+      levelCount: 'There are 2 to 10 levels: 0 and a top level from 1 to 9.',
+      levelBlank: 'A level needs a name.',
+      levelLong: 'A name has at most 40 characters.',
+      levelTwice: 'Another level has this name.',
+      displayNameBlank: 'The admin needs a display name.',
+      displayNameLong: 'A display name has at most 100 characters.',
+      password: 'A password has 8 to 1024 characters.',
+      repeat: 'The two passwords differ.',
+      autoLockMinutes: 'Whole minutes from 1 to 1440.',
+    },
+    keyTitle: 'The recovery key',
+    keyIntro:
+      'Kiler shows this key only now. It restores admin access when every admin is gone. Without it, if the only admin forgets the password, the data of the top level is lost for good.',
+    keyKeep:
+      'Keep it outside Kiler: in a sealed envelope in a safe, or in the company password manager. Add a second admin soon.',
+    copy: 'Copy',
+    copied: 'Copied',
+    copyFailed: 'The browser did not copy it. Select the key and copy it by hand.',
+    saved: 'I have saved the recovery key outside Kiler',
+    continue: 'Continue to the sign-in',
+  },
+  signIn: {
+    title: 'Sign in',
+    account: (account: string) => `Windows account: ${account}`,
+    noAccount: 'The name of this Windows account cannot be the name of a Kiler account, so it cannot sign in.',
+    password: 'Password',
+    submit: 'Sign in',
+    signingIn: 'Signing in…',
+  },
   home: {
-    title: 'Kiler server',
+    title: 'Kiler',
+    signedIn: (name: string) => `Signed in as ${name}.`,
+    guest: 'You are a guest: you read level 0 only.',
+    levels: (levels: string) => `Levels you read: ${levels}.`,
+    editor: 'You can edit.',
+    admin: 'You are an admin.',
     loading: 'Asking Kiler…',
     version: (version: string) => `Server version ${version}`,
   },

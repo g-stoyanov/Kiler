@@ -11,8 +11,11 @@
 
 export type ConnectionState = 'connecting' | 'connected' | 'stopped';
 
-/** A message from the worker to a page. Change notifications (M6) will be another type. */
-export type HubMessage = { type: 'state'; state: ConnectionState };
+/**
+ * A message from the worker to a page: the state of the stream, or its `session` event, on which the page drops what it
+ * shows and reads the session again (M4.5b). Change notifications (M6) will be another type.
+ */
+export type HubMessage = { type: 'state'; state: ConnectionState } | { type: 'session' };
 
 /** A message from a page to the worker: the page lets its port go. */
 export type PageMessage = { type: 'bye' };
@@ -20,6 +23,9 @@ export type PageMessage = { type: 'bye' };
 export const eventsPath = '/api/events';
 
 export type StateListener = (state: ConnectionState) => void;
+
+/** Called on each `session` event: a sign-in or a lock (M4.5b). The event has no data. */
+export type SessionListener = () => void;
 
 /**
  * One `EventSource` on {@link eventsPath}. On its first error it is closed for good, before the browser can
@@ -29,6 +35,7 @@ export type StateListener = (state: ConnectionState) => void;
 export class KilerEvents {
   readonly #createSource: (url: string) => EventSource;
   readonly #listeners = new Set<StateListener>();
+  readonly #sessionListeners = new Set<SessionListener>();
   #source: EventSource | undefined;
   #state: ConnectionState = 'connecting';
 
@@ -59,6 +66,13 @@ export class KilerEvents {
     };
     source.addEventListener('open', connected);
     source.addEventListener('ping', connected);
+    source.addEventListener('session', () => {
+      if (this.#source === source) {
+        for (const listener of this.#sessionListeners) {
+          listener();
+        }
+      }
+    });
     source.addEventListener('error', () => {
       // Closed in the error handler itself, so the browser does not reconnect.
       source.close();
@@ -82,6 +96,12 @@ export class KilerEvents {
     return () => this.#listeners.delete(listener);
   }
 
+  /** Calls the listener on each `session` event. Returns the function that stops the calls. */
+  onSession(listener: SessionListener): () => void {
+    this.#sessionListeners.add(listener);
+    return () => this.#sessionListeners.delete(listener);
+  }
+
   #setState(state: ConnectionState): void {
     if (state === this.#state) {
       return;
@@ -101,14 +121,16 @@ export interface PagePort {
   start(): void;
 }
 
-/** The worker side: one stream for every page that connects, and its state sent to each of them. */
+/** The worker side: one stream for every page that connects, and its state and events sent to each of them. */
 export function createEventsHub(events: KilerEvents): { connect(port: PagePort): void } {
   const ports = new Set<PagePort>();
-  events.subscribe((state) => {
+  const send = (message: HubMessage) => {
     for (const port of ports) {
-      port.postMessage({ type: 'state', state });
+      port.postMessage(message);
     }
-  });
+  };
+  events.subscribe((state) => send({ type: 'state', state }));
+  events.onSession(() => send({ type: 'session' }));
 
   return {
     connect(port) {

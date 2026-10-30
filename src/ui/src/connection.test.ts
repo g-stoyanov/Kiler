@@ -58,7 +58,10 @@ describe('connectEvents', () => {
     vi.stubGlobal('SharedWorker', FakeSharedWorker);
     const states: ConnectionState[] = [];
 
-    connectEvents((state) => states.push(state));
+    connectEvents(
+      (state) => states.push(state),
+      () => {},
+    );
     worker().port.deliver({ type: 'state', state: 'connected' } satisfies HubMessage);
 
     expect(worker().url.pathname).toMatch(/\/events-worker\.ts$/);
@@ -68,10 +71,27 @@ describe('connectEvents', () => {
     expect(states).toEqual(['connected']);
   });
 
+  it('passes the "session" event of the worker on', () => {
+    vi.stubGlobal('SharedWorker', FakeSharedWorker);
+    let sessions = 0;
+
+    connectEvents(
+      () => {},
+      () => sessions++,
+    );
+    worker().port.deliver({ type: 'state', state: 'connected' } satisfies HubMessage);
+    worker().port.deliver({ type: 'session' } satisfies HubMessage);
+
+    expect(sessions).toBe(1);
+  });
+
   it('says bye to the worker and closes its port when the page leaves', () => {
     vi.stubGlobal('SharedWorker', FakeSharedWorker);
 
-    const leave = connectEvents(() => {});
+    const leave = connectEvents(
+      () => {},
+      () => {},
+    );
     leave();
 
     expect(worker().port.sent).toEqual([{ type: 'bye' }]);
@@ -82,7 +102,10 @@ describe('connectEvents', () => {
     vi.stubGlobal('SharedWorker', FakeSharedWorker);
     const states: ConnectionState[] = [];
 
-    const leave = connectEvents((state) => states.push(state));
+    const leave = connectEvents(
+      (state) => states.push(state),
+      () => {},
+    );
     worker().fail();
     lastSource().emit('open');
     leave();
@@ -96,7 +119,10 @@ describe('connectEvents', () => {
     vi.stubGlobal('SharedWorker', FakeSharedWorker);
     const states: ConnectionState[] = [];
 
-    connectEvents((state) => states.push(state));
+    connectEvents(
+      (state) => states.push(state),
+      () => {},
+    );
     worker().fail();
     lastSource().emit('error');
     worker().fail();
@@ -109,8 +135,14 @@ describe('connectEvents', () => {
     vi.stubGlobal('SharedWorker', FakeSharedWorker);
     const states: ConnectionState[] = [];
 
-    connectEvents((state) => states.push(state))();
-    connectEvents((state) => states.push(state));
+    connectEvents(
+      (state) => states.push(state),
+      () => {},
+    )();
+    connectEvents(
+      (state) => states.push(state),
+      () => {},
+    );
     worker().port.deliver({ type: 'state', state: 'connected' } satisfies HubMessage);
 
     expect(FakeSharedWorker.created).toHaveLength(2);
@@ -123,7 +155,10 @@ describe('connectEvents', () => {
   it('opens nothing when the worker fails after the page has left', () => {
     vi.stubGlobal('SharedWorker', FakeSharedWorker);
 
-    const leave = connectEvents(() => {});
+    const leave = connectEvents(
+      () => {},
+      () => {},
+    );
     leave();
     worker().fail();
 
@@ -134,7 +169,10 @@ describe('connectEvents', () => {
     vi.stubGlobal('SharedWorker', undefined);
     const states: ConnectionState[] = [];
 
-    const leave = connectEvents((state) => states.push(state));
+    const leave = connectEvents(
+      (state) => states.push(state),
+      () => {},
+    );
     lastSource().emit('error');
     leave();
 
@@ -142,12 +180,31 @@ describe('connectEvents', () => {
     expect(states).toEqual(['connecting', 'stopped']);
   });
 
+  it('passes the "session" event of a stream of its own on, until the page leaves', () => {
+    vi.stubGlobal('SharedWorker', undefined);
+    let sessions = 0;
+
+    const leave = connectEvents(
+      () => {},
+      () => sessions++,
+    );
+    lastSource().emit('ping');
+    lastSource().emit('session');
+    leave();
+    lastSource().emit('session');
+
+    expect(sessions).toBe(1);
+  });
+
   it('holds a stream of its own when the browser refuses the worker', () => {
     vi.stubGlobal('SharedWorker', function refused() {
       throw new DOMException('Refused', 'SecurityError');
     });
 
-    connectEvents(() => {});
+    connectEvents(
+      () => {},
+      () => {},
+    );
 
     expect(FakeEventSource.created).toHaveLength(1);
   });
