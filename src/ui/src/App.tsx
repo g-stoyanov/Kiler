@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from 'react-router';
 import { lockSession, type Session } from './api.ts';
 import { ChangePassword } from './ChangePassword.tsx';
@@ -6,11 +6,13 @@ import { connectEvents } from './connection.ts';
 import { DataGate } from './DataGate.tsx';
 import type { ConnectionState } from './events.ts';
 import { Home } from './Home.tsx';
+import { Levels } from './Levels.tsx';
 import { SessionContext, SessionStore, useSessionSnapshot, useSessionStore, type SessionView } from './session.ts';
 import { SignIn } from './SignIn.tsx';
 import { signInFrom } from './signIn.ts';
 import { texts } from './texts.ts';
 import { applyThemeChoice, readThemeChoice, saveThemeChoice, themeChoices, type ThemeChoice } from './theme.ts';
+import { Users } from './Users.tsx';
 
 /** The page: the session of the event stream (session.ts), and the frame with the routes. */
 export function App() {
@@ -48,6 +50,7 @@ function Frame() {
       <header className="frame-header">
         <span className="brand">{texts.appName}</span>
         <ConnectionBadge state={connection} />
+        <AdminLinks view={view} />
         <ThemeSwitch />
         <Account view={view} onLockFailed={setLockFailed} />
       </header>
@@ -136,6 +139,20 @@ function Account({ view, onLockFailed }: { view: SessionView; onLockFailed: (fai
   ) : null;
 }
 
+/** The admin screens, for an admin who has changed the temporary password. */
+function AdminLinks({ view }: { view: SessionView }) {
+  if (view.state !== 'ready' || !view.session.isAdmin || view.session.mustChangePassword) {
+    return null;
+  }
+
+  return (
+    <nav className="admin-links">
+      <Link to="/users">{texts.admin.users}</Link>
+      <Link to="/levels">{texts.admin.levels}</Link>
+    </nav>
+  );
+}
+
 function ThemeSwitch() {
   const [themeChoice, setThemeChoice] = useState(() => readThemeChoice());
   const changeTheme = (choice: ThemeChoice) => {
@@ -215,9 +232,37 @@ function AppRoutes({ session, locked }: { session: Session; locked: boolean }) {
       <Route index element={<Home session={session} locked={locked} />} />
       <Route path="sign-in" element={<SignIn session={session} locked={locked} />} />
       <Route path="password" element={session.signedIn ? <ChangePassword session={session} /> : <ToSignIn />} />
+      <Route
+        path="users"
+        element={
+          <AdminOnly session={session}>
+            <Users session={session} />
+          </AdminOnly>
+        }
+      />
+      <Route
+        path="levels"
+        element={
+          <AdminOnly session={session}>
+            <Levels />
+          </AdminOnly>
+        }
+      />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
+}
+
+/**
+ * An admin screen (M4.9): a guest goes to the sign-in, as on `/password`, and a user who is not an admin to the start
+ * page. The server checks every request anyway, also that the admin holds every level.
+ */
+function AdminOnly({ session, children }: { session: Session; children: ReactNode }) {
+  if (!session.signedIn) {
+    return <ToSignIn />;
+  }
+
+  return session.isAdmin ? <>{children}</> : <Navigate to="/" replace />;
 }
 
 /** To the sign-in, which goes back to this address once it has a session, as after a lock. */

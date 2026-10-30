@@ -40,7 +40,10 @@ internal static class AccessRules
     /// <summary>The session that the check let through; null for a guest, and for an endpoint that needs nothing.</summary>
     public static Session? SessionOf(HttpContext context) => context.Features.Get<Session>();
 
-    /// <summary>What the page says when a request does not get what its endpoint needs.</summary>
+    /// <summary>
+    /// What the page says when a request does not get what its endpoint needs. The page acts on the sentence of
+    /// <c>LevelsChanged</c> (<c>levelsChanged</c> in <c>src/ui/src/api.ts</c>), so a change of it changes the page too.
+    /// </summary>
     public static string Message(AccessRefusal refusal) => refusal switch
     {
         AccessRefusal.NotSignedIn => "Sign in first.",

@@ -1,6 +1,7 @@
 import { useId, useReducer, useState, type FormEvent } from 'react';
 import { ApiError, messageOf, runWizard } from './api.ts';
 import { Field } from './Field.tsx';
+import { Secret } from './Secret.tsx';
 import { texts } from './texts.ts';
 import {
   checkWizard,
@@ -217,32 +218,12 @@ function RecoveryKey({
   onSaved: (saved: boolean) => void;
   onContinue: () => void;
 }) {
-  const [copy, setCopy] = useState<'none' | 'copied' | 'failed'>('none');
-  const copyKey = () => {
-    // The clipboard needs a secure context, which 127.0.0.1 is; without it, the key is copied by hand.
-    if (navigator.clipboard === undefined) {
-      setCopy('failed');
-      return;
-    }
-
-    navigator.clipboard.writeText(recoveryKey).then(
-      () => setCopy('copied'),
-      () => setCopy('failed'),
-    );
-  };
-
   return (
     <section className="card stack">
       <h1>{texts.wizard.keyTitle}</h1>
       <p>{texts.wizard.keyIntro}</p>
       <p>{texts.wizard.keyKeep}</p>
-      <div className="secret">
-        <code className="recovery-key">{recoveryKey}</code>
-        <button type="button" onClick={copyKey}>
-          {copy === 'copied' ? texts.wizard.copied : texts.wizard.copy}
-        </button>
-      </div>
-      {copy === 'failed' && <Problem text={texts.wizard.copyFailed} />}
+      <Secret value={recoveryKey} copyFailed={texts.wizard.copyFailed} />
       <label className="check">
         <input type="checkbox" checked={saved} onChange={(event) => onSaved(event.target.checked)} />
         {texts.wizard.saved}

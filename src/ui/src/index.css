@@ -247,7 +247,7 @@ button.primary {
   gap: var(--space);
 }
 
-.recovery-key {
+.secret-value {
   padding: 0.4rem 0.6rem;
   font-family: Consolas, 'Cascadia Mono', monospace;
   font-size: 1.05rem;
@@ -257,4 +257,98 @@ button.primary {
   border-radius: var(--radius);
   user-select: all;
   overflow-wrap: anywhere;
+}
+
+.admin-links {
+  display: flex;
+  gap: var(--space);
+}
+
+.admin-links a {
+  color: var(--color-accent);
+}
+
+.card.card-wide {
+  max-width: 64rem;
+}
+
+.card h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.panel {
+  padding: var(--space);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-page);
+}
+
+.table-frame {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.table th {
+  font-weight: 600;
+  color: var(--color-muted);
+}
+
+.table tr.chosen td {
+  background: var(--color-page);
+}
+
+.marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.mark {
+  padding: 0 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  font-size: 0.85rem;
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+.mark-danger {
+  color: var(--color-danger);
+  border-color: currentColor;
+  white-space: normal;
+}
+
+.level-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space);
+}
+
+.level-row .field {
+  flex: 1;
+  min-width: 14rem;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

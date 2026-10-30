@@ -1,14 +1,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  addUser,
   ApiError,
+  changeLevel,
   changePassword,
+  getAdminLevels,
+  getAdminUsers,
   getData,
   getHealth,
   getJson,
   getSession,
   lockSession,
   messageOf,
+  renameLevel,
   runWizard,
+  setRights,
   signIn,
   type Session,
 } from './api.ts';
@@ -261,6 +267,102 @@ describe('runWizard', () => {
     stubFetch(() => json({}));
 
     expect((await failure(runWizard(request))).kind).toBe('invalid');
+  });
+});
+
+describe('the admin actions', () => {
+  const user = {
+    account: 'demo.user',
+    displayName: 'Demo User',
+    level: 2,
+    canEdit: true,
+    isAdmin: false,
+    mustChangePassword: true,
+    keysMatchLevel: true,
+    invalid: null,
+  };
+  const damaged = { ...user, displayName: null, level: null, canEdit: false, invalid: 'The file is damaged.' };
+  const levels = [
+    { level: 0, name: 'Guest' },
+    { level: 1, name: 'Team' },
+  ];
+
+  it('reads the users with the warning, a file that does not fit too', async () => {
+    const fetch = stubFetch(() => json({ users: [user, damaged], fewAdmins: true }));
+
+    expect(await getAdminUsers()).toEqual({ users: [user, damaged], fewAdmins: true });
+    expect(fetch.mock.calls[0]?.[0]).toBe('/api/admin/users');
+  });
+
+  it('reads the levels', async () => {
+    const fetch = stubFetch(() => json({ levels }));
+
+    expect(await getAdminLevels()).toEqual(levels);
+    expect(fetch.mock.calls[0]?.[0]).toBe('/api/admin/levels');
+  });
+
+  it('adds a user with POST, and gives the temporary password of the answer', async () => {
+    const request = { account: 'DEMO\\Demo.User', displayName: 'Demo User', level: 2, canEdit: true };
+    const fetch = stubFetch(() => json({ user, temporaryPassword: 'a1b2c3d4e5f6g7h8' }));
+
+    expect(await addUser(request)).toEqual({ user, temporaryPassword: 'a1b2c3d4e5f6g7h8' });
+
+    const [path, init] = fetch.mock.calls[0] ?? [];
+    expect(path).toBe('/api/admin/users');
+    expect(init?.method).toBe('POST');
+    expect(JSON.parse(String(init?.body))).toEqual(request);
+  });
+
+  it('changes the level with PUT of the level, and the rights with PUT of both rights', async () => {
+    const fetch = stubFetch(() => json({ user, temporaryPassword: null }));
+
+    expect(await changeLevel('demo.user', 2)).toEqual({ user, temporaryPassword: null });
+    expect(await setRights('demo.user', { canEdit: true, isAdmin: false })).toEqual({ user, temporaryPassword: null });
+
+    const [levelPath, levelInit] = fetch.mock.calls[0] ?? [];
+    expect(levelPath).toBe('/api/admin/users/demo.user/level');
+    expect(levelInit).toMatchObject({ method: 'PUT', body: '{"level":2}' });
+    const [rightsPath, rightsInit] = fetch.mock.calls[1] ?? [];
+    expect(rightsPath).toBe('/api/admin/users/demo.user/rights');
+    expect(rightsInit).toMatchObject({ method: 'PUT', body: '{"canEdit":true,"isAdmin":false}' });
+  });
+
+  it('puts the account into the path as one segment', async () => {
+    const fetch = stubFetch(() => json({ user, temporaryPassword: null }));
+
+    await changeLevel('../levels/1', 1);
+
+    expect(fetch.mock.calls[0]?.[0]).toBe('/api/admin/users/..%2Flevels%2F1/level');
+  });
+
+  it('renames a level with PUT of the name, and gives the levels of the answer', async () => {
+    const fetch = stubFetch(() => json({ levels }));
+
+    expect(await renameLevel(1, 'Team')).toEqual(levels);
+
+    const [path, init] = fetch.mock.calls[0] ?? [];
+    expect(path).toBe('/api/admin/levels/1');
+    expect(init).toMatchObject({ method: 'PUT', body: '{"name":"Team"}' });
+  });
+
+  it.each([
+    [
+      'a user without keysMatchLevel',
+      () => getAdminUsers(),
+      { users: [{ ...user, keysMatchLevel: undefined }], fewAdmins: false },
+    ],
+    ['users without fewAdmins', () => getAdminUsers(), { users: [user] }],
+    ['a level that is not a whole number', () => getAdminLevels(), { levels: [{ level: '0', name: 'Guest' }] }],
+    [
+      'an answer without the user',
+      () => addUser({ account: 'a', displayName: 'A', level: 1, canEdit: false }),
+      { temporaryPassword: 'x' },
+    ],
+    ['an empty temporary password', () => changeLevel('demo.user', 1), { user, temporaryPassword: '' }],
+  ])('turns %s into "invalid"', async (_, request, body) => {
+    stubFetch(() => json(body));
+
+    expect((await failure(request())).kind).toBe('invalid');
   });
 });
 
