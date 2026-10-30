@@ -9,6 +9,7 @@ namespace Kiler.App;
 [JsonSerializable(typeof(ErrorResponse))]
 [JsonSerializable(typeof(HealthResponse))]
 [JsonSerializable(typeof(InstanceFileContent))]
+[JsonSerializable(typeof(PasswordRequest))]
 [JsonSerializable(typeof(SessionResponse))]
 [JsonSerializable(typeof(ShareFileContent))]
 [JsonSerializable(typeof(SignInRequest))]

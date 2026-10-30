@@ -95,6 +95,6 @@ public sealed class SessionTests
     {
         level = level < 0 ? top : level;
         var user = new UserFile("demo.user", "Demo User", level, canEdit, isAdmin, mustChangePassword, new LockedKeys("salt", new Dictionary<int, string>()));
-        return new Session(user, Enumerable.Range(1, top).ToDictionary(key => key, _ => SecretKey.New()));
+        return new Session(user, userVersion: 1, Enumerable.Range(1, top).ToDictionary(key => key, _ => SecretKey.New()));
     }
 }

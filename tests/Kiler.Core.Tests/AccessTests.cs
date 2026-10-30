@@ -49,16 +49,16 @@ public sealed class AccessTests
     {
         var rows = new (Caller Caller, AccessRefusal?[] Refusals)[]
         {
-            // Nothing, Reader, Editor, Admin
-            (Caller.Nobody, [null, NotSignedIn, NotSignedIn, NotSignedIn]),
-            (Caller.Guest, [null, null, NotSignedIn, NotSignedIn]),
-            (Caller.Locked, [null, NotSignedIn, NotSignedIn, NotSignedIn]),
-            (Caller.LockedWithGuests, [null, null, NotSignedIn, NotSignedIn]),
-            (Caller.Temporary, [null, MustChange, MustChange, MustChange]),
-            (Caller.User, [null, null, CannotEdit, NotAdmin]),
-            (Caller.Editor, [null, null, null, NotAdmin]),
-            (Caller.Admin, [null, null, null, null]),
-            (Caller.Raised, [null, null, null, NotAdmin]),
+            // Nothing, SignedIn, Reader, Editor, Admin
+            (Caller.Nobody, [null, NotSignedIn, NotSignedIn, NotSignedIn, NotSignedIn]),
+            (Caller.Guest, [null, NotSignedIn, null, NotSignedIn, NotSignedIn]),
+            (Caller.Locked, [null, NotSignedIn, NotSignedIn, NotSignedIn, NotSignedIn]),
+            (Caller.LockedWithGuests, [null, NotSignedIn, null, NotSignedIn, NotSignedIn]),
+            (Caller.Temporary, [null, null, MustChange, MustChange, MustChange]),
+            (Caller.User, [null, null, null, CannotEdit, NotAdmin]),
+            (Caller.Editor, [null, null, null, null, NotAdmin]),
+            (Caller.Admin, [null, null, null, null, null]),
+            (Caller.Raised, [null, null, null, null, NotAdmin]),
         };
         var data = new TheoryData<Caller, Need, AccessRefusal?>();
         foreach (var (caller, refusals) in rows)

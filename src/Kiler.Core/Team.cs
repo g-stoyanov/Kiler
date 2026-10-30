@@ -9,13 +9,22 @@ namespace Kiler.Core;
 /// of the watch (<see cref="Follow"/>) and reads the copy again after a load that failed or a change of offline
 /// (<see cref="Reload"/>, core.md, "Calling the layer"). What it has is one <see cref="TeamFiles"/>, never changed, which
 /// each update replaces whole, so a request reads it without a lock and finds the files of one moment. The updates come on
-/// the thread of the watch; they keep a lock of their own, so one from a request too (M4.3) never interleaves with them.
+/// the thread of the watch; they keep a lock of their own, so one from a request too (M4.3) never interleaves with them. A
+/// write of this Kiler goes through the team (<see cref="Replace"/>, M4.5a), as no load gives it.
 /// </summary>
 public sealed class Team
 {
     private readonly DataCopy _copy;
     private readonly Lock _gate = new();
     private volatile TeamFiles _files;
+
+    /// <summary>
+    /// The versions that this Kiler wrote (<see cref="Replace"/>) since the team last followed a load, by key; kept under the
+    /// lock. The watch raises a load after it has let go of the copy, so the next load that the team follows may have ended
+    /// before the write: <see cref="Follow"/> takes no older version of these from it (core.md, "The team"). The loads after it
+    /// started after the write, as the watch runs one load at a time and raises its events before the next.
+    /// </summary>
+    private readonly Dictionary<DocumentKey, int> _written = [];
 
     /// <summary>Reads the team from the documents of <paramref name="copy"/>, as the last load left them.</summary>
     public Team(DataCopy copy)
@@ -56,14 +65,53 @@ public sealed class Team
 
             foreach (var loaded in load.Changed)
             {
+                // A load that ended before a write of this Kiler: its older version does not take the place of the write.
+                if (_written.TryGetValue(loaded.Key, out var wrote) && loaded.Read.Document?.Version < wrote)
+                {
+                    continue;
+                }
+
                 Take(loaded, ref levels, ref settings, ref users);
             }
 
+            _written.Clear();
             if (levels != files.Levels || settings != files.Settings || users != files.Users)
             {
                 _files = new TeamFiles(levels, settings, users);
             }
         }
+    }
+
+    /// <summary>
+    /// Replaces the version <paramref name="version"/> of the user file through the copy (M4.5a) and, when it is written, takes
+    /// <paramref name="user"/> into <see cref="Files"/> at its new version: the copy takes what this Kiler wrote as its own, so
+    /// no load gives it (core.md, "The team"). A newer version of the file, which a load has brought in meanwhile, stays.
+    /// The write runs without the lock of the team, as it can wait for a load under way.
+    /// </summary>
+    /// <exception cref="IOException">The share could not be reached before a load said so (core.md, "Calling the layer").</exception>
+    /// <exception cref="UnauthorizedAccessException">The share refused the write before a load said so.</exception>
+    public WriteResult Replace(UserFile user, int version)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        var written = _copy.Replace(user.Key, version, user.ToContent());
+        if (written.Outcome != WriteOutcome.Written)
+        {
+            return written;
+        }
+
+        lock (_gate)
+        {
+            var files = _files;
+            var newer = files.Users.TryGetValue(user.Account, out var had) && had.Version > written.Version;
+            if (!newer)
+            {
+                _files = new TeamFiles(files.Levels, files.Settings, files.Users.SetItem(user.Account, TeamFile<UserFile>.Written(written.Version, user)));
+            }
+
+            _written[user.Key] = written.Version;
+        }
+
+        return written;
     }
 
     /// <summary>
@@ -170,6 +218,9 @@ public sealed class TeamFile<T>
     [MemberNotNullWhen(true, nameof(Model))]
     [MemberNotNullWhen(false, nameof(Invalid))]
     public bool IsValid => Model is not null;
+
+    /// <summary>A model that this Kiler wrote at <paramref name="version"/> (<see cref="Team.Replace"/>).</summary>
+    internal static TeamFile<T> Written(int version, T model) => new(version, model, null);
 
     internal static TeamFile<T> Of(DocumentRead read, TryRead tryRead)
     {

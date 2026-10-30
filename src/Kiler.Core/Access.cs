@@ -6,6 +6,9 @@ public enum Need
     /// <summary>Nothing beyond the cookie: the state of the data, the sign-in and the session, the wizard, the health check and the event stream.</summary>
     Nothing,
 
+    /// <summary>A session, also one with a temporary password, which it can only change: the change of password (M4.5a).</summary>
+    SignedIn,
+
     /// <summary>A guest, while <c>settings.json</c> has guest mode, who reads level 0; or a session, which reads the levels of its keys.</summary>
     Reader,
 
@@ -22,7 +25,7 @@ public enum AccessRefusal
     /// <summary>No session, and the endpoint needs one, or guest mode is off.</summary>
     NotSignedIn,
 
-    /// <summary>The session has a temporary password, so it can only change it (M4.5).</summary>
+    /// <summary>The session has a temporary password, so it can only change it (<see cref="Need.SignedIn"/>, M4.5a).</summary>
     MustChangePassword,
 
     /// <summary>The session cannot edit.</summary>
@@ -54,6 +57,11 @@ public static class Access
         if (session is null || session.IsLocked)
         {
             return need == Need.Reader && files?.Settings?.Model?.GuestMode == true ? null : AccessRefusal.NotSignedIn;
+        }
+
+        if (need == Need.SignedIn)
+        {
+            return null;
         }
 
         if (session.MustChangePassword)

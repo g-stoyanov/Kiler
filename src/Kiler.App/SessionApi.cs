@@ -17,7 +17,7 @@ internal sealed record SignInRequest(string? Password)
 /// <param name="Levels">The levels that the page reads: 0 and the levels of the session's keys, 0 alone for a guest, none else.</param>
 /// <param name="CanEdit">Whether the session can edit.</param>
 /// <param name="IsAdmin">Whether the session's user file has <c>isAdmin</c>; the admin actions also need the key of every level.</param>
-/// <param name="MustChangePassword">Whether the session has a temporary password, which it changes before anything else (M4.5).</param>
+/// <param name="MustChangePassword">Whether the session has a temporary password, which it changes before anything else (<see cref="PasswordApi"/>, M4.5a).</param>
 /// <param name="GuestMode">Whether <c>settings.json</c> has guest mode, so the page opens as a guest with "Sign in".</param>
 internal sealed record SessionResponse(
     string? Account, bool SignedIn, string? DisplayName, IReadOnlyList<int> Levels, bool CanEdit, bool IsAdmin, bool MustChangePassword, bool GuestMode);
@@ -83,7 +83,8 @@ internal static class SessionApi
         return TypedResults.Ok(Describe(sessions, data, account));
     }
 
-    private static SessionResponse Describe(CurrentSession sessions, KilerData data, ICurrentAccount account)
+    /// <summary>The session as it is now, as the page shows it; also the answer of a change of password (<see cref="PasswordApi"/>).</summary>
+    public static SessionResponse Describe(CurrentSession sessions, KilerData data, ICurrentAccount account)
     {
         var guestMode = data.Files?.Settings?.Model?.GuestMode == true;
         return sessions.Session is { IsLocked: false } session

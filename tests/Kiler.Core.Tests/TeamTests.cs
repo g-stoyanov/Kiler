@@ -158,6 +158,69 @@ public sealed class TeamTests : IDisposable
         Assert.Equal("Demo User", Valid(team.Files.Users["demo.user"]).DisplayName);
     }
 
+    [Fact]
+    public void Replace_TakesTheWriteOfThisKiler_AtItsNewVersion_ThoughNoLoadGivesIt()
+    {
+        Write(UserFile.KeyOf("demo.user"), User("demo.user", "Demo User").ToContent());
+        var (copy, team) = Follower();
+
+        Assert.Equal(WriteOutcome.Written, team.Replace(User("demo.user", "Renamed User"), 1).Outcome);
+
+        var user = team.Files.Users["demo.user"];
+        Assert.Equal("Renamed User", Valid(user).DisplayName);
+        Assert.Equal(2, user.Version);
+        team.Follow(copy.Load());
+        Assert.Equal("Renamed User", Valid(team.Files.Users["demo.user"]).DisplayName);
+    }
+
+    [Fact]
+    public void Replace_ThatIsNotWritten_LeavesTheTeamAsItIs()
+    {
+        Write(UserFile.KeyOf("demo.user"), User("demo.user", "Demo User").ToContent());
+        var (_, team) = Follower();
+        Assert.Equal(WriteOutcome.Written, _data.Copy.Replace(UserFile.KeyOf("demo.user"), 1, User("demo.user", "Changed Elsewhere").ToContent()).Outcome);
+        var before = team.Files;
+
+        Assert.Equal(WriteOutcome.Conflict, team.Replace(User("demo.user", "Renamed User"), 1).Outcome);
+
+        Assert.Same(before, team.Files);
+    }
+
+    [Fact]
+    public void Follow_OfALoadThatEndedBeforeAWriteOfThisKiler_KeepsTheWrite()
+    {
+        Write(UserFile.KeyOf("demo.user"), User("demo.user", "Demo User").ToContent());
+        var (copy, team) = Follower();
+        Assert.Equal(WriteOutcome.Written, _data.Copy.Replace(UserFile.KeyOf("demo.user"), 1, User("demo.user", "Changed Elsewhere").ToContent()).Outcome);
+
+        // The watch raises a load after it has let go of the copy, so a write can come between its end and the team.
+        var before = copy.Load();
+        Assert.Equal(WriteOutcome.Written, team.Replace(User("demo.user", "Renamed User"), 2).Outcome);
+        team.Follow(before);
+
+        var user = team.Files.Users["demo.user"];
+        Assert.Equal("Renamed User", Valid(user).DisplayName);
+        Assert.Equal(3, user.Version);
+    }
+
+    [Fact]
+    public void Follow_AfterTheLoadThatEndedBeforeAWrite_TakesTheChangesOfTheOthers()
+    {
+        Write(UserFile.KeyOf("demo.user"), User("demo.user", "Demo User").ToContent());
+        var (copy, team) = Follower();
+        var before = copy.Load();
+        Assert.Equal(WriteOutcome.Written, team.Replace(User("demo.user", "Renamed User"), 1).Outcome);
+        team.Follow(before);
+        _data.Copy.Load();
+        Assert.Equal(WriteOutcome.Written, _data.Copy.Replace(UserFile.KeyOf("demo.user"), 2, User("demo.user", "Changed Elsewhere").ToContent()).Outcome);
+
+        team.Follow(copy.Load());
+
+        var user = team.Files.Users["demo.user"];
+        Assert.Equal("Changed Elsewhere", Valid(user).DisplayName);
+        Assert.Equal(3, user.Version);
+    }
+
     private static LevelsFile Levels(string name) =>
         new([new(0, "Guest", null), new(1, name, "check-1")], new LockedKeys("salt", new Dictionary<int, string> { [1] = "locked-1" }));
 

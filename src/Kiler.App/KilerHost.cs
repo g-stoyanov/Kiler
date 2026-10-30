@@ -69,6 +69,7 @@ internal static class KilerHost
         DataApi.Map(app, data);
         WizardApi.Map(app, data, account);
         SessionApi.Map(app, sessions, data, account);
+        PasswordApi.Map(app, sessions, data, account);
         EventsApi.Map(app, heartbeat, times.PingInterval, TimeProvider.System, app.Lifetime.ApplicationStopping);
         return app;
     }

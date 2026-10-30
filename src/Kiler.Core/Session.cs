@@ -14,15 +14,22 @@ public sealed class Session : IDisposable
     private readonly IReadOnlyDictionary<int, SecretKey> _keys;
     private volatile bool _locked;
 
+    /// <summary>Kept for the two below, which a change of password changes together (M4.5a).</summary>
+    private readonly Lock _gate = new();
+    private int _userVersion;
+    private bool _mustChangePassword;
+
     /// <param name="user">The user file of the sign-in.</param>
+    /// <param name="userVersion">The version of the user file.</param>
     /// <param name="keys">The keys that verified, by level from 1; the session owns them.</param>
-    internal Session(UserFile user, IReadOnlyDictionary<int, SecretKey> keys)
+    internal Session(UserFile user, int userVersion, IReadOnlyDictionary<int, SecretKey> keys)
     {
         Account = user.Account;
         DisplayName = user.DisplayName;
         CanEdit = user.CanEdit;
         IsAdmin = user.IsAdmin;
-        MustChangePassword = user.MustChangePassword;
+        _userVersion = userVersion;
+        _mustChangePassword = user.MustChangePassword;
         _keys = keys;
         Levels = [0, .. keys.Keys.Order()];
     }
@@ -35,8 +42,35 @@ public sealed class Session : IDisposable
 
     public bool IsAdmin { get; }
 
-    /// <summary>Whether the password of the sign-in is a temporary one: the session can then only change it (M4.5).</summary>
-    public bool MustChangePassword { get; }
+    /// <summary>
+    /// Whether the password of the sign-in is a temporary one: the session can then only change it, and the change clears the
+    /// mark (<see cref="PasswordChange"/>, M4.5a).
+    /// </summary>
+    public bool MustChangePassword
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _mustChangePassword;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The version of the user file that the session knows: that of the sign-in, then that of its last change of password. A
+    /// change of password refuses a user file at another version (decided by the user in M4.5).
+    /// </summary>
+    public int UserVersion
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _userVersion;
+            }
+        }
+    }
 
     /// <summary>The levels that the session reads: 0, and the levels of its keys, in order.</summary>
     public IReadOnlyList<int> Levels { get; }
@@ -74,6 +108,39 @@ public sealed class Session : IDisposable
         catch (ObjectDisposedException) when (_locked)
         {
             throw new SessionLockedException();
+        }
+    }
+
+    /// <summary>
+    /// The keys of the session locked with <paramref name="password"/> (<see cref="LevelKeys.Lock(IReadOnlyDictionary{int, SecretKey}, ReadOnlySpan{char})"/>),
+    /// for a change of password (M4.5a). PBKDF2 runs once. A lock before or during it is <see cref="SessionLockedException"/>, as for <see cref="Use"/>.
+    /// </summary>
+    /// <exception cref="SessionLockedException">The session is locked.</exception>
+    internal LockedKeys LockKeys(ReadOnlySpan<char> password)
+    {
+        if (_locked)
+        {
+            throw new SessionLockedException();
+        }
+
+        try
+        {
+            return LevelKeys.Lock(_keys, password);
+        }
+        // As in Use: Dispose sets the mark before it disposes a key.
+        catch (ObjectDisposedException) when (_locked)
+        {
+            throw new SessionLockedException();
+        }
+    }
+
+    /// <summary>A change of password wrote the user file at <paramref name="userVersion"/>: the password is no longer a temporary one.</summary>
+    internal void PasswordChanged(int userVersion)
+    {
+        lock (_gate)
+        {
+            _userVersion = userVersion;
+            _mustChangePassword = false;
         }
     }
 

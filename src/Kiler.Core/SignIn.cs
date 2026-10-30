@@ -64,7 +64,8 @@ public static class SignIn
             return false;
         }
 
-        session = new Session(user, verified);
+        // A file that fits its model is not damaged, so it has a version.
+        session = new Session(user, file.Version!.Value, verified);
         refusal = default;
         return true;
     }

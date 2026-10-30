@@ -37,7 +37,7 @@ internal static class MadeUpKiler
     public static string CheckOfLevel1 => Made.Value.Levels.Levels[1].Check!;
 
     /// <summary>Writes <c>levels.json</c>, <c>settings.json</c> and the user files into the data folder of <paramref name="data"/>.</summary>
-    public static void WriteTo(MadeUpData data, bool guestMode)
+    public static MadeUpData WriteTo(MadeUpData data, bool guestMode)
     {
         var made = Made.Value;
         data.Create(LevelsFile.Key, made.Levels.ToContent());
@@ -46,7 +46,12 @@ internal static class MadeUpKiler
         {
             data.Create(user.Key, user.ToContent());
         }
+
+        return data;
     }
+
+    /// <summary>The user file of <paramref name="account"/>, one of the accounts above.</summary>
+    public static UserFile UserOf(string account) => Made.Value.Users.Single(user => user.Account == account);
 
     private static Documents Make()
     {
