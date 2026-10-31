@@ -11,7 +11,7 @@ Here [the plan](../PLAN.md) is broken into small tasks with ticks. The work foll
 | M3 Cryptography | [M3.md](M3.md) | done; part of it deferred until after the exam ([PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam)) |
 | M4 Users and permissions | [M4.md](M4.md) | done; part of it deferred until after the exam ([PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam)) |
 | M5 Templates, records and search | [M5.md](M5.md) | done; part of it deferred until after the exam ([PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam)) |
-| M6 User interface | [M6.md](M6.md) | done; part of it deferred until after the exam ([PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam)) |
+| M6 User interface | [M6.md](M6.md) | in progress: M6.1 to M6.15 done; M6.16 to M6.24 bring forward part of [PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam), and the rest of it stays deferred until after the exam |
 | M7 Documents and diagrams | | deferred until after the exam ([PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam)) |
 
 M8 (tests and automation) has no file of its own. Its tasks go into the modules when they are needed:

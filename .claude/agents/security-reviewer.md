@@ -86,7 +86,7 @@ The limits accepted so far are in the decisions at the top of the module file, f
    - **Secret values:**
      - passwords never appear in lists, search, logs, errors or URLs;
      - a C# record that holds a secret overrides `ToString()`, because the generated one prints every property;
-     - showing or copying a Prod password is written to the audit log.
+     - showing or copying a password of the top level is written to the audit log after it is decrypted and before it is given, and refused when the entry cannot be written (M6.18). The audit is for tracing: anyone who writes the share can change or delete its lines (design 12), so a finding that rests on a forged or deleted line is out of model.
    - **Cryptography:** per the rules and formats in `kiler-crypto`: nonce, tag, PBKDF2, the associated data of each purpose (a value must not decrypt in another record, level or use), zeroing keys, forbidden algorithms.
    - **Paths:**
      - paths are normalized;

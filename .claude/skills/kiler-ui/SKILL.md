@@ -167,4 +167,5 @@ Light, dark and system (M1.7). The choice is kept in `localStorage` (`kiler.them
 | Code highlighting in Markdown | M7 |
 | The private records in the screens, the "Private only" filter | after the exam (PLAN section 10, item 4) |
 | The personal configuration: the theme and the open nodes of the tree across starts | after the exam (PLAN section 10, item 11) |
-| The two versions of a conflict side by side | after the exam (PLAN section 10, item 12) |
+| The two versions of a conflict side by side | M6.20 (docs/tasks/M6.md, decisions) |
+| The admin screens of the audit and of the stashes | M6.19 and M6.23 (docs/tasks/M6.md, decisions) |
