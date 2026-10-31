@@ -115,6 +115,20 @@ export function readsSession(error: unknown): boolean {
   return error instanceof ApiError && error.kind === 'refused' && error.status === 403;
 }
 
+/** A record in one of its versions: what tells the record whose `secret` values show from another (M6.16). */
+export type RecordVersion = Pick<RecordData, 'id' | 'version'>;
+
+/**
+ * Whether the record that the page shows now, `read`, keeps the `secret` values that `shown` showed (M6.16): only when it
+ * is the same record in the same version. The page reads the record again at each `changed` event, which any change of
+ * the Kiler gives, and a write of this Kiler twice, so a value that hid at each read would hide while a colleague edits
+ * any record. Another id or version hides them, as the value may have changed with it; so does a read that failed, `read`
+ * null, as the page then shows the record nowhere.
+ */
+export function keepsShown(shown: RecordVersion | null, read: RecordVersion | null): boolean {
+  return shown !== null && read !== null && shown.id === read.id && shown.version === read.version;
+}
+
 /** What a `secret` shows: `••••`, its request under way, its value, or why the request failed. */
 export type SecretView =
   { state: 'hidden' } | { state: 'showing' } | { state: 'shown'; value: string } | { state: 'failed'; message: string };
@@ -124,8 +138,10 @@ const hidden: SecretView = { state: 'hidden' };
 /**
  * The shown values of the `secret` fields of one record (kiler-ui, "Secret values"). "Show" is one request of the
  * value, and only the last request of a field counts. A shown value hides again after {@link shownSeconds}, on "Hide",
- * and at {@link hideAll}, which the record view calls on leaving the page, at each `session` event and at each read of
- * the record again; it also aborts the requests under way, so no answer shows after it. The value goes nowhere else.
+ * and at {@link hideAll}, which the record view calls on leaving the page and at each `session` event; it also aborts the
+ * requests under way, so no answer shows after it. The record view tells it at {@link showsRecord} each record that it
+ * shows, after each read of it and each action that gives one, and the values hide only when that is another record or
+ * another version of it, or none, as after a read that failed ({@link keepsShown}, M6.16). The value goes nowhere else.
  *
  * For `useSyncExternalStore`: each change is a new snapshot.
  */
@@ -136,6 +152,7 @@ export class ShownSecrets {
   readonly #requests = new Map<string, AbortController>();
   readonly #timers = new Map<string, ReturnType<typeof setTimeout>>();
   #views: ReadonlyMap<string, SecretView> = new Map();
+  #record: RecordVersion | null = null;
 
   /** `request` gives the value of the field `key`; `refused` hears each failure of it, after it shows. */
   constructor(request: (key: string, signal: AbortSignal) => Promise<string>, refused: (error: unknown) => void) {
@@ -184,6 +201,15 @@ export class ShownSecrets {
   hide(key: string): void {
     this.#forget(key);
     this.#set(key, undefined);
+  }
+
+  /** The record that the page shows now, or null for none: another one than before hides every value. */
+  showsRecord(record: RecordVersion | null): void {
+    if (!keepsShown(this.#record, record)) {
+      this.hideAll();
+    }
+
+    this.#record = record;
   }
 
   hideAll(): void {
