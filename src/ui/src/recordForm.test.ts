@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { LevelName, RecordData, RecordField, RecordValue, Template, TemplateField } from './api.ts';
+import type { LevelName, PathStash, RecordData, RecordField, RecordValue, Template, TemplateField } from './api.ts';
 import {
   addTags,
   checkDraft,
   conflictKey,
+  conflictRows,
   defaultLevel,
   editDraft,
   fieldViews,
@@ -596,15 +597,56 @@ describe('the conflict', () => {
     expect(conflicted).toMatchObject({ sending: false, error: undefined, conflict: current, focus: conflictKey });
   });
 
-  it('"Overwrite" sends the values of the editor over the version of current', () => {
+  it('"Keep mine" sends the values of the editor over the version of current, and the conflict shows while it is sent', () => {
     const request = overwriteRequest(conflicted.draft, ['a1b2c3d4'], top, levels, current);
 
     expect(request.version).toBe(9);
     expect(request.fields).toMatchObject({ env: 'test', host: 'db03.example.test', port: 1521 });
-    expect(run(conflicted, { type: 'send', sent: [] }).conflict).toBeUndefined();
+    expect(run(conflicted, { type: 'send', sent: [] }).conflict).toBe(current);
   });
 
-  it('"Reload" takes the form of current, its version too', () => {
+  it('keeps the conflict when "Keep mine" is refused without current, with the focus on its first button', () => {
+    const state = run(
+      conflicted,
+      { type: 'send', sent: [] },
+      {
+        type: 'refused',
+        message: 'The record is being written now. Try again in a moment.',
+        field: null,
+        current: null,
+      },
+    );
+
+    expect(state).toMatchObject({
+      sending: false,
+      conflict: current,
+      error: 'The record is being written now. Try again in a moment.',
+      focus: conflictKey,
+    });
+  });
+
+  it('keeps the conflict at a refusal of a field, with the focus on that field', () => {
+    const state = run(
+      conflicted,
+      { type: 'send', sent: [] },
+      { type: 'refused', message: 'host must be a text.', field: 'host', current: null },
+    );
+
+    expect(state).toMatchObject({ conflict: current, problems: { host: 'host must be a text.' }, focus: 'host' });
+  });
+
+  it('takes the record of a new conflict in place of the last', () => {
+    const newer: RecordData = { ...current, version: 10 };
+    const state = run(
+      conflicted,
+      { type: 'send', sent: [] },
+      { type: 'refused', message: 'The record has been changed meanwhile.', field: null, current: newer },
+    );
+
+    expect(state.conflict).toBe(newer);
+  });
+
+  it('"Take theirs" takes the form of current, its version too', () => {
     const draft = editDraft(current, db);
 
     expect(draft.start?.version).toBe(9);
@@ -627,6 +669,201 @@ describe('the conflict', () => {
       conflict: undefined,
       error: 'The record is being written now. Try again in a moment.',
     });
+  });
+});
+
+describe('conflictRows', () => {
+  const v = texts.form.versions;
+  const noValue = { look: 'note', text: texts.field.empty };
+  const current: RecordData = { ...testRecord, version: 9, updatedBy: { account: 'demo.admin', name: 'Demo Admin' } };
+
+  function rowsOf(draft: Draft, now: RecordData = current, path: PathStash[] = testRecord.stash) {
+    return conflictRows(draft, path, now, top, levels);
+  }
+
+  function rowOf(draft: Draft, key: string, now: RecordData = current, path: PathStash[] = testRecord.stash) {
+    const row = rowsOf(draft, now, path).find((entry) => entry.key === key);
+    if (row === undefined) {
+      throw new Error(`No row ${key}`);
+    }
+
+    return row;
+  }
+
+  function withFields(now: RecordData, ...fields: RecordField[]): RecordData {
+    return { ...now, fields: now.fields.map((entry) => fields.find((f) => f.key === entry.key) ?? entry) };
+  }
+
+  it('gives the header, then the fields of the template in its order, none marked when the two are the same', () => {
+    const rows = rowsOf(editDraft(testRecord, db));
+
+    expect(rows.map((row) => [row.key, row.label, row.differs])).toEqual([
+      ['stash', 'Stash path', false],
+      ['name', 'Name', false],
+      ['description', 'Description', false],
+      ['tags', 'Tags', false],
+      ['env', 'env', false],
+      ['host', 'host', false],
+      ['port', 'port', false],
+      ['user', 'user', false],
+      ['password', 'password', false],
+    ]);
+    expect(rows.slice(0, 4).map((row) => row.theirs)).toEqual([
+      { look: 'value', text: 'Alpha' },
+      { look: 'value', text: 'Alpha test database' },
+      noValue,
+      { look: 'value', text: 'alpha' },
+    ]);
+  });
+
+  it('marks a changed name, and shows each side as it is', () => {
+    const row = rowOf(editDraft(testRecord, db), 'name', { ...current, name: 'Alpha test database, renamed' });
+
+    expect(row).toMatchObject({
+      differs: true,
+      mine: { look: 'value', text: 'Alpha test database' },
+      theirs: { look: 'value', text: 'Alpha test database, renamed' },
+    });
+    expect(rowOf({ ...editDraft(testRecord, db), name: ' Alpha test database ' }, 'name').differs).toBe(false);
+  });
+
+  it('marks a changed field, compared as the request sends it', () => {
+    const draft = text(text(editDraft(testRecord, db), 'host', 'db03.example.test'), 'port', '01521');
+
+    expect(rowOf(draft, 'host')).toMatchObject({
+      differs: true,
+      mine: { look: 'value', text: 'db03.example.test' },
+      theirs: { look: 'value', text: 'db01.example.test' },
+    });
+    expect(rowOf(draft, 'port').differs).toBe(false);
+  });
+
+  it('marks another stash path by its ids, and shows the names of its stashes', () => {
+    const path = [...testRecord.stash, { id: 'e5f6g7h8', name: null }];
+    const row = rowOf(editDraft(testRecord, db), 'stash', current, path);
+
+    expect(row).toMatchObject({ differs: true, mine: { look: 'value', text: 'Alpha / …' } });
+    expect(rowOf(editDraft(testRecord, db), 'stash', current, [{ id: 'e5f6g7h8', name: 'Alpha' }]).differs).toBe(true);
+  });
+
+  it('compares the tags as Kiler keeps them, in any order and without regard to case', () => {
+    const draft = editDraft(testRecord, db);
+    const two = { ...current, tags: ['alpha', 'beta'] };
+
+    expect(rowOf({ ...draft, tags: ['Beta', 'ALPHA'] }, 'tags', two)).toMatchObject({
+      differs: false,
+      mine: { look: 'value', text: 'Beta, ALPHA' },
+      theirs: { look: 'value', text: 'alpha, beta' },
+    });
+    expect(rowOf({ ...draft, tags: ['alpha', 'gamma'] }, 'tags', two).differs).toBe(true);
+    expect(rowOf({ ...draft, tags: [] }, 'tags')).toMatchObject({ differs: true, mine: noValue });
+  });
+
+  describe('a secret', () => {
+    const secret = (draftValue: Partial<Extract<DraftValue, { kind: 'secret' }>>) =>
+      set(editDraft(testRecord, db), 'password', {
+        kind: 'secret',
+        typed: '',
+        kept: true,
+        clear: false,
+        again: false,
+        ...draftValue,
+      });
+    const cleared = withFields(current, other('password', 2, 'empty'));
+
+    it('not typed is "Unchanged" beside "Hidden", and not marked, as the edit keeps the value of current', () => {
+      expect(rowOf(secret({}), 'password')).toEqual({
+        key: 'password',
+        label: 'password',
+        mine: { look: 'note', text: v.unchanged },
+        theirs: { look: 'note', text: v.hidden },
+        differs: false,
+      });
+    });
+
+    it('typed is "New value", and marked', () => {
+      expect(rowOf(secret({ typed: 'made-up-new' }), 'password')).toMatchObject({
+        mine: { look: 'note', text: v.newValue },
+        theirs: { look: 'note', text: v.hidden },
+        differs: true,
+      });
+      expect(rowOf(secret({ typed: 'made-up-new' }), 'password', cleared)).toMatchObject({
+        theirs: noValue,
+        differs: true,
+      });
+    });
+
+    it('typed and sent before the conflict is to be typed again, and stays marked', () => {
+      const state = run(
+        newRecordFormState(secret({ typed: 'made-up-new' })),
+        { type: 'send', sent: ['password'] },
+        { type: 'refused', message: 'The record has been changed meanwhile.', field: null, current },
+      );
+
+      expect(rowOf(state.draft, 'password')).toMatchObject({
+        mine: { look: 'note', text: v.typeAgain },
+        differs: true,
+      });
+      expect(JSON.stringify(rowsOf(state.draft))).not.toContain('made-up-new');
+    });
+
+    it('cleared is "No value", marked only when current has a value', () => {
+      expect(rowOf(secret({ clear: true }), 'password')).toMatchObject({ mine: noValue, differs: true });
+      expect(rowOf(secret({ clear: true }), 'password', cleared)).toMatchObject({ theirs: noValue, differs: false });
+    });
+  });
+
+  it('puts the padlock on both sides of a field above the editor, and does not mark it, as the edit does not send it', () => {
+    const now = { ...prodRecord, version: 9 };
+    const row = rowOf(editDraft(prodRecord, db), 'user', now, prodRecord.stash);
+
+    expect(row).toMatchObject({
+      mine: { look: 'padlock', text: '🔒 requires level Prod' },
+      theirs: { look: 'padlock', text: '🔒 requires level Prod' },
+      differs: false,
+    });
+  });
+
+  it('marks a field that current has above the editor when the edit sends it, as the two cannot be compared', () => {
+    const now = withFields(
+      current,
+      value('env', 0, 'prod'),
+      other('user', 3, 'locked'),
+      other('password', 3, 'locked'),
+    );
+    const rows = rowsOf(editDraft(testRecord, db), now);
+
+    expect(rows.find((row) => row.key === 'user')).toMatchObject({
+      mine: { look: 'value', text: 'alpha_read' },
+      theirs: { look: 'padlock', text: '🔒 requires level Prod' },
+      differs: true,
+    });
+    expect(rows.find((row) => row.key === 'password')?.differs).toBe(false);
+  });
+
+  it('shows a code with its language, a text with lines, and a ref that has gone, and marks a language changed', () => {
+    const everyRecord: RecordData = {
+      ...record([
+        value('multiline', 1, 'one\ntwo'),
+        value('code', 1, 'select 1 from dual'),
+        value('script', 1, { language: 'bash', code: 'ls' }),
+        value('ref', 1, { id: 'g0ne0001', name: null }),
+      ]),
+      template: 'every',
+    };
+    const now = withFields(everyRecord, value('script', 1, { language: 'powershell', code: 'ls' }));
+    const rows = rowsOf(editDraft(everyRecord, every), now);
+    const mine = Object.fromEntries(rows.map((row) => [row.key, row.mine]));
+
+    expect(mine).toMatchObject({
+      text: noValue,
+      multiline: { look: 'lines', text: 'one\ntwo' },
+      code: { look: 'code', text: 'select 1 from dual', language: null },
+      script: { look: 'code', text: 'ls', language: 'bash' },
+      ref: { look: 'note', text: texts.field.gone },
+      secret: { look: 'note', text: v.unchanged },
+    });
+    expect(rows.filter((row) => row.differs).map((row) => row.key)).toEqual(['script']);
   });
 });
 

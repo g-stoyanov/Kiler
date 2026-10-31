@@ -1,7 +1,9 @@
 import type {
   EditRecordRequest,
   FieldKind,
+  FieldType,
   LevelName,
+  PathStash,
   RecordData,
   RecordField,
   RecordRequest,
@@ -413,8 +415,8 @@ export interface RecordFormState {
   /** The key of the first problem, which takes the focus; undefined for none, as for a refusal without `field`. */
   focus: string | undefined;
   /**
-   * The record as it is now, of the 409 of an edit over an older version (docs/api.md, "Conflict"), until "Reload" or
-   * "Overwrite" settles it.
+   * The record as it is now, of the 409 of an edit over an older version (docs/api.md, "Conflict"), until "Take theirs"
+   * starts the form again from it or a save goes through. A save refused without `current` keeps it.
    */
   conflict: RecordData | undefined;
 }
@@ -466,14 +468,7 @@ export function recordFormReducer(state: RecordFormState, action: RecordFormActi
         focus: firstProblem(draft, action.problems),
       };
     case 'send':
-      return {
-        ...state,
-        draft: withoutTyped(draft, action.sent),
-        problems: {},
-        sending: true,
-        error: undefined,
-        conflict: undefined,
-      };
+      return { ...state, draft: withoutTyped(draft, action.sent), problems: {}, sending: true, error: undefined };
     case 'refused':
       return state.sending ? afterRefusal(state, action) : state;
   }
@@ -501,9 +496,11 @@ function withoutTyped(draft: Draft, sent: string[]): Draft {
 }
 
 /**
- * A refused save: a conflict with `current` offers "Reload" and "Overwrite", a refusal with `field` shows at that
- * field, and the others by their sentence. A `secret` that was typed asks to be typed again, as the page did not keep
- * it, also before "Overwrite".
+ * A refused save: a conflict with `current` shows the two versions with "Keep mine" and "Take theirs", a refusal with
+ * `field` shows at that field, and the others by their sentence. A conflict shown before stays, with the focus on its
+ * first button when no field has a problem, as a "Keep mine" refused without `current`, such as by the slot of another
+ * write, is tried again there (M6.8 code review). A `secret` that was typed asks to be typed again, as the page did
+ * not keep it, also before "Keep mine".
  */
 function afterRefusal(
   state: RecordFormState,
@@ -532,7 +529,7 @@ function afterRefusal(
     sending: false,
     error: shown ? undefined : message,
     round: state.round + 1,
-    focus: firstProblem(state.draft, problems),
+    focus: firstProblem(state.draft, problems) ?? (state.conflict === undefined ? undefined : conflictKey),
   };
 }
 
@@ -540,8 +537,8 @@ function afterRefusal(
 export const conflictKey = 'conflict';
 
 /**
- * "Overwrite" of a conflict (M6.8): the edit as the editor has it now, sent again over the version of `current`. The
- * levels are those that the editor chose, so a raise that `current` has stays, as Kiler keeps it.
+ * "Keep mine" of a conflict (M6.8, M6.20): the edit as the editor has it now, sent again over the version of `current`.
+ * The levels are those that the editor chose, so a raise that `current` has stays, as Kiler keeps it.
  */
 export function overwriteRequest(
   draft: Draft,
@@ -551,6 +548,191 @@ export function overwriteRequest(
   current: RecordData,
 ): EditRecordRequest {
   return { ...recordRequest(draft, stash, top, levels), version: current.version };
+}
+
+/** A side of a row of the two versions of a conflict (M6.20): the text that shows, and how. */
+export type VersionCell =
+  | {
+      /**
+       * `value`: a value on one line; `lines`: a text that keeps its lines; `note`: what shows in place of a value, such
+       * as "No value", "Hidden" or "Unchanged"; `padlock`: a field above the editor's levels.
+       */
+      look: 'value' | 'lines' | 'note' | 'padlock';
+      text: string;
+    }
+  /** A code, with its language when the template gives `languages`. */
+  | { look: 'code'; text: string; language: string | null };
+
+/** A row of the two versions of a conflict: the stash path, the name, the description, the tags or a field. */
+export interface VersionRow {
+  /** `stash`, `name`, `tags`, `description` or the key of a field. */
+  key: string;
+  label: string;
+  /** The edit as the form has it. */
+  mine: VersionCell;
+  /** `current`, as "Take theirs" puts it into the form. */
+  theirs: VersionCell;
+  /** "Keep mine" would save the row otherwise than `current` has it, so it is marked. */
+  differs: boolean;
+}
+
+/**
+ * The two versions of a conflict side by side (M6.20; the decision "The conflict side by side"): the edit as the form
+ * has it, with the stash path `path` of the picker, and `current`, as {@link editDraft} makes its form for "Take
+ * theirs", each with the header and the fields of the template, in the order of the form.
+ *
+ * A row is marked when "Keep mine" would save it otherwise than `current` has it. A field that the edit does not send
+ * stays as `current` has it, so it is not marked: one above the editor's levels, which has the padlock, one that cannot
+ * be read, and a `secret` that nothing was typed into. A field of `current` above the editor's levels, or that cannot be
+ * read, is marked when the edit sends it, as the two cannot be compared. A `secret` never shows: on the side of the
+ * edit "New value" when one was typed, also when the refused save took it and it is to be typed again, "No value" when
+ * it is cleared, else "Unchanged"; on the side of `current` "Hidden" when it has a value. The tags are compared as
+ * Kiler keeps them, each once without regard to case, in any order. Only the values are compared, not the levels.
+ */
+export function conflictRows(
+  draft: Draft,
+  path: PathStash[],
+  current: RecordData,
+  top: number,
+  levels: LevelName[],
+): VersionRow[] {
+  if (draft.template === null) {
+    return [];
+  }
+
+  // Both from the one template, so the fields are the same, in its order, the description first.
+  const theirs = fieldViews(editDraft(current, draft.template), top, levels);
+  const [description, ...fields] = fieldViews(draft, top, levels).map((mine, index) => fieldRow(mine, theirs[index]));
+  const t = texts.form;
+  return [
+    {
+      key: 'stash',
+      label: t.stashes.legend,
+      mine: pathCell(path),
+      theirs: pathCell(current.stash),
+      differs:
+        path.length !== current.stash.length || path.some((entry, index) => entry.id !== current.stash[index].id),
+    },
+    {
+      key: 'name',
+      label: t.name,
+      mine: textCell(draft.name),
+      theirs: textCell(current.name),
+      differs: draft.name.trim() !== current.name,
+    },
+    description,
+    {
+      key: 'tags',
+      label: t.tags,
+      mine: textCell(draft.tags.join(', ')),
+      theirs: textCell(current.tags.join(', ')),
+      differs: !sameTags(draft.tags, current.tags),
+    },
+    ...fields,
+  ];
+}
+
+const noValue: VersionCell = { look: 'note', text: texts.field.empty };
+
+/** The types whose text keeps its lines, as the record view shows them (`FieldValue.tsx`). */
+const linesTypes: FieldType[] = ['multiline', 'markdown', 'doc'];
+
+function textCell(text: string): VersionCell {
+  return text.trim() === '' ? noValue : { look: 'value', text };
+}
+
+function pathCell(path: PathStash[]): VersionCell {
+  return textCell(path.map((entry) => entry.name ?? texts.form.stashes.unnamed).join(' / '));
+}
+
+function sameTags(mine: string[], theirs: string[]): boolean {
+  const lower = (tags: string[]) => new Set(tags.map((tag) => tag.trim().toLowerCase()));
+  const left = lower(mine);
+  const right = lower(theirs);
+  return left.size === right.size && [...left].every((tag) => right.has(tag));
+}
+
+function fieldRow(mine: FieldView, theirs: FieldView): VersionRow {
+  return {
+    key: mine.field.key,
+    label: mine.field.label,
+    mine: fieldCell(mine, 'mine'),
+    theirs: fieldCell(theirs, 'theirs'),
+    differs: fieldDiffers(mine, theirs),
+  };
+}
+
+function fieldCell(view: FieldView, side: 'mine' | 'theirs'): VersionCell {
+  const { field, value } = view;
+  if (view.padlock !== null) {
+    return { look: 'padlock', text: texts.field.locked(view.padlock) };
+  }
+
+  const t = texts.form.versions;
+  switch (value.kind) {
+    case 'text':
+      return value.text.trim() === ''
+        ? noValue
+        : { look: linesTypes.includes(field.type) ? 'lines' : 'value', text: value.text };
+    case 'code':
+      return value.code === ''
+        ? noValue
+        : {
+            look: 'code',
+            text: value.code,
+            language: field.languages === null || value.language === '' ? null : value.language,
+          };
+    case 'ref':
+      if (value.ref === null) {
+        return noValue;
+      }
+
+      return value.ref.name === null
+        ? { look: 'note', text: texts.field.gone }
+        : { look: 'value', text: value.ref.name };
+    case 'secret':
+      if (side === 'theirs') {
+        return value.kept ? { look: 'note', text: t.hidden } : noValue;
+      }
+
+      if (value.typed !== '') {
+        return { look: 'note', text: t.newValue };
+      }
+
+      return value.clear ? noValue : { look: 'note', text: value.again ? t.typeAgain : t.unchanged };
+    case 'locked':
+      // fieldViews gives it its padlock.
+      return { look: 'padlock', text: texts.field.locked(value.levelName ?? String(view.level)) };
+    case 'unreadable':
+      return { look: 'note', text: texts.field.unreadable };
+  }
+}
+
+/** Whether "Keep mine" would save the field otherwise than `current` has it ({@link conflictRows}). */
+function fieldDiffers(mine: FieldView, theirs: FieldView): boolean {
+  const value = mine.value;
+  const notSent =
+    mine.padlock !== null ||
+    value.kind === 'unreadable' ||
+    (value.kind === 'secret' && value.typed === '' && !value.clear && !value.again);
+  if (notSent) {
+    return false;
+  }
+
+  if (theirs.padlock !== null || theirs.value.kind === 'unreadable') {
+    return true;
+  }
+
+  if (value.kind === 'secret') {
+    // A new value, also one to be typed again, is not in the page; a value cleared differs from a value.
+    return value.typed !== '' || !value.clear || (theirs.value.kind === 'secret' && theirs.value.kept);
+  }
+
+  const left = requestValue(mine);
+  const right = requestValue(theirs);
+  return typeof left === 'object' && left !== null && typeof right === 'object' && right !== null
+    ? left.language !== right.language || left.code !== right.code
+    : left !== right;
 }
 
 function firstProblem(draft: Draft, problems: Problems): string | undefined {
