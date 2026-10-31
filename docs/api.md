@@ -181,7 +181,7 @@ The 409 of a write over an older version:
 ```
 
 - `current` is the whole record as `GET /api/records/{id}` gives it to this session now (shortened above).
-- Until the exam the page says who changed the record and when (`current.updatedBy`, `current.updatedAt`), and offers "Reload" and "Overwrite" (PLAN M6). "Reload" shows `current` without a new request. "Overwrite" sends the edit again with `current.version`. After the exam, the two versions side by side (PLAN section 10) use the same answer.
+- The page says who changed the record and when (`current.updatedBy`, `current.updatedAt`), and shows the two versions side by side, the edit and `current`, with the rows marked where they differ (M6.20). "Keep mine" sends the edit again with `current.version`; "Take theirs" shows `current` without a new request.
 - A delete and a restore of an old version over an older version get the same answer.
 - A write to a record that has gone meanwhile is 404, not a conflict.
 
@@ -429,7 +429,7 @@ Settled with the user, as the plan does not say:
 
 - **Delete and restore.** An editor deletes a record, restores it from the trash and restores an old version of it only when they hold the level of every group of it; for an old version, of the current version and of the old one. A restore writes the groups of every level, so without this rule an editor of a lower level could bring back an old Prod password that they cannot read (design 7.4: no one changes a field above their level). An admin holds every level. The page hides the buttons by `levels` and the levels of the session.
 - **"Show" and "copy"** of a `secret` are one request that says which it is (`use`), so the audit after the exam changes nothing in the API.
-- **The 409 of a conflict** carries the record as it is now (`current`), so the page needs no other request, and the two versions side by side after the exam need no other answer.
+- **The 409 of a conflict** carries the record as it is now (`current`), so the page needs no other request, and the two versions side by side need no other answer.
 
 ## Not in this contract
 
@@ -439,8 +439,7 @@ What comes after the exam ([PLAN.md, section 10](PLAN.md#10-deferred-until-after
 - creating and changing a template (item 9);
 - renaming, merging and deleting stashes, with the stash screen and its counters (item 10);
 - the general settings (item 11). Until then the page gets guest mode from the session;
-- the audit of Prod (item 1), which records the `use` of the request of a secret;
-- the two versions side by side (item 12), from the `current` of a conflict.
+- the audit of Prod (item 1), which records the `use` of the request of a secret.
 
 Not planned until the exam:
 
