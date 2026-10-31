@@ -83,6 +83,7 @@ internal static class KilerHost
         SessionApi.Map(app, sessions, data, account);
         PasswordApi.Map(app, sessions, data, account);
         AdminApi.Map(app, data);
+        AuditApi.Map(app, data);
         TemplatesApi.Map(app, data);
         RecordsApi.Map(app, data, time);
         StashesApi.Map(app, data, time);

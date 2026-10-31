@@ -15,6 +15,7 @@ namespace Kiler.Core;
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     PropertyNameCaseInsensitive = false,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(AuditLineJson))]
 [JsonSerializable(typeof(LevelsJson))]
 [JsonSerializable(typeof(RecordJson))]
 [JsonSerializable(typeof(SettingsJson))]
@@ -47,6 +48,27 @@ internal static class ModelJson
     }
 
     public static JsonObject Write<T>(T value, JsonTypeInfo<T> type) => JsonSerializer.SerializeToNode(value, type)!.AsObject();
+}
+
+/// <summary>
+/// A line of the audit (M6.18, docs/tasks/M6.md, "The audit file"), its members in the order of the line. It is not a
+/// document, so it has no <c>id</c> or <c>version</c>.
+/// </summary>
+internal sealed class AuditLineJson
+{
+    public string? At { get; init; }
+
+    public string? Account { get; init; }
+
+    public string? Record { get; init; }
+
+    public string? Name { get; init; }
+
+    public string? Field { get; init; }
+
+    public string? Use { get; init; }
+
+    public int? Level { get; init; }
 }
 
 internal sealed class LevelsJson

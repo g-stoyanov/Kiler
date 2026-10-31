@@ -116,7 +116,7 @@ internal sealed record RecordResponse(
     DateTime UpdatedAt);
 
 /// <param name="Field">The key of a <c>secret</c> of the record.</param>
-/// <param name="Use"><c>show</c> or <c>copy</c>, which the audit of Prod records after the exam.</param>
+/// <param name="Use"><c>show</c> or <c>copy</c>, which the audit of the top level records (M6.18).</param>
 internal sealed record SecretRequest(string? Field, string? Use);
 
 /// <param name="Value">The value of the <c>secret</c>, which only this answer gives.</param>
@@ -210,8 +210,9 @@ internal sealed record VersionRequest(int? Version);
 /// The records (docs/api.md): the list (M5.6), <c>GET /api/records</c>, with the search, the filters, the tree and the facets
 /// over the records in memory as the session of the request reads them (<see cref="RecordSearch"/>); a record (M5.7),
 /// <c>GET /api/records/{id}</c>; the value of a <c>secret</c> (M5.7), <c>POST /api/records/{id}/secret</c>, which
-/// decrypts its group again (<see cref="RecordView.Secret"/>); and the tags (M5.9), <c>GET /api/tags</c>. They need
-/// <see cref="Need.Reader"/>, so a guest in guest mode reads level 0, but the secret refuses a guest. A new record and an edit
+/// decrypts its group again and records a view of the top level in the audit (<see cref="Audit.Secret"/>, M6.18); and the
+/// tags (M5.9), <c>GET /api/tags</c>. They need <see cref="Need.Reader"/>, so a guest in guest mode reads level 0, but the
+/// secret refuses a guest. A new record and an edit
 /// (M5.9), <c>POST /api/records</c> and <c>PUT /api/records/{id}</c>, need <see cref="Need.Editor"/> and are
 /// <see cref="RecordActions"/>; the dates and the authors come from Kiler, never from the request. The trash (M5.10):
 /// <c>GET /api/trash</c> for a reader, and the delete, <c>DELETE /api/records/{id}</c>, and the restore,
@@ -231,6 +232,9 @@ internal static class RecordsApi
     /// <summary>The 404 of a restore of an old version that the history of the record does not have (M5.11).</summary>
     public const string NotInHistory = "That version of the record is not in its history.";
 
+    /// <summary>The 409 of a secret of the top level whose view could not be recorded in the audit, without the value (M6.18).</summary>
+    public const string NotRecorded = "The view could not be recorded in the shared folder, so the value is not given. Try again once the shared folder can be reached.";
+
     /// <summary>The 400 of a value of <c>fields</c> that has no shape of a value, with its key.</summary>
     public const string NoShape = "The value is not a text, a number or a code.";
 
@@ -243,7 +247,7 @@ internal static class RecordsApi
     {
         endpoints.MapGet("/api/records", (HttpContext context) => List(context, data)).Needs(Need.Reader);
         endpoints.MapGet("/api/records/{id}", (HttpContext context, string id) => Get(context, data, id)).Needs(Need.Reader);
-        endpoints.MapPost("/api/records/{id}/secret", (HttpContext context, string id, SecretRequest request) => Secret(context, data, id, request))
+        endpoints.MapPost("/api/records/{id}/secret", (HttpContext context, string id, SecretRequest request) => Secret(context, data, id, request, time))
             .Needs(Need.Reader);
         // The writes tell the other pages of this Kiler (M6.11).
         endpoints.MapPost("/api/records", (HttpContext context, RecordRequest request) => Create(context, data, request, time)).Needs(Need.Editor).ChangesData();
@@ -285,6 +289,7 @@ internal static class RecordsApi
         SecretOutcome.NotSecret => "The field is not a secret.",
         SecretOutcome.Locked => "The field is at a level that you do not hold.",
         SecretOutcome.Empty => "The field has no value now.",
+        SecretOutcome.NotRecorded => NotRecorded,
         _ => "The field cannot be read: its group does not decrypt.",
     };
 
@@ -353,10 +358,11 @@ internal static class RecordsApi
 
     /// <summary>
     /// The value of a <c>secret</c> for "show" and "copy" (docs/api.md), with <c>Cache-Control: no-store</c>: its group is
-    /// decrypted again, and the value is in this answer only.
+    /// decrypted again, a view of the top level is recorded in the audit before the answer (M6.18), and the value is in this
+    /// answer only.
     /// </summary>
     private static Results<Ok<SecretResponse>, BadRequest<ErrorResponse>, NotFound<ErrorResponse>, Conflict<ErrorResponse>, JsonHttpResult<ErrorResponse>> Secret(
-        HttpContext context, KilerData data, string id, SecretRequest request)
+        HttpContext context, KilerData data, string id, SecretRequest request, TimeProvider time)
     {
         context.Response.Headers.CacheControl = "no-store";
 
@@ -366,12 +372,12 @@ internal static class RecordsApi
             return Forbidden(AccessRules.Message(AccessRefusal.NotSignedIn));
         }
 
-        if (request.Use is not ("show" or "copy"))
+        if (Audit.UseOf(request.Use) is not { } use)
         {
             return TypedResults.BadRequest(new ErrorResponse("use is not show or copy."));
         }
 
-        if (data.Records is not { } records)
+        if (data.Files is not { } files || data.Records is not { } records || data.Copy is not { } copy)
         {
             return TypedResults.Conflict(new ErrorResponse(SessionApi.NoData));
         }
@@ -381,8 +387,7 @@ internal static class RecordsApi
             return TypedResults.NotFound(new ErrorResponse(NotThere));
         }
 
-        // The use is only checked until the audit of Prod after the exam, which records it (PLAN section 10).
-        var outcome = view.Secret(request.Field ?? string.Empty, session, out var value);
+        var outcome = Audit.Secret(view, request.Field ?? string.Empty, use, session, files.Levels?.Model, copy, time, out var value);
         return outcome switch
         {
             SecretOutcome.Value => TypedResults.Ok(new SecretResponse(value!)),

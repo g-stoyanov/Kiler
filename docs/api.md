@@ -13,7 +13,8 @@ The examples are made up.
 - **Dates** are UTC in ISO 8601 with `Z`, such as `2026-10-21T11:32:00Z`. Only Kiler sets them. The page shows them in local time (design 6.1).
 - **Rights.** Each endpoint states its `Need` (`core.md`, "Keys and the session"):
   - `Reader` is a guest while guest mode is on, who reads level 0, or a session, which reads the levels of its keys;
-  - `Editor` is a session with `canEdit`.
+  - `Editor` is a session with `canEdit`;
+  - `Admin` is a session with `isAdmin` that holds the key of every level of the current `levels.json`, the need of every `/api/admin` endpoint, the audit (M6.18) too.
 
   A request that does not get what its endpoint needs is 403 with the sentence of `AccessRules.Message`. A session that was locked meanwhile is 403 with `AccessRules.Locked` (`host.md`, "Rights"). The other 403s of this contract are of the same kind: something that this session may not do. So after any 403 the page reads the session again (`kiler-ui`, "API"), and the page hides what the session may not do, so these 403s come only from a race. A request that the page built wrong is 400.
 - **Activity.** Every endpoint here is activity for the automatic lock (`host.md`, "Automatic lock"); none is `.NotActivity()`. The one exception is a `GET` with `Kiler-Activity: none`, the read of a page that follows a `changed` event ("The changes of other users" at the end).
@@ -27,7 +28,7 @@ The examples are made up.
     - A write that meets the slot of another write, a `Conflict` at the version that it changes (M2.4): "The record is being written now. Try again in a moment."
     - A write over an older version: the conflict ("Conflict" below). Only this 409 has `current`.
     - The other outcomes of a write in the layer (a file that another program holds, a damaged file, a version that cannot go higher, an id that is live again): "The record could not be written to the shared folder. Try again in a moment.", as `AdminApi.Message` says for a user file.
-- **Offline.** The reads answer from the local copy, also while the shared folder cannot be reached.
+- **Offline.** The reads answer from the local copy, also while the shared folder cannot be reached. The exceptions are the value of a `secret` of the top level, whose view is recorded in the shared folder first, and the audit, which is read from it (M6.18).
 
 ## Shapes
 
@@ -214,6 +215,7 @@ These rules are for M5.4 and M5.8; the page follows them in its form.
 | `POST /api/trash/{id}/restore` | `Editor` | a restore from the trash | M5.10 |
 | `GET /api/records/{id}/history` | `Reader` | the versions of a record | M5.11 |
 | `POST /api/records/{id}/history/{version}/restore` | `Editor` | a restore of an old version | M5.11 |
+| `GET /api/admin/audit?from=<UTC>&to=<UTC>` | `Admin` | the views of the secrets of the top level | M6.18 |
 
 Each endpoint can also give the 403s of "Rights" and the 409 without data; they are not repeated below.
 
@@ -279,13 +281,14 @@ The value of a `secret`, for "show" and "copy" (design 8.2).
 { "field": "password", "use": "show" }
 ```
 
-- `use` is `show` or `copy`. One request serves both and says which it is (decided by the user in M5.1): the audit of Prod after the exam (PLAN section 10) records it, and until then it is only checked.
+- `use` is `show` or `copy`. One request serves both and says which it is (decided by the user in M5.1), and the audit records it.
+- **The audit** (M6.18, design 12; decided by the user, `tasks/M6.md`, from "Which views the audit records" to "The audit file"). A view of a `secret` whose level in the record, the level of its group, is the top level of `levels.json` (Prod in the demo data), whoever asks, an admin too, is one line of `audit\<day>\<account>.jsonl` in the shared folder, `<day>` the UTC date of the view: `{"at":"2026-10-31T10:00:00Z","account":"demo.admin","record":"k3x9q2mf","name":"Payments production database","field":"password","use":"show","level":3}`, with `name` the name of the record at that moment, cut when the line would be over 4096 bytes. Kiler decrypts the value, then appends the line straight to the shared folder, never through the local copy, then answers, so a line is written only for a value that is given, and a value is given only with its line. A level above the top level, which only a `levels.json` changed since the sign-in gives, is recorded too, and so is every level while `levels.json` cannot be read, as the top level is not known then. The audit is for tracing only: anyone who writes the shared folder can change or delete its lines.
 - The answer is `{ "value": "<the password>" }`, with `Cache-Control: no-store`. Kiler decrypts the group again for it and keeps the value nowhere (M5.7). The page keeps it only while it shows or copies it (`kiler-ui`, "Secret values").
 - The value is a text. A `secret` as Kiler writes it is one. A value that its group does not mark, where the template says `secret`, such as a number written before the template changed, is its text ("The text of a value" under `GET /api/records`). A `secret` in `public`, which only a file changed by hand has, is answered from there, as it is in clear on the share (decided in M5.7).
 - 400: a `use` other than these two, or a field that the template does not have (a `field` left out too) or that is not a `secret`.
 - 403: a guest, with "Sign in first." (`AccessRules.Message(AccessRefusal.NotSignedIn)`); a field at a level that the session does not hold, whatever its type, as its group may mark it as a `secret`.
 - 404: the record is not there, or its file does not fit.
-- 409: the field has no value now, or its group does not decrypt.
+- 409: the field has no value now, or its group does not decrypt; and a view of the top level that cannot be recorded, offline too, without the value: "The view could not be recorded in the shared folder, so the value is not given. Try again once the shared folder can be reached." (`RecordsApi.NotRecorded`). So while the shared folder cannot be reached, no password of the top level is shown or copied.
 
 ### `POST /api/records`
 
@@ -423,12 +426,26 @@ Makes an old version the current one again:
 - 404: the record is not there, or its file does not fit, as for an edit; an old version that the history does not give, also the current one and a `{version}` that is not a whole number: "That version of the record is not in its history." (decided in M5.11).
 - 409: the conflict, with `current`; offline; the slot of another write; the other outcomes of a write.
 
+### `GET /api/admin/audit?from=<UTC>&to=<UTC>`
+
+The views of the secrets of the top level (M6.18; the screen is M6.19), read from the shared folder at each request:
+
+```json
+{ "entries": [ { "at": "2026-10-31T10:00:00Z", "account": "demo.admin", "record": "k3x9q2mf", "name": "Payments production database", "field": "password", "use": "show", "level": 3 } ], "skipped": 0 }
+```
+
+- `from` and `to` are times in UTC as Kiler writes its dates, with `Z` and up to seven digits of a second, such as `2026-10-30T22:00:00Z` or `2026-10-30T22:00:00.000Z`, as `toISOString()` gives it. The entries are those with `from` ≤ `at` < `to`, the newest first; a local day is the span from its start to the start of the next, in UTC.
+- An entry comes from a line in the file of its account and the folder of its UTC date, as Kiler writes it; `account` is that of the file.
+- `skipped`: the lines that do not fit (not JSON, a member missing or of another type, another account or date than its file, a `record` that is not an id, a `use` other than `show` and `copy`, a `level` outside 1 to 9), and each file or folder of the audit that could not be read whole, once, as its number of lines is not known: a link, one that cannot be opened or listed, a file over 1 MiB (its first MiB is read), or one over the budget of a read (storage.md, "The audit").
+- 400: a `from` or `to` that is missing, given more than once or not such a time ("from and to are times in UTC, such as 2026-10-31T00:00:00Z."), a `to` that is not after `from` ("to is not after from.") or is more than 31 days after it ("to is more than 31 days after from."), and a `to` after `9999-12-31T00:00:00Z` ("to is after the last date that Kiler reads.").
+- 409: no data (`SessionApi.NoData`), and offline or a shared folder that refuses the read: "The audit cannot be read from the shared folder now. Try again once it can be reached." (`AuditApi.NotRead`).
+
 ## Decided in M5.1
 
 Settled with the user, as the plan does not say:
 
 - **Delete and restore.** An editor deletes a record, restores it from the trash and restores an old version of it only when they hold the level of every group of it; for an old version, of the current version and of the old one. A restore writes the groups of every level, so without this rule an editor of a lower level could bring back an old Prod password that they cannot read (design 7.4: no one changes a field above their level). An admin holds every level. The page hides the buttons by `levels` and the levels of the session.
-- **"Show" and "copy"** of a `secret` are one request that says which it is (`use`), so the audit after the exam changes nothing in the API.
+- **"Show" and "copy"** of a `secret` are one request that says which it is (`use`), so the audit (M6.18) changed nothing in the request.
 - **The 409 of a conflict** carries the record as it is now (`current`), so the page needs no other request, and the two versions side by side need no other answer.
 
 ## Not in this contract
@@ -438,8 +455,7 @@ What comes after the exam ([PLAN.md, section 10](PLAN.md#10-deferred-until-after
 - the private records, and the "Private only" filter (item 4);
 - creating and changing a template (item 9);
 - renaming, merging and deleting stashes, with the stash screen and its counters (item 10);
-- the general settings (item 11). Until then the page gets guest mode from the session;
-- the audit of Prod (item 1), which records the `use` of the request of a secret.
+- the general settings (item 11). Until then the page gets guest mode from the session.
 
 Not planned until the exam:
 

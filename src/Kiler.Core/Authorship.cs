@@ -85,6 +85,7 @@ public sealed class Authorship
 
     internal static string WriteDate(DateTime date) => date.ToString(DateFormat, CultureInfo.InvariantCulture);
 
-    private static bool TryReadDate(string? text, out DateTime date) =>
+    /// <summary>A date in UTC in the format of <see cref="WriteDate"/>, also of the audit (M6.18).</summary>
+    internal static bool TryReadDate(string? text, out DateTime date) =>
         DateTime.TryParseExact(text, DateFormat, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out date);
 }

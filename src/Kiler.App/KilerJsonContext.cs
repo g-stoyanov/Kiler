@@ -7,6 +7,7 @@ namespace Kiler.App;
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
 [JsonSerializable(typeof(AdminUserResponse))]
 [JsonSerializable(typeof(AdminUsersResponse))]
+[JsonSerializable(typeof(AuditResponse))]
 [JsonSerializable(typeof(ConflictResponse))]
 [JsonSerializable(typeof(DataResponse))]
 [JsonSerializable(typeof(ErrorResponse))]

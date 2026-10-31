@@ -200,7 +200,7 @@ public sealed partial class RecordsApiTests : IDisposable
     [Theory]
     [InlineData("show")]
     [InlineData("copy")]
-    public async Task TheValueOfASecret_IsGivenToWhoHoldsItsLevel_AndNotKeptByTheBrowser(string use)
+    public async Task TheValueOfASecret_IsGivenToWhoHoldsItsLevel_RecordedAtTheTopLevel_AndNotKeptByTheBrowser(string use)
     {
         using var data = NewData(guestMode: false);
         await using var server = await StartAsync(data, MadeUpKiler.Admin);
@@ -212,6 +212,28 @@ public sealed partial class RecordsApiTests : IDisposable
         Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
         var answer = await ReadAsync(response);
         Assert.True(answer.Count == 1 && (string?)answer["value"] == MadeUpKiler.SecretValue, "The answer is not the value of the secret alone.");
+
+        // The password is at level 2, the top level of the made-up Kiler (M6.18); AuditApiTests read the line.
+        var file = Assert.Single(Directory.GetFiles(Path.Combine(_folder.Path, "data", "audit"), "*.jsonl", SearchOption.AllDirectories));
+        Assert.Equal($"{MadeUpKiler.Admin}.jsonl", Path.GetFileName(file));
+        Assert.Contains($"\"use\":\"{use}\",\"level\":2}}\n", File.ReadAllText(file), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TheValueOfASecretOfTheTopLevel_IsNotGiven_WhenItsViewCannotBeRecorded()
+    {
+        using var data = NewData(guestMode: false);
+        await using var server = await StartAsync(data, MadeUpKiler.Admin);
+        using var client = await SignedInAsync(server);
+
+        // A missing audit\ refuses the append (storage.md, "The audit").
+        Directory.Delete(Path.Combine(_folder.Path, "data", "audit"));
+        using var response = await PostSecretAsync(client, MadeUpKiler.Database, "password", "show");
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+        var answer = await ReadAsync(response);
+        Assert.True(answer.Count == 1 && (string?)answer["error"] == RecordsApi.NotRecorded, "The answer is not the refusal alone.");
     }
 
     [Theory]

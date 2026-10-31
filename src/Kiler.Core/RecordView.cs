@@ -73,6 +73,12 @@ public enum SecretOutcome
 
     /// <summary>Its group does not decrypt, or what it decrypts to does not fit.</summary>
     Unreadable,
+
+    /// <summary>
+    /// The value was decrypted, but its view could not be recorded in the audit (M6.18, <see cref="Audit.Secret"/>), so it is not
+    /// given.
+    /// </summary>
+    NotRecorded,
 }
 
 /// <summary>
@@ -179,10 +185,11 @@ public sealed class RecordView
     /// for (M5.7, docs/api.md): the view keeps no value of a secret, so its group is decrypted again, and the value is in
     /// <paramref name="value"/> only. A secret as Kiler writes it is a text; a value that is not marked, where the template says
     /// <c>secret</c>, gives its text, as a number written before the template changed. A secret in <c>public</c>, which only a
-    /// file changed by hand has, is given from there, as it is in clear on the share.
+    /// file changed by hand has, is given from there, as it is in clear on the share. Not recorded in the audit: a request takes
+    /// it through <see cref="Audit.Secret"/>, which records a view of the top level (M6.18).
     /// </summary>
     /// <exception cref="SessionLockedException">The session is locked, before or while it decrypts.</exception>
-    public SecretOutcome Secret(string key, Session session, out string? value)
+    internal SecretOutcome Secret(string key, Session session, out string? value)
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(session);
