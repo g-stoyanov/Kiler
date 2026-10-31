@@ -60,6 +60,7 @@ body {
   font-size: 1.2rem;
   font-weight: 600;
   color: var(--color-accent);
+  text-decoration: none;
 }
 
 .theme-switch {
@@ -107,6 +108,19 @@ body {
 .frame-main {
   flex: 1;
   padding: calc(var(--space) * 2);
+}
+
+/* The data folder and the version, on every page (decided at the start of M6). */
+.frame-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--space) / 2) calc(var(--space) * 2);
+  padding: calc(var(--space) / 2) calc(var(--space) * 2);
+  font-size: 0.85rem;
+  color: var(--color-muted);
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  overflow-wrap: anywhere;
 }
 
 .card {
@@ -259,13 +273,83 @@ button.primary {
   overflow-wrap: anywhere;
 }
 
-.admin-links {
+.header-links {
   display: flex;
   gap: var(--space);
 }
 
-.admin-links a {
+.header-links a {
   color: var(--color-accent);
+}
+
+.copy-button {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--space) / 2);
+}
+
+.copy-failed {
+  color: var(--color-danger);
+  font-size: 0.9rem;
+}
+
+/* A field of a record (FieldValue.tsx). */
+.field-value {
+  overflow-wrap: anywhere;
+}
+
+a.field-value {
+  color: var(--color-accent);
+}
+
+.field-lines {
+  white-space: pre-wrap;
+}
+
+.field-code,
+.code-block,
+.code-editor {
+  font-family: Consolas, 'Cascadia Mono', monospace;
+  font-size: 0.9rem;
+}
+
+.field-local {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--space) / 2);
+}
+
+.field-local .muted {
+  font-size: 0.85rem;
+}
+
+.padlock {
+  color: var(--color-muted);
+}
+
+.field-unreadable {
+  color: var(--color-danger);
+}
+
+/* The code until CodeMirror (M6.9). */
+.code-block {
+  margin: 0;
+  padding: var(--space);
+  overflow-x: auto;
+  background: var(--color-page);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.code-editor {
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.3rem 0.5rem;
+  resize: vertical;
 }
 
 .card.card-wide {

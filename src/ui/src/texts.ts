@@ -1,9 +1,21 @@
+import { browse } from './texts/browse.ts';
+import { code } from './texts/code.ts';
+import { form } from './texts/form.ts';
+import { history } from './texts/history.ts';
+import { record } from './texts/record.ts';
+
 /**
  * All the texts of the UI, in one place (decided in M1.7). The app is in English only (PLAN section 8), so there is no
- * translation layer: the components read the texts from here.
+ * translation layer: the components read the texts from here. Each area of M6 keeps its texts in a file of its own in
+ * `texts/`, so two sessions never write one file (decided at the start of M6).
  */
 export const texts = {
   appName: 'Kiler',
+  frame: {
+    trash: 'Trash',
+    locked: 'Kiler has locked, so this page shows only level 0 again. Sign in to read the rest.',
+    version: (version: string) => `Kiler ${version}`,
+  },
   theme: {
     label: 'Theme',
     light: 'Light',
@@ -92,9 +104,21 @@ export const texts = {
     saved: 'I have saved the recovery key outside Kiler',
     continue: 'Continue to the sign-in',
   },
-  secret: {
+  copy: {
     copy: 'Copy',
+    copying: 'Copying…',
     copied: 'Copied',
+    failed: 'The browser did not copy it. Copy it by hand.',
+  },
+  field: {
+    empty: 'No value',
+    secret: '••••',
+    locked: (level: string) => `🔒 requires level ${level}`,
+    unreadable: 'Cannot be read',
+    unreadableHint: 'Its part of the file is damaged, or it was moved from another record.',
+    gone: 'The record has gone',
+    local:
+      'A local address: Kiler does not open it, as the browser would send it the sign-in of Kiler. Copy it instead.',
   },
   signIn: {
     title: 'Sign in',
@@ -205,17 +229,11 @@ export const texts = {
       twice: 'Another level has this name.',
     },
   },
-  home: {
-    title: 'Kiler',
-    signedIn: (name: string) => `Signed in as ${name}.`,
-    guest: 'You are a guest: you read level 0 only.',
-    locked: 'Kiler has locked, so this page shows only level 0 again. Sign in to read the rest.',
-    levels: (levels: string) => `Levels you read: ${levels}.`,
-    editor: 'You can edit.',
-    admin: 'You are an admin.',
-    loading: 'Asking Kiler…',
-    version: (version: string) => `Server version ${version}`,
-  },
+  browse,
+  record,
+  form,
+  code,
+  history,
   errors: {
     unauthorized: 'This page is not signed in to Kiler. Start Kiler again, and it opens a page that is.',
     stopping: 'Kiler is stopping.',

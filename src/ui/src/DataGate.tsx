@@ -16,8 +16,10 @@ type DataResult = { state: 'reading' } | { state: 'read'; data: DataInfo } | { s
  *
  * The session that the store read at the connect may be of a copy that was still opening, without its guest mode, so
  * once the routes show after a state that did not show them, the session is read again; that covers the wizard too.
+ *
+ * Each state read gives its data folder to `onFolder`, for the foot line of the frame (decided at the start of M6).
  */
-export function DataGate({ children }: { children: ReactNode }) {
+export function DataGate({ children, onFolder }: { children: ReactNode; onFolder: (folder: string | null) => void }) {
   const store = useSessionStore();
   const navigate = useNavigate();
   const [result, setResult] = useState<DataResult>({ state: 'reading' });
@@ -38,6 +40,7 @@ export function DataGate({ children }: { children: ReactNode }) {
           }
 
           setResult({ state: 'read', data });
+          onFolder(data.folder);
           const routes = showsRoutes(data);
           if (routes && !showedRoutes.current) {
             store.reload();
@@ -61,7 +64,7 @@ export function DataGate({ children }: { children: ReactNode }) {
       abort.abort();
       clearTimeout(timer);
     };
-  }, [round, store]);
+  }, [round, store, onFolder]);
 
   if (result.state === 'reading') {
     return <p className="muted">{texts.data.reading}</p>;
@@ -93,14 +96,13 @@ export function DataGate({ children }: { children: ReactNode }) {
   }
 
   if (data.state !== 'open' && data.state !== 'offline') {
-    return <DataProblem folder={data.folder} lines={[texts.data[data.state]]} />;
+    return <DataProblem lines={[texts.data[data.state]]} />;
   }
 
   if (data.levels !== null) {
     const firstStart = data.state === 'offline' && data.levels === missingFile && data.settings === missingFile;
     return (
       <DataProblem
-        folder={data.folder}
         lines={
           firstStart
             ? [texts.data.offlineNew]
@@ -132,13 +134,13 @@ export function DataGate({ children }: { children: ReactNode }) {
   );
 }
 
-function DataProblem({ folder, lines }: { folder: string | null; lines: string[] }) {
+/** Why Kiler shows no routes; the foot line of the frame names the data folder. */
+function DataProblem({ lines }: { lines: string[] }) {
   return (
     <section className="card stack">
       {lines.map((line) => (
         <p key={line}>{line}</p>
       ))}
-      {folder !== null && <p className="muted">{texts.data.folder(folder)}</p>}
     </section>
   );
 }
