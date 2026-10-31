@@ -506,3 +506,8 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+## Kiler: exceptions to the list above
+
+# The E2E tests (M6.10): the name of the folder matches *.e2e, the Visual Studio trace files, as Git on Windows ignores case
+!tests/Kiler.E2E/

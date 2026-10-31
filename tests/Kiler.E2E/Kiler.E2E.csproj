@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Plain Microsoft.Playwright, not Microsoft.Playwright.Xunit.v3 (M6.10): that one is tested by Playwright on xunit.v3 3.x
+    with VSTest, and its settings come from a .runsettings file, which Microsoft Testing Platform does not read.
+    KilerBrowser is the fixture of the browser instead.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Playwright" />
+  </ItemGroup>
+
+  <!-- The tests start the published exe as the smoke tests do (M1.9), with their KilerExe. -->
+  <ItemGroup>
+    <Compile Include="..\Kiler.App.Tests\KilerExe.cs" Link="Shared\KilerExe.cs" />
+    <Compile Include="..\Kiler.App.Tests\TempFolder.cs" Link="Shared\TempFolder.cs" />
+  </ItemGroup>
+
+  <!-- KilerExe names the instance file and the local copy of a run as Kiler.App does, so it deletes what a run leaves. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Kiler.App\Kiler.App.csproj" />
+  </ItemGroup>
+
+  <!-- Kiler.App is for Windows only, so the platform analyzer (CA1416) needs the same here to let the tests call it. -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.Versioning.SupportedOSPlatformAttribute">
+      <_Parameter1>windows</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+</Project>

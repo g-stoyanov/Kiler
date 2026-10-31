@@ -56,6 +56,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Kiler.App.Tests" />
+    <InternalsVisibleTo Include="Kiler.E2E" />
   </ItemGroup>
 
   <!--

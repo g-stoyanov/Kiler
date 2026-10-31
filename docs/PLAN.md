@@ -35,7 +35,7 @@
 | C# tests | xUnit v3 (package `xunit.v3`), the built-in assertions, on Microsoft Testing Platform (the `dotnet test` runner is set in `global.json`) |
 | API tests | the real Kestrel on `127.0.0.1` with `HttpClient`, not WebApplicationFactory (decided in M1.4) |
 | UI tests | Vitest |
-| E2E | Playwright for .NET (`Microsoft.Playwright.Xunit.v3`) |
+| E2E | Playwright for .NET (`Microsoft.Playwright`) with a fixture of its own, on the published exe. Decided in M6.10: not `Microsoft.Playwright.Xunit.v3`, which Playwright tests on xunit.v3 3.x with VSTest, and whose settings come from a `.runsettings` file that Microsoft Testing Platform does not read |
 | Coverage | coverlet (`coverlet.MTP`) and ReportGenerator, no required threshold |
 | Code style | `dotnet format`, ESLint, Prettier |
 | CI | GitHub Actions, `windows-latest` |

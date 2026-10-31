@@ -11,7 +11,7 @@ Decisions come from `docs/PLAN.md` (sections 2 and 3) and the task files `docs/t
 
 The rules of one area are in a file of their own beside this one. Read the file of the area that the task changes, and only that one:
 
-- [host.md](host.md): Kiler.App and its tests: the host, the access to the server, the single instance, the heartbeat, the local copy of the exe, the UI files and the publish, the smoke tests and `--diag` (M1); the data folder, its local copy and the watch in the host (M2.10).
+- [host.md](host.md): Kiler.App and its tests: the host, the access to the server, the single instance, the heartbeat, the local copy of the exe, the UI files and the publish, the smoke tests and `--diag` (M1); the data folder, its local copy and the watch in the host (M2.10); the E2E tests of `tests/Kiler.E2E` (M6.10).
 - [storage.md](storage.md): Kiler.Storage and its tests, and code that calls the layer: the data layer (M2).
 - [crypto.md](crypto.md): Kiler.Crypto and its tests (M3). The cryptographic rules are in the `kiler-crypto` skill.
 - [core.md](core.md): Kiler.Core and its tests: the models, the calls to the data layer, the team in memory, the session and the permissions (M4); the templates, stashes and records (M5).

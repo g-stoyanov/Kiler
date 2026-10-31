@@ -10,6 +10,7 @@
     <Project Path="tests/Kiler.Core.Tests/Kiler.Core.Tests.csproj" />
     <Project Path="tests/Kiler.Crypto.Tests/Kiler.Crypto.Tests.csproj" />
     <Project Path="tests/Kiler.DemoData.Tests/Kiler.DemoData.Tests.csproj" />
+    <Project Path="tests/Kiler.E2E/Kiler.E2E.csproj" />
     <Project Path="tests/Kiler.Storage.Tests/Kiler.Storage.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
