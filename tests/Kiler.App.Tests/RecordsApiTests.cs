@@ -260,6 +260,9 @@ public sealed partial class RecordsApiTests : IDisposable
     [InlineData(NoGuestMode, AccessRefusal.NotSignedIn, "trash")]
     [InlineData(Locked, AccessRefusal.NotSignedIn, "trash")]
     [InlineData(MadeUpKiler.Temporary, AccessRefusal.MustChangePassword, "trash")]
+    [InlineData(NoGuestMode, AccessRefusal.NotSignedIn, "history")]
+    [InlineData(Locked, AccessRefusal.NotSignedIn, "history")]
+    [InlineData(MadeUpKiler.Temporary, AccessRefusal.MustChangePassword, "history")]
     public async Task TheEndpoints_RefuseWhomTheyMust(string caller, AccessRefusal refusal, string endpoint)
     {
         using var data = NewData(guestMode: false);
@@ -277,6 +280,7 @@ public sealed partial class RecordsApiTests : IDisposable
             "stashes" => await client.GetAsync("/api/stashes", Cancel),
             "tags" => await client.GetAsync("/api/tags", Cancel),
             "trash" => await client.GetAsync("/api/trash", Cancel),
+            "history" => await client.GetAsync($"/api/records/{MadeUpKiler.Database}/history", Cancel),
             _ => await PostSecretAsync(client, MadeUpKiler.Database, "password", "show"),
         };
 

@@ -11,8 +11,9 @@ namespace Kiler.Core;
 /// templates it reads, and reads the copy again after <see cref="Team.Reload"/> (<see cref="Reload"/>), both on the thread of
 /// the watch. It follows <see cref="CurrentSession.Changed"/>: a sign-in decrypts for the new session, and a lock drops what
 /// was decrypted. The updates keep a lock of their own. A write of this Kiler goes through it (<see cref="Create(RecordFile)"/>,
-/// M5.4; <see cref="Replace"/>, M5.8; <see cref="Delete"/> and <see cref="RestoreFromTrash"/>, M5.10), as no load gives it.
-/// The private records come after the exam, so it skips the private folders.
+/// M5.4; <see cref="Replace"/>, M5.8, and the restore of an old version, M5.11; <see cref="Delete"/> and
+/// <see cref="RestoreFromTrash"/>, M5.10), as no load gives it. The old versions of a record come from the copy
+/// (<see cref="History"/>, M5.11). The private records come after the exam, so it skips the private folders.
 /// </summary>
 public sealed class Records : IDisposable
 {
@@ -213,6 +214,22 @@ public sealed class Records : IDisposable
             (set, restored) => restored != version ? ReadAll(_copy.Documents(), _copy.Trash(), _templates, set.Session)
                 : set.Records.GetValueOrDefault(record.Id)?.File.Version > restored ? null
                 : new RecordSet(set.Session, set.Stashes, set.Records.SetItem(record.Id, ViewOf(record, restored, set.Session)), set.Trash.Remove(record.Id)));
+    }
+
+    /// <summary>
+    /// The old versions of the record <paramref name="id"/> below <paramref name="below"/>, the version that the set has, from
+    /// the history that the copy keeps (<see cref="DataCopy.History"/>, M5.11), the newest first, each whose file fits: who
+    /// changed it and when (design 5.6), and the content for a restore. The copy keeps what it saw, so a version from before
+    /// its first load is not there. The read runs without the lock, as the copy can wait for a load under way.
+    /// </summary>
+    /// <exception cref="ArgumentException"><paramref name="id"/> is not the id of a record.</exception>
+    public IReadOnlyList<TeamFile<RecordFile>> History(string id, int below)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+        return [.. _copy.History(RecordFile.KeyOf(id))
+            .Where(document => document.Version < below)
+            .Select(document => TeamFile<RecordFile>.Of(document, RecordFile.TryRead))
+            .Where(file => file.IsValid)];
     }
 
     /// <summary>

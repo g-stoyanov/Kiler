@@ -11,7 +11,8 @@ namespace Kiler.Core;
 
 /// <summary>
 /// The writes of an editor (M5.4, design 6.1 to 6.6 and 7.4): a new record and a new stash; the edit (M5.8); the delete and
-/// the restore from the trash (M5.10), which only an editor who holds every level of the record makes. A new record is
+/// the restore from the trash (M5.10) and the restore of an old version (M5.11), which only an editor who holds every level
+/// of the record makes. A new record is
 /// checked against its template (docs/api.md, <c>POST /api/records</c> and "Values by type"); each field takes its level
 /// ("Levels of a field"), and each group of fields is encrypted with the key of its level and listed in <c>fields</c>
 /// (kiler-crypto, "Model"). A field at a level whose key the author does not hold is refused, as nobody encrypts above their
@@ -233,6 +234,58 @@ public static class RecordActions
             WriteOutcome.Exists or WriteOutcome.Missing => new(RecordOutcome.Missing),
             _ => NotWritten(written),
         };
+    }
+
+    /// <summary>
+    /// Makes the old version <paramref name="old"/> of the record <paramref name="id"/> the current one again, over
+    /// <paramref name="version"/>, the version that the editor read (M5.11, docs/api.md,
+    /// <c>POST /api/records/{id}/history/{version}/restore</c>), when <paramref name="editor"/> holds the level of every group
+    /// of the current version and of the old one ("Decided in M5.1"), else <see cref="RecordOutcome.NotHeld"/>: a restore
+    /// writes the groups of every level. It is read from the history that the copy keeps (<see cref="Records.History"/>), and
+    /// written as a replace, so it becomes the next version (M2.5): its content as it is, the groups byte for byte, with the
+    /// creation of the current version and the editor and now as the last change, set before the write, or the check of design
+    /// 7.8 would mark the record. An old version that the copy does not keep, or whose file does not fit, is
+    /// <see cref="RecordOutcome.NoVersion"/>. A record whose template is missing is restored too, as its groups are in its file.
+    /// The result has the record as the editor reads it after the write, or, at a conflict, as it is now.
+    /// </summary>
+    /// <exception cref="SessionLockedException">The session was locked before the write, or after it, before its record was read.</exception>
+    public static RecordResult RestoreVersion(Session editor, Records records, string id, int old, int version, TimeProvider time)
+    {
+        ArgumentNullException.ThrowIfNull(editor);
+        ArgumentNullException.ThrowIfNull(records);
+        ArgumentNullException.ThrowIfNull(id);
+        ArgumentNullException.ThrowIfNull(time);
+        var set = records.Read(editor);
+        if (set.Records.GetValueOrDefault(id) is not { File.Model: { } record } view)
+        {
+            return new(RecordOutcome.Missing);
+        }
+
+        if (view.File.Version != version)
+        {
+            return new(RecordOutcome.Conflict, Record: view);
+        }
+
+        if (records.History(id, version).FirstOrDefault(file => file.Version == old)?.Model is not { } restored)
+        {
+            return new(RecordOutcome.NoVersion);
+        }
+
+        if (!record.Protected.Keys.All(editor.Reads) || !restored.Protected.Keys.All(editor.Reads))
+        {
+            return new(RecordOutcome.NotHeld);
+        }
+
+        var authorship = new Authorship(record.Authorship.CreatedBy, record.Authorship.CreatedAt, editor.Account, time.GetUtcNow().UtcDateTime);
+        var next = new RecordFile(id, restored.Template, authorship, restored.Stash, restored.Name, restored.Tags, restored.Public, restored.Protected, restored.Fields);
+        if (!TryWrite(() => records.Replace(next, version), out var written, out var failed))
+        {
+            return failed;
+        }
+
+        return written.Outcome == WriteOutcome.Written
+            ? new(RecordOutcome.Done, Record: records.Read(editor).Records.GetValueOrDefault(id))
+            : NotWrittenOver(written, version, editor, records);
     }
 
     /// <summary><see cref="NewStash(Session, Records, string?, TimeProvider)"/> with the ids of <paramref name="newId"/>, for the tests.</summary>
@@ -770,12 +823,12 @@ public enum RecordOutcome
     /// <summary>The file could not be written: the share did not answer or refused it, or every new id met one there.</summary>
     NotWritten,
 
-    /// <summary>An edit or a delete over a version that is not the one there now; <see cref="RecordResult.Record"/> has the record as it is now (M5.8).</summary>
+    /// <summary>An edit, a delete or a restore of an old version over a version that is not the one there now; <see cref="RecordResult.Record"/> has the record as it is now (M5.8).</summary>
     Conflict,
 
     /// <summary>
-    /// The record of an edit or a delete is not there, has gone meanwhile, or its file does not fit (M5.8); the record of a
-    /// restore is not in the trash, or its file there does not fit (M5.10).
+    /// The record of an edit, a delete or a restore of an old version is not there, has gone meanwhile, or its file does not
+    /// fit (M5.8); the record of a restore from the trash is not in the trash, or its file there does not fit (M5.10).
     /// </summary>
     Missing,
 
@@ -785,8 +838,14 @@ public enum RecordOutcome
     /// <summary>A group of a level of the editor does not decrypt, or what it decrypts to does not fit, so an edit would write over it (M5.8).</summary>
     Unreadable,
 
-    /// <summary>A delete or a restore of a record with a group at a level that the editor does not hold ("Decided in M5.1", M5.10).</summary>
+    /// <summary>
+    /// A delete or a restore of a record with a group at a level that the editor does not hold ("Decided in M5.1", M5.10); of
+    /// an old version, in the current version or in the old one (M5.11).
+    /// </summary>
     NotHeld,
+
+    /// <summary>The old version of a restore is not in the history that the copy keeps, or its file does not fit (M5.11).</summary>
+    NoVersion,
 }
 
 /// <param name="Outcome">How the write ended.</param>

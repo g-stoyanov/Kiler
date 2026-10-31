@@ -151,6 +151,8 @@ An item of `GET /api/records/{id}/history`:
 { "version": 6, "updatedBy": { "account": "demo.admin", "name": "Demo Admin" }, "updatedAt": "2026-10-20T09:00:00Z", "levels": [1, 3] }
 ```
 
+`updatedBy` and `updatedAt` are those of that version, who made it and when; `levels` are the levels of its groups, by which the page offers its restore ("Decided in M5.1").
+
 ### Template
 
 ```json
@@ -401,8 +403,9 @@ Brings a record back from the trash as it was deleted: a move, so its version, d
 { "versions": [ { "version": 8, "updatedBy": { "account": "demo.editor", "name": "Demo Editor" }, "updatedAt": "2026-10-21T11:32:00Z", "levels": [1, 3] } ] }
 ```
 
-- The versions of the record, the newest first, the current one with them: who changed it and when (design 5.6). A version that cannot be read is left out.
-- 404: the record is not there.
+- The versions of the record, the newest first, the current one with them: who changed it and when (design 5.6). A version whose file does not fit is left out.
+- They come from the local copy, as every read does, also while offline (decided by the user in M5.11, until the exam; the versions of the share come after it, [tasks/M5.md](tasks/M5.md#left-for-after-the-exam)): the current version as `GET /api/records/{id}` has it, then the old versions that the copy keeps in its history. The copy keeps what it saw: the versions that the writes of this Kiler replaced, and those that other Kilers wrote after the version that it had when a load saw the change, up to 64 MiB and 20 000 old versions in all (M2.7a). A version from before the first load of the copy is not there, so a new local copy starts with the current versions only. A request reads the copy, so it waits for a load under way, up to some 60 s while a file server does not answer (`core.md`, "Calling the layer").
+- 404: the record is not there, or its file does not fit (as for `GET /api/records/{id}`).
 
 ### `POST /api/records/{id}/history/{version}/restore`
 
@@ -412,13 +415,13 @@ Makes an old version the current one again:
 { "version": 8 }
 ```
 
-- `{version}` in the path is the old version; `version` in the request is the current version that the editor read, and the restore is over it.
-- The old version becomes the next version, with `updatedAt` and `updatedBy` of the restore; `createdAt` and `createdBy` stay (design 6.1). Kiler sets them before the write, or the check of design 7.8 would mark the record (M2.5).
-- An editor who holds the level of every group of the current version and of the old one may restore it ("Decided in M5.1"). Another editor gets 403.
+- `{version}` in the path is the old version, one of those that `GET /api/records/{id}/history` gives below the current one; `version` in the request is the current version that the editor read, and the restore is over it.
+- The old version becomes the next version as it is, its header, its fields and its groups byte for byte, with `updatedAt` and `updatedBy` of the restore; `createdAt` and `createdBy` stay those of the current version (design 6.1). Kiler sets them before the write, or the check of design 7.8 would mark the record (M2.5). Nothing of it is checked again, as for a value that an edit keeps: a stash or a `ref` that has gone since stays.
+- An editor who holds the level of every group of the current version and of the old one may restore it ("Decided in M5.1"). Another editor gets 403 with the sentence of the delete.
 - The answer is 200 with the record.
-- 400: no `version`.
-- 404: the record or the old version is not there.
-- 409: the conflict, with `current`; offline; the slot of another write.
+- 400: no `version`, with `field` `null`, as for an edit. A `version` that is not a whole number is the 400 of ASP.NET Core, without a body.
+- 404: the record is not there, or its file does not fit, as for an edit; an old version that the history does not give, also the current one and a `{version}` that is not a whole number: "That version of the record is not in its history." (decided in M5.11).
+- 409: the conflict, with `current`; offline; the slot of another write; the other outcomes of a write.
 
 ## Decided in M5.1
 

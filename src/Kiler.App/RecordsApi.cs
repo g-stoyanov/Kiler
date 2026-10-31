@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Kiler.Core;
@@ -192,6 +193,19 @@ internal sealed record TrashItemResponse(
 /// <param name="Records">The records in the trash, by name.</param>
 internal sealed record TrashResponse(IReadOnlyList<TrashItemResponse> Records);
 
+/// <summary>An item of <c>GET /api/records/{id}/history</c> (docs/api.md, "Version"): who changed the record and when (design 5.6).</summary>
+/// <param name="Version">The version.</param>
+/// <param name="UpdatedBy">Who made it.</param>
+/// <param name="UpdatedAt">When, in UTC.</param>
+/// <param name="Levels">The levels of its groups, by which the page offers its restore.</param>
+internal sealed record VersionResponse(int Version, AuthorResponse UpdatedBy, DateTime UpdatedAt, IReadOnlyList<int> Levels);
+
+/// <param name="Versions">The versions of the record, the newest first, the current one with them.</param>
+internal sealed record HistoryResponse(IReadOnlyList<VersionResponse> Versions);
+
+/// <param name="Version">The current version that the editor read, which a restore of an old version is over.</param>
+internal sealed record VersionRequest(int? Version);
+
 /// <summary>
 /// The records (docs/api.md): the list (M5.6), <c>GET /api/records</c>, with the search, the filters, the tree and the facets
 /// over the records in memory as the session of the request reads them (<see cref="RecordSearch"/>); a record (M5.7),
@@ -201,7 +215,10 @@ internal sealed record TrashResponse(IReadOnlyList<TrashItemResponse> Records);
 /// (M5.9), <c>POST /api/records</c> and <c>PUT /api/records/{id}</c>, need <see cref="Need.Editor"/> and are
 /// <see cref="RecordActions"/>; the dates and the authors come from Kiler, never from the request. The trash (M5.10):
 /// <c>GET /api/trash</c> for a reader, and the delete, <c>DELETE /api/records/{id}</c>, and the restore,
-/// <c>POST /api/trash/{id}/restore</c>, for an editor who holds every level of the record.
+/// <c>POST /api/trash/{id}/restore</c>, for an editor who holds every level of the record. The history (M5.11):
+/// <c>GET /api/records/{id}/history</c> for a reader, from the history that the copy keeps, and the restore of an old
+/// version, <c>POST /api/records/{id}/history/{version}/restore</c>, for an editor who holds every level of the record and
+/// of that version.
 /// </summary>
 internal static class RecordsApi
 {
@@ -211,10 +228,13 @@ internal static class RecordsApi
     /// <summary>The 404 of a restore of a record that is not in the trash, also one that another Kiler has restored meanwhile (M5.10).</summary>
     public const string NotInTrash = "The record is not in the trash. It may have been restored.";
 
+    /// <summary>The 404 of a restore of an old version that the history of the record does not have (M5.11).</summary>
+    public const string NotInHistory = "That version of the record is not in its history.";
+
     /// <summary>The 400 of a value of <c>fields</c> that has no shape of a value, with its key.</summary>
     public const string NoShape = "The value is not a text, a number or a code.";
 
-    /// <summary>The 400 of an edit without the version that the editor read.</summary>
+    /// <summary>The 400 of an edit, a delete or a restore of an old version without the version that the editor read.</summary>
     public const string NoVersion = "The request has no version.";
 
     private const string FieldPrefix = "field.";
@@ -232,6 +252,11 @@ internal static class RecordsApi
         endpoints.MapDelete("/api/records/{id}", (HttpContext context, string id, int? version) => Delete(context, data, id, version)).Needs(Need.Editor);
         endpoints.MapGet("/api/trash", (HttpContext context) => Trash(context, data)).Needs(Need.Reader);
         endpoints.MapPost("/api/trash/{id}/restore", (HttpContext context, string id) => Restore(context, data, id)).Needs(Need.Editor);
+        endpoints.MapGet("/api/records/{id}/history", (HttpContext context, string id) => History(context, data, id)).Needs(Need.Reader);
+        endpoints.MapPost(
+            "/api/records/{id}/history/{version}/restore",
+            (HttpContext context, string id, string version, VersionRequest request) => RestoreVersion(context, data, id, version, request, time))
+            .Needs(Need.Editor);
     }
 
     /// <summary>What the page says when a write of a record was refused, but for a value that does not fit, whose reason is its own (docs/api.md).</summary>
@@ -244,6 +269,7 @@ internal static class RecordsApi
         RecordOutcome.NoTemplate => "The template of this record is not there, or cannot be used, so the record cannot be changed.",
         RecordOutcome.Unreadable => "A part of this record cannot be read, so it cannot be changed. An admin restores it from the history.",
         RecordOutcome.NotHeld => "A part of this record is at a level that you do not hold.",
+        RecordOutcome.NoVersion => NotInHistory,
         _ => "The record could not be written to the shared folder. Try again in a moment.",
     };
 
@@ -569,6 +595,75 @@ internal static class RecordsApi
         };
     }
 
+    /// <summary>
+    /// The versions of a record as the session reads it, the newest first (docs/api.md, <c>GET /api/records/{id}/history</c>):
+    /// the current one of the set, then the old ones that the copy keeps (<see cref="Records.History"/>). 404 as for
+    /// <c>GET /api/records/{id}</c>.
+    /// </summary>
+    private static Results<Ok<HistoryResponse>, NotFound<ErrorResponse>, Conflict<ErrorResponse>> History(HttpContext context, KilerData data, string id)
+    {
+        if (data.Files is not { } files || data.Records is not { } records)
+        {
+            return TypedResults.Conflict(new ErrorResponse(SessionApi.NoData));
+        }
+
+        if (Find(records.Read(AccessRules.SessionOf(context)), id) is not { File: { Model: { } record, Version: { } version } })
+        {
+            return TypedResults.NotFound(new ErrorResponse(NotThere));
+        }
+
+        var versions = records.History(id, version).Select(old => Version(old.Model!, old.Version.GetValueOrDefault(), files));
+        return TypedResults.Ok(new HistoryResponse([Version(record, version, files), .. versions]));
+    }
+
+    /// <summary>
+    /// The restore of an old version over the current version that the editor read (docs/api.md,
+    /// <c>POST /api/records/{id}/history/{version}/restore</c>): 200 with the record as the editor reads it; at a conflict, the
+    /// 409 with the record as it is now. A <paramref name="version"/> that is not a whole number is one that the history does
+    /// not have.
+    /// </summary>
+    private static Results<Ok<RecordResponse>, BadRequest<WriteErrorResponse>, NotFound<ErrorResponse>, Conflict<ErrorResponse>, Conflict<ConflictResponse>, JsonHttpResult<ErrorResponse>> RestoreVersion(
+        HttpContext context, KilerData data, string id, string version, VersionRequest request, TimeProvider time)
+    {
+        var editor = AccessRules.SessionOf(context) ?? throw new InvalidOperationException("A restore has no session.");
+        if (request.Version is not { } over)
+        {
+            return TypedResults.BadRequest(new WriteErrorResponse(NoVersion, null));
+        }
+
+        if (data.Files is not { } files || data.Records is not { } records)
+        {
+            return TypedResults.Conflict(new ErrorResponse(SessionApi.NoData));
+        }
+
+        if (!int.TryParse(version, NumberStyles.None, CultureInfo.InvariantCulture, out var old))
+        {
+            return TypedResults.NotFound(new ErrorResponse(NotInHistory));
+        }
+
+        var result = RecordActions.RestoreVersion(editor, records, id, old, over, time);
+        if (result.Outcome is RecordOutcome.Done or RecordOutcome.Conflict)
+        {
+            // As in Answer: a record that a load took away at once, or one on the share whose file does not fit, has none to give.
+            if (result.Record is not { File.IsValid: true } view)
+            {
+                return TypedResults.NotFound(new ErrorResponse(NotThere));
+            }
+
+            var record = Record(view, records.Read(editor), files);
+            return result.Outcome == RecordOutcome.Done
+                ? TypedResults.Ok(record)
+                : TypedResults.Conflict(new ConflictResponse(Message(result.Outcome), record));
+        }
+
+        return result.Outcome switch
+        {
+            RecordOutcome.NotHeld => Forbidden(Message(result.Outcome)),
+            RecordOutcome.Missing or RecordOutcome.NoVersion => TypedResults.NotFound(new ErrorResponse(Message(result.Outcome))),
+            _ => TypedResults.Conflict(new ErrorResponse(Message(result.Outcome))),
+        };
+    }
+
     /// <summary>The record <paramref name="id"/> of the set, unless its file does not fit, as the list leaves it out (docs/api.md).</summary>
     private static RecordView? Find(RecordSet set, string id) => set.Records.GetValueOrDefault(id) is { File.IsValid: true } view ? view : null;
 
@@ -674,6 +769,9 @@ internal static class RecordsApi
     };
 
     private static PathStashResponse[] Stash(RecordFile record, RecordSet set) => [.. record.Stash.Select(id => new PathStashResponse(id, set.StashName(id)))];
+
+    private static VersionResponse Version(RecordFile record, int version, TeamFiles files) =>
+        new(version, Author(record.Authorship.UpdatedBy, files), record.Authorship.UpdatedAt, [.. record.Protected.Keys]);
 
     private static AuthorResponse Author(string account, TeamFiles files) => new(account, files.Users.GetValueOrDefault(account)?.Model?.DisplayName);
 }

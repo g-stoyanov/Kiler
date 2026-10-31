@@ -319,8 +319,9 @@ public sealed partial class RecordsApiTests
         using var stash = await SendAsync(client, HttpMethod.Post, "/api/stashes", """{"name":"Reports"}""");
         using var delete = await client.DeleteAsync($"/api/records/{MadeUpKiler.Query}?version=1", Cancel);
         using var restore = await client.PostAsync($"/api/trash/{MadeUpKiler.Query}/restore", null, Cancel);
+        using var restoreVersion = await SendAsync(client, HttpMethod.Post, $"/api/records/{MadeUpKiler.Query}/history/1/restore", """{"version":2}""");
 
-        foreach (var response in new[] { create, edit, stash, delete, restore })
+        foreach (var response in new[] { create, edit, stash, delete, restore, restoreVersion })
         {
             Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
             Assert.Equal(AccessRules.Message(refusal), (string?)(await ReadAsync(response))["error"]);

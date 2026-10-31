@@ -44,6 +44,41 @@ public sealed partial class DataCopy
     }
 
     /// <summary>
+    /// The old versions of a document in its folder that the copy keeps in its history, the newest first, for the history of a
+    /// record (M5.11): each read anew from its file in the copy and checked against its hash, as <see cref="Documents"/> reads
+    /// the documents. The share is not touched, so it answers while offline too. A slot whose file is missing, cannot be read
+    /// now, has other bytes, is damaged or holds another version is left out, and keeps its entry. The copy keeps only what it
+    /// saw (<see cref="TakeHistory"/>): the slots of the writes of this Kiler, and those after the version that it had when a
+    /// load saw a write of another Kiler, within the budget of the history; so a version from before the first load of the copy
+    /// is not there. The slots that it keeps for a document of the same id in the trash are not given. A key of the private
+    /// folder of another user is an <see cref="ArgumentException"/>, as the copy gives none of its documents (M2.7c).
+    /// </summary>
+    public IReadOnlyList<Document> History(DocumentKey key)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        if (!IsOwn(key.Account))
+        {
+            throw new ArgumentException("The local copy gives the history of the data folder and of the private folder of its user only.", nameof(key));
+        }
+
+        lock (_gate)
+        {
+            var history = new List<Document>();
+            foreach (var (slot, entry) in _history.Where(slot => slot.Key.Key == key && !slot.Key.InTrash).OrderByDescending(slot => slot.Key.Version))
+            {
+                if (ReadLastGood(SlotPath(slot), new KeptCopy(slot.Version, entry.Hash, entry.Length, entry.Own), out var bytes) == Keep.Done
+                    && DocumentFormat.Read(key, bytes) is { Document: { } document }
+                    && document.Version == slot.Version)
+                {
+                    history.Add(document);
+                }
+            }
+
+            return history;
+        }
+    }
+
+    /// <summary>
     /// The name of the history folder of a document in a report: <c>history\records\8f3a1c</c>, <c>history\settings</c>,
     /// <c>private\demo.user\history\records\8f3a1c</c> (M2.7b).
     /// </summary>
