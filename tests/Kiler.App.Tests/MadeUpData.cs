@@ -49,5 +49,8 @@ internal sealed class MadeUpData
     /// <summary>Writes a document of any other kind over its <paramref name="version"/>, such as a user file that an admin changes (M4.5a).</summary>
     public void Replace(DocumentKey key, int version, JsonObject content) => Assert.Equal(WriteOutcome.Written, _writer.Replace(key, version, content).Outcome);
 
+    /// <summary>Moves a record over its <paramref name="version"/> to the trash (M5.10).</summary>
+    public void Delete(string id, int version) => Assert.Equal(WriteOutcome.Deleted, _writer.Delete(Record(id), version).Outcome);
+
     private static JsonObject Content(string id, int version) => new() { ["name"] = $"Demo record {id}", ["note"] = $"Made up, version {version}" };
 }

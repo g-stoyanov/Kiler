@@ -371,11 +371,11 @@ The tags of the records, each once without regard to case, by name, for the sugg
 
 Moves the record to the trash over the version that the editor read (M2.5).
 
-- An editor who holds the level of every group of the record (its `levels`) may delete it ("Decided in M5.1"). Another editor gets 403.
+- An editor who holds the level of every group of the record (its `levels`) may delete it ("Decided in M5.1"). Another editor gets 403 with "A part of this record is at a level that you do not hold." (decided in M5.10). The layer deletes only that version, so the groups checked are those that go to the trash.
 - The answer is 200 with the trash item, so the page can offer to restore it.
-- 400: no `version`.
-- 404: the record is not there.
-- 409: the conflict, with `current`; offline; the slot of another write.
+- 400: no `version`, with `field` `null`, as for an edit. A `version` that is not a whole number is the 400 of ASP.NET Core, without a body (decided in M5.10).
+- 404: the record is not there, or its file does not fit (as for `GET /api/records/{id}`).
+- 409: the conflict, with `current`; offline; the slot of another write; the other outcomes of a write.
 
 ### `GET /api/trash`
 
@@ -383,16 +383,17 @@ Moves the record to the trash over the version that the editor read (M2.5).
 { "records": [] }
 ```
 
-The trash items, by name.
+The trash items, by name without regard to case. A record whose file does not fit is left out, as the list leaves it out (decided in M5.10).
 
 ### `POST /api/trash/{id}/restore`
 
-Brings a record back from the trash as it was deleted: a move, so its version, dates and authors stay (M2.5).
+Brings a record back from the trash as it was deleted: a move, so its version, dates and authors stay (M2.5). The request has no body.
 
-- An editor who holds the level of every group of the record may restore it ("Decided in M5.1"). Another editor gets 403.
+- An editor who holds the level of every group of the record may restore it ("Decided in M5.1"). Another editor gets 403 with the sentence of the delete.
+- Kiler checks the right on the record in the trash as the last load gave it, the trash item of `GET /api/trash`. The layer moves the file of the trash without a version (M2.5), so another version that another Kiler deleted since that load is restored as it is, with its groups unchecked: it takes another Kiler a restore, an edit and a delete before a load of this Kiler sees them, some 20 s with the delay of the listings of the share. This limit is left for after the exam, with a version in the restore of the layer as its fix ([tasks/M5.md](tasks/M5.md), "Left for after the exam").
 - The answer is 200 with the record.
-- 404: no record of this id in the trash.
-- 409: offline; the slot of another write.
+- 404: no record of this id in the trash, or its file there does not fit; also a record that another Kiler has restored meanwhile: "The record is not in the trash. It may have been restored." (decided in M5.10).
+- 409: offline; the slot of another write; the other outcomes of a write, such as a damaged file in the trash.
 
 ### `GET /api/records/{id}/history`
 

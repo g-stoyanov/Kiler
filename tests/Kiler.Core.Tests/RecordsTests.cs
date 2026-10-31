@@ -251,6 +251,8 @@ public class RecordsTests : IDisposable
     public void ASignIn_ReadsTheRecordsForTheSession_AndALock_DropsThem_BeforeAnyRequest()
     {
         _kiler.Write(_kiler.Database());
+        _kiler.Write(_kiler.Database("m4n5p6q7"));
+        Assert.Equal(WriteOutcome.Deleted, _kiler.Data.Copy.Delete(RecordFile.KeyOf("m4n5p6q7"), 1).Outcome);
         using var records = _kiler.Open();
         var session = _kiler.Reader(3);
 
@@ -260,9 +262,10 @@ public class RecordsTests : IDisposable
         var locked = records.Set;
 
         Assert.Same(session, signedIn.Session);
-        Assert.Equal("pay_read", signedIn.Records[TestRecords.Id].Fields[4].Value?.Text);
+        Assert.Equal(("pay_read", "pay_read"), (signedIn.Records[TestRecords.Id].Fields[4].Value?.Text, signedIn.Trash["m4n5p6q7"].Fields[4].Value?.Text));
         Assert.Null(locked.Session);
         Assert.Equal([FieldKind.Value, FieldKind.Locked, FieldKind.Locked, FieldKind.Empty, FieldKind.Locked, FieldKind.Locked], locked.Records[TestRecords.Id].Fields.Select(field => field.Kind));
+        Assert.Equal(FieldKind.Locked, locked.Trash["m4n5p6q7"].Fields[4].Kind);
         Assert.Throws<SessionLockedException>(() => records.Read(session));
         Assert.Same(locked, records.Read(null));
     }
@@ -311,6 +314,10 @@ public class RecordsTests : IDisposable
         Assert.Equal((2, "db02.example.test", FieldKind.Empty), (set.Records[TestRecords.Id].File.Version, set.Records[TestRecords.Id].Fields[1].Value?.Text, set.Records[TestRecords.Id].Fields[4].Kind));
         Assert.Equal("pay_read", set.Records["r8s9t0v1"].Fields[4].Value?.Text);
         Assert.Equal(["Payments and cards", "Prod"], set.Stashes.Values.Select(stash => stash.Model?.Name));
+
+        // The record gone is in the trash, read for the session (M5.10).
+        Assert.Equal(["m4n5p6q7"], set.Trash.Keys);
+        Assert.Equal("pay_read", set.Trash["m4n5p6q7"].Fields[4].Value?.Text);
     }
 
     [Fact]
@@ -318,6 +325,8 @@ public class RecordsTests : IDisposable
     {
         _kiler.Write(_kiler.Database());
         _kiler.Write(_kiler.Record("m4n5p6q7", template: "note", groups: [(1, """{"text":"A note"}""")]));
+        _kiler.Write(_kiler.Database("r8s9t0v1"));
+        Assert.Equal(WriteOutcome.Deleted, _kiler.Data.Copy.Delete(RecordFile.KeyOf("r8s9t0v1"), 1).Outcome);
         using var records = _kiler.Open();
         var session = _kiler.Reader(3);
 
@@ -331,13 +340,16 @@ public class RecordsTests : IDisposable
         other.Load();
         var changed = new TemplateFile("db", db.Name, db.Icon, [.. db.Fields.Where(field => field.Key is not "host" and not "port"), new("host", "Host", FieldType.Secret, level: 1)]);
         Assert.Equal(WriteOutcome.Written, other.Replace(db.Key, 1, changed.ToContent()).Outcome);
-        Follow(records, _kiler.Data.Copy.Load());
+        var load = _kiler.Data.Copy.Load();
+        Assert.False(load.TrashChanged, "The load of the template saw the trash change.");
+        Follow(records, load);
 
         var set = records.Read(session);
         var view = set.Records[TestRecords.Id];
         Assert.Equal(["env", "tns", "user", "password", "host"], view.Fields.Select(field => field.Key));
         Assert.Equal((FieldKind.Secret, null), (view.Fields[4].Kind, view.Fields[4].Value));
         Assert.Same(note, set.Records["m4n5p6q7"]);
+        Assert.Equal(["env", "tns", "user", "password", "host"], set.Trash["r8s9t0v1"].Fields.Select(field => field.Key));
     }
 
     [Fact]
@@ -347,12 +359,15 @@ public class RecordsTests : IDisposable
         var session = _kiler.Reader(3);
         Assert.Empty(records.Read(session).Records);
         _kiler.Write(_kiler.Database());
+        _kiler.Write(_kiler.Database("m4n5p6q7"));
+        Assert.Equal(WriteOutcome.Deleted, _kiler.Data.Copy.Delete(RecordFile.KeyOf("m4n5p6q7"), 1).Outcome);
 
         records.Reload();
 
         var set = records.Read(session);
         Assert.Same(session, set.Session);
         Assert.Equal("pay_read", set.Records[TestRecords.Id].Fields[4].Value?.Text);
+        Assert.Equal("pay_read", set.Trash["m4n5p6q7"].Fields[4].Value?.Text);
     }
 
     [Fact]

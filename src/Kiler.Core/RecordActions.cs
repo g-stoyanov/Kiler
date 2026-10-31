@@ -10,12 +10,13 @@ using Kiler.Storage;
 namespace Kiler.Core;
 
 /// <summary>
-/// The writes of an editor (M5.4, design 6.1 to 6.6 and 7.4): a new record and a new stash. A new record is checked against
-/// its template (docs/api.md, <c>POST /api/records</c> and "Values by type"); each field takes its level ("Levels of a field"),
-/// and each group of fields is encrypted with the key of its level and listed in <c>fields</c> (kiler-crypto, "Model"). A field
-/// at a level whose key the author does not hold is refused, as nobody encrypts above their own level. Kiler sets the id, the
-/// dates (<see cref="TimeProvider"/>, in UTC) and the authors. Each writes through <see cref="Records"/>, which takes the write
-/// into its set, as no load gives it. The caller has checked <see cref="Need.Editor"/>.
+/// The writes of an editor (M5.4, design 6.1 to 6.6 and 7.4): a new record and a new stash; the edit (M5.8); the delete and
+/// the restore from the trash (M5.10), which only an editor who holds every level of the record makes. A new record is
+/// checked against its template (docs/api.md, <c>POST /api/records</c> and "Values by type"); each field takes its level
+/// ("Levels of a field"), and each group of fields is encrypted with the key of its level and listed in <c>fields</c>
+/// (kiler-crypto, "Model"). A field at a level whose key the author does not hold is refused, as nobody encrypts above their
+/// own level. Kiler sets the id, the dates (<see cref="TimeProvider"/>, in UTC) and the authors. Each writes through
+/// <see cref="Records"/>, which takes the write into its set, as no load gives it. The caller has checked <see cref="Need.Editor"/>.
 /// </summary>
 public static class RecordActions
 {
@@ -142,21 +143,96 @@ public static class RecordActions
                 return failed;
             }
 
-            return written.Outcome switch
-            {
-                WriteOutcome.Written => new(RecordOutcome.Done, Record: records.Read(editor).Records.GetValueOrDefault(id)),
-
-                // A slot in the way has the version that the edit changes (core.md, "Calling the layer").
-                WriteOutcome.Conflict when written.OnDisk!.Version == version => new(RecordOutcome.Busy),
-                WriteOutcome.Conflict => new(RecordOutcome.Conflict, Record: records.ReadDocument(written.OnDisk, editor)),
-                WriteOutcome.Missing => new(RecordOutcome.Missing),
-                _ => NotWritten(written),
-            };
+            return written.Outcome == WriteOutcome.Written
+                ? new(RecordOutcome.Done, Record: records.Read(editor).Records.GetValueOrDefault(id))
+                : NotWrittenOver(written, version, editor, records);
         }
         finally
         {
             RecordView.Zero(held);
         }
+    }
+
+    /// <summary>
+    /// Moves the record <paramref name="id"/> to the trash over <paramref name="version"/>, the version that the editor read
+    /// (M5.10, docs/api.md, <c>DELETE /api/records/{id}</c>), when <paramref name="editor"/> holds the level of every group of
+    /// it ("Decided in M5.1"), else <see cref="RecordOutcome.NotHeld"/>. The file moves as it is, so its version, dates and
+    /// authors stay (M2.5). A record whose template is missing or does not fit is deleted too, as its groups are in its file.
+    /// The result has the record as the editor reads it in the trash after the delete, or, at a conflict, as it is now.
+    /// </summary>
+    /// <exception cref="SessionLockedException">The session was locked before the delete, or after it, before its record was read.</exception>
+    public static RecordResult Delete(Session editor, Records records, string id, int version)
+    {
+        ArgumentNullException.ThrowIfNull(editor);
+        ArgumentNullException.ThrowIfNull(records);
+        ArgumentNullException.ThrowIfNull(id);
+        var set = records.Read(editor);
+        if (set.Records.GetValueOrDefault(id) is not { File.Model: { } record } view)
+        {
+            return new(RecordOutcome.Missing);
+        }
+
+        if (view.File.Version != version)
+        {
+            return new(RecordOutcome.Conflict, Record: view);
+        }
+
+        // The layer deletes only this version, so the groups checked are those that go to the trash.
+        if (!record.Protected.Keys.All(editor.Reads))
+        {
+            return new(RecordOutcome.NotHeld);
+        }
+
+        if (!TryWrite(() => records.Delete(record, version), out var written, out var failed))
+        {
+            return failed;
+        }
+
+        return written.Outcome == WriteOutcome.Deleted
+            ? new(RecordOutcome.Done, Record: records.Read(editor).Trash.GetValueOrDefault(id))
+            : NotWrittenOver(written, version, editor, records);
+    }
+
+    /// <summary>
+    /// Brings the record <paramref name="id"/> back from the trash (M5.10, docs/api.md, <c>POST /api/trash/{id}/restore</c>),
+    /// when <paramref name="editor"/> holds the level of every group of it, as the trash of the set has it ("Decided in M5.1"),
+    /// else <see cref="RecordOutcome.NotHeld"/>. A move, so its version, dates and authors stay (M2.5). The layer moves the file
+    /// of the trash without a version, so another version that another Kiler deleted since the last load is restored as it
+    /// is, with groups that may not have been checked (left for after the exam, docs/tasks/M5.md). A record that is not in the
+    /// trash, also one that another Kiler has restored meanwhile, is <see cref="RecordOutcome.Missing"/>. The result has the
+    /// record as the editor reads it after the restore.
+    /// </summary>
+    /// <exception cref="SessionLockedException">The session was locked before the restore, or after it, before its record was read.</exception>
+    public static RecordResult Restore(Session editor, Records records, string id)
+    {
+        ArgumentNullException.ThrowIfNull(editor);
+        ArgumentNullException.ThrowIfNull(records);
+        ArgumentNullException.ThrowIfNull(id);
+        var set = records.Read(editor);
+        if (set.Trash.GetValueOrDefault(id) is not { File: { Model: { } record, Version: { } version } })
+        {
+            return new(RecordOutcome.Missing);
+        }
+
+        if (!record.Protected.Keys.All(editor.Reads))
+        {
+            return new(RecordOutcome.NotHeld);
+        }
+
+        if (!TryWrite(() => records.RestoreFromTrash(record, version), out var written, out var failed))
+        {
+            return failed;
+        }
+
+        return written.Outcome switch
+        {
+            WriteOutcome.Written => new(RecordOutcome.Done, Record: records.Read(editor).Records.GetValueOrDefault(id)),
+
+            // Missing: it is no longer in the trash, as when another Kiler has restored it meanwhile; Exists: a record of its
+            // id is live beside the one in the trash, which only a file put there by hand makes.
+            WriteOutcome.Exists or WriteOutcome.Missing => new(RecordOutcome.Missing),
+            _ => NotWritten(written),
+        };
     }
 
     /// <summary><see cref="NewStash(Session, Records, string?, TimeProvider)"/> with the ids of <paramref name="newId"/>, for the tests.</summary>
@@ -612,12 +688,25 @@ public static class RecordActions
         return false;
     }
 
-    /// <summary>The result of a write that the layer did not make, for the outcomes that a create and an edit share.</summary>
+    /// <summary>The result of a write that the layer did not make, for the outcomes that every write shares.</summary>
     private static RecordResult NotWritten(WriteResult written) => written.Outcome switch
     {
         WriteOutcome.Offline => new(RecordOutcome.Offline),
         WriteOutcome.Busy => new(RecordOutcome.Busy),
         _ => new(RecordOutcome.NotWritten),
+    };
+
+    /// <summary>
+    /// The result of a write over <paramref name="version"/> that the layer did not make, an edit or a delete: at a conflict,
+    /// the record on the share now, as <paramref name="session"/> reads it.
+    /// </summary>
+    private static RecordResult NotWrittenOver(WriteResult written, int version, Session session, Records records) => written.Outcome switch
+    {
+        // A slot in the way has the version that the write changes (core.md, "Calling the layer").
+        WriteOutcome.Conflict when written.OnDisk!.Version == version => new(RecordOutcome.Busy),
+        WriteOutcome.Conflict => new(RecordOutcome.Conflict, Record: records.ReadDocument(written.OnDisk, session)),
+        WriteOutcome.Missing => new(RecordOutcome.Missing),
+        _ => NotWritten(written),
     };
 
     private static RecordResult Refused(string? field, string invalid) => new(RecordOutcome.Invalid, invalid, field);
@@ -681,10 +770,13 @@ public enum RecordOutcome
     /// <summary>The file could not be written: the share did not answer or refused it, or every new id met one there.</summary>
     NotWritten,
 
-    /// <summary>An edit over a version that is not the one there now; <see cref="RecordResult.Record"/> has the record as it is now (M5.8).</summary>
+    /// <summary>An edit or a delete over a version that is not the one there now; <see cref="RecordResult.Record"/> has the record as it is now (M5.8).</summary>
     Conflict,
 
-    /// <summary>The record of an edit is not there, has gone meanwhile, or its file does not fit (M5.8).</summary>
+    /// <summary>
+    /// The record of an edit or a delete is not there, has gone meanwhile, or its file does not fit (M5.8); the record of a
+    /// restore is not in the trash, or its file there does not fit (M5.10).
+    /// </summary>
     Missing,
 
     /// <summary>The template of the record of an edit is missing or does not fit, so its fields cannot be told apart (M5.8).</summary>
@@ -692,6 +784,9 @@ public enum RecordOutcome
 
     /// <summary>A group of a level of the editor does not decrypt, or what it decrypts to does not fit, so an edit would write over it (M5.8).</summary>
     Unreadable,
+
+    /// <summary>A delete or a restore of a record with a group at a level that the editor does not hold ("Decided in M5.1", M5.10).</summary>
+    NotHeld,
 }
 
 /// <param name="Outcome">How the write ended.</param>
@@ -701,8 +796,9 @@ public enum RecordOutcome
 /// of them, such as the template or a key that the template does not have (docs/api.md, "Conventions").
 /// </param>
 /// <param name="Record">
-/// The new or edited record as the author reads it, and at <see cref="RecordOutcome.Conflict"/> the record as it is now; null
-/// for a stash, the other refusals, and a record that a load took away at once.
+/// The new, edited or restored record as the author reads it, a deleted one as it is in the trash, and at
+/// <see cref="RecordOutcome.Conflict"/> the record as it is now; null for a stash, the other refusals, and a record that a
+/// load took away at once.
 /// </param>
 /// <param name="Stash">The new stash; null for a record and a refusal.</param>
 public sealed record RecordResult(RecordOutcome Outcome, string? Invalid = null, string? Field = null, RecordView? Record = null, StashFile? Stash = null);

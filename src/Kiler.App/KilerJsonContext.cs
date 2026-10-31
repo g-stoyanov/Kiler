@@ -31,6 +31,8 @@ namespace Kiler.App;
 [JsonSerializable(typeof(StashRequest))]
 [JsonSerializable(typeof(TagsResponse))]
 [JsonSerializable(typeof(TemplatesResponse))]
+[JsonSerializable(typeof(TrashItemResponse))]
+[JsonSerializable(typeof(TrashResponse))]
 [JsonSerializable(typeof(WizardRequest))]
 [JsonSerializable(typeof(WizardResponse))]
 [JsonSerializable(typeof(WriteErrorResponse))]

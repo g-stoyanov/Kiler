@@ -164,6 +164,34 @@ internal sealed record ConflictResponse(string Error, RecordResponse Current);
 /// <param name="Tags">The tags of the records, each once without regard to case, by name.</param>
 internal sealed record TagsResponse(IReadOnlyList<string> Tags);
 
+/// <summary>An item of <c>GET /api/trash</c> and the answer of a delete (docs/api.md, "Trash item"): the list item with <c>levels</c>.</summary>
+/// <param name="Id">The id of the record.</param>
+/// <param name="Template">The id of its template.</param>
+/// <param name="Version">The version of its file, which the delete kept.</param>
+/// <param name="Stash">The stashes of its path, from the first.</param>
+/// <param name="Name">Its name.</param>
+/// <param name="Description">Its description, as a field.</param>
+/// <param name="Tags">Its tags.</param>
+/// <param name="Levels">The levels of its groups, by which the page offers the restore.</param>
+/// <param name="Fields">The fields of the template with <c>list</c>, in its order, never a <c>secret</c>.</param>
+/// <param name="UpdatedBy">Who changed it last; the trash does not say who deleted it.</param>
+/// <param name="UpdatedAt">When, in UTC.</param>
+internal sealed record TrashItemResponse(
+    string Id,
+    string Template,
+    int Version,
+    IReadOnlyList<PathStashResponse> Stash,
+    string Name,
+    FieldResponse Description,
+    IReadOnlyList<string> Tags,
+    IReadOnlyList<int> Levels,
+    IReadOnlyList<FieldResponse> Fields,
+    AuthorResponse UpdatedBy,
+    DateTime UpdatedAt);
+
+/// <param name="Records">The records in the trash, by name.</param>
+internal sealed record TrashResponse(IReadOnlyList<TrashItemResponse> Records);
+
 /// <summary>
 /// The records (docs/api.md): the list (M5.6), <c>GET /api/records</c>, with the search, the filters, the tree and the facets
 /// over the records in memory as the session of the request reads them (<see cref="RecordSearch"/>); a record (M5.7),
@@ -171,12 +199,17 @@ internal sealed record TagsResponse(IReadOnlyList<string> Tags);
 /// decrypts its group again (<see cref="RecordView.Secret"/>); and the tags (M5.9), <c>GET /api/tags</c>. They need
 /// <see cref="Need.Reader"/>, so a guest in guest mode reads level 0, but the secret refuses a guest. A new record and an edit
 /// (M5.9), <c>POST /api/records</c> and <c>PUT /api/records/{id}</c>, need <see cref="Need.Editor"/> and are
-/// <see cref="RecordActions"/>; the dates and the authors come from Kiler, never from the request.
+/// <see cref="RecordActions"/>; the dates and the authors come from Kiler, never from the request. The trash (M5.10):
+/// <c>GET /api/trash</c> for a reader, and the delete, <c>DELETE /api/records/{id}</c>, and the restore,
+/// <c>POST /api/trash/{id}/restore</c>, for an editor who holds every level of the record.
 /// </summary>
 internal static class RecordsApi
 {
     /// <summary>The 404 of a record that is not there, or is in the trash.</summary>
     public const string NotThere = "The record is not there. It may have been deleted.";
+
+    /// <summary>The 404 of a restore of a record that is not in the trash, also one that another Kiler has restored meanwhile (M5.10).</summary>
+    public const string NotInTrash = "The record is not in the trash. It may have been restored.";
 
     /// <summary>The 400 of a value of <c>fields</c> that has no shape of a value, with its key.</summary>
     public const string NoShape = "The value is not a text, a number or a code.";
@@ -196,6 +229,9 @@ internal static class RecordsApi
         endpoints.MapPut("/api/records/{id}", (HttpContext context, string id, RecordRequest request) => Edit(context, data, id, request, time))
             .Needs(Need.Editor);
         endpoints.MapGet("/api/tags", (HttpContext context) => Tags(context, data)).Needs(Need.Reader);
+        endpoints.MapDelete("/api/records/{id}", (HttpContext context, string id, int? version) => Delete(context, data, id, version)).Needs(Need.Editor);
+        endpoints.MapGet("/api/trash", (HttpContext context) => Trash(context, data)).Needs(Need.Reader);
+        endpoints.MapPost("/api/trash/{id}/restore", (HttpContext context, string id) => Restore(context, data, id)).Needs(Need.Editor);
     }
 
     /// <summary>What the page says when a write of a record was refused, but for a value that does not fit, whose reason is its own (docs/api.md).</summary>
@@ -207,6 +243,7 @@ internal static class RecordsApi
         RecordOutcome.Missing => NotThere,
         RecordOutcome.NoTemplate => "The template of this record is not there, or cannot be used, so the record cannot be changed.",
         RecordOutcome.Unreadable => "A part of this record cannot be read, so it cannot be changed. An admin restores it from the history.",
+        RecordOutcome.NotHeld => "A part of this record is at a level that you do not hold.",
         _ => "The record could not be written to the shared folder. Try again in a moment.",
     };
 
@@ -449,6 +486,89 @@ internal static class RecordsApi
         return TypedResults.Ok(new TagsResponse([.. tags]));
     }
 
+    /// <summary>
+    /// The delete of a record over the version that the editor read (docs/api.md, <c>DELETE /api/records/{id}</c>): 200 with
+    /// the record as it is in the trash, so the page can offer to restore it; at a conflict, the 409 with the record as it is now.
+    /// </summary>
+    private static Results<Ok<TrashItemResponse>, BadRequest<WriteErrorResponse>, NotFound<ErrorResponse>, Conflict<ErrorResponse>, Conflict<ConflictResponse>, JsonHttpResult<ErrorResponse>> Delete(
+        HttpContext context, KilerData data, string id, int? version)
+    {
+        var editor = AccessRules.SessionOf(context) ?? throw new InvalidOperationException("A delete has no session.");
+        if (version is not { } over)
+        {
+            return TypedResults.BadRequest(new WriteErrorResponse(NoVersion, null));
+        }
+
+        if (data.Files is not { } files || data.Records is not { } records)
+        {
+            return TypedResults.Conflict(new ErrorResponse(SessionApi.NoData));
+        }
+
+        var result = RecordActions.Delete(editor, records, id, over);
+        if (result.Outcome is RecordOutcome.Done or RecordOutcome.Conflict)
+        {
+            // As in Answer: a record that a load took away at once, or one on the share whose file does not fit, has none to give.
+            if (result.Record is not { File.IsValid: true } view)
+            {
+                return TypedResults.NotFound(new ErrorResponse(NotThere));
+            }
+
+            var set = records.Read(editor);
+            return result.Outcome == RecordOutcome.Done
+                ? TypedResults.Ok(TrashItem(view, set, files))
+                : TypedResults.Conflict(new ConflictResponse(Message(result.Outcome), Record(view, set, files)));
+        }
+
+        return result.Outcome switch
+        {
+            RecordOutcome.NotHeld => Forbidden(Message(result.Outcome)),
+            RecordOutcome.Missing => TypedResults.NotFound(new ErrorResponse(NotThere)),
+            _ => TypedResults.Conflict(new ErrorResponse(Message(result.Outcome))),
+        };
+    }
+
+    /// <summary>The records in the trash as the session reads them, by name (docs/api.md, <c>GET /api/trash</c>); one whose file does not fit is left out, as the list leaves it out.</summary>
+    private static Results<Ok<TrashResponse>, Conflict<ErrorResponse>> Trash(HttpContext context, KilerData data)
+    {
+        if (data.Files is not { } files || data.Records is not { } records)
+        {
+            return TypedResults.Conflict(new ErrorResponse(SessionApi.NoData));
+        }
+
+        var set = records.Read(AccessRules.SessionOf(context));
+        var trash = set.Trash.Values
+            .Where(view => view.File.IsValid)
+            .OrderBy(view => view.File.Model!.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(view => view.File.Model!.Id, StringComparer.Ordinal)
+            .Select(view => TrashItem(view, set, files));
+        return TypedResults.Ok(new TrashResponse([.. trash]));
+    }
+
+    /// <summary>The restore of a record from the trash (docs/api.md, <c>POST /api/trash/{id}/restore</c>): 200 with the record as the editor reads it.</summary>
+    private static Results<Ok<RecordResponse>, NotFound<ErrorResponse>, Conflict<ErrorResponse>, JsonHttpResult<ErrorResponse>> Restore(HttpContext context, KilerData data, string id)
+    {
+        var editor = AccessRules.SessionOf(context) ?? throw new InvalidOperationException("A restore has no session.");
+        if (data.Files is not { } files || data.Records is not { } records)
+        {
+            return TypedResults.Conflict(new ErrorResponse(SessionApi.NoData));
+        }
+
+        var result = RecordActions.Restore(editor, records, id);
+        if (result.Outcome == RecordOutcome.Done)
+        {
+            return result.Record is { File.IsValid: true } view
+                ? TypedResults.Ok(Record(view, records.Read(editor), files))
+                : TypedResults.NotFound(new ErrorResponse(NotThere));
+        }
+
+        return result.Outcome switch
+        {
+            RecordOutcome.NotHeld => Forbidden(Message(result.Outcome)),
+            RecordOutcome.Missing => TypedResults.NotFound(new ErrorResponse(NotInTrash)),
+            _ => TypedResults.Conflict(new ErrorResponse(Message(result.Outcome))),
+        };
+    }
+
     /// <summary>The record <paramref name="id"/> of the set, unless its file does not fit, as the list leaves it out (docs/api.md).</summary>
     private static RecordView? Find(RecordSet set, string id) => set.Records.GetValueOrDefault(id) is { File.IsValid: true } view ? view : null;
 
@@ -519,6 +639,13 @@ internal static class RecordsApi
             [.. listed],
             Author(record.Authorship.UpdatedBy, files),
             record.Authorship.UpdatedAt);
+    }
+
+    /// <summary>A record of the trash: the list item with the levels of its groups (docs/api.md, "Trash item").</summary>
+    private static TrashItemResponse TrashItem(RecordView view, RecordSet set, TeamFiles files)
+    {
+        var item = ListItem(view, set, files);
+        return new(item.Id, item.Template, item.Version, item.Stash, item.Name, item.Description, item.Tags, [.. view.File.Model!.Protected.Keys], item.Fields, item.UpdatedBy, item.UpdatedAt);
     }
 
     /// <summary>A field as the page gets it; its value keeps the shape that it was written in (docs/api.md, "Values by type").</summary>

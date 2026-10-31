@@ -10,8 +10,8 @@ namespace Kiler.App.Tests;
 /// <c>GET /api/records</c> (M5.6), <c>GET /api/records/{id}</c> and <c>POST /api/records/{id}/secret</c> (M5.7, docs/api.md)
 /// on a made-up Kiler with five records (<see cref="MadeUpKiler.WriteRecords"/>): what each kind of caller reads, the query,
 /// the value of a secret, and whom each refuses; the writes, the stashes and the tags (M5.9) are in
-/// <c>RecordsApiTests.Writes.cs</c>. It runs with reflection-based JSON off, as Native AOT does, so it reads records as the
-/// published exe does.
+/// <c>RecordsApiTests.Writes.cs</c>, and the trash (M5.10) in <c>RecordsApiTests.Trash.cs</c>. It runs with reflection-based
+/// JSON off, as Native AOT does, so it reads records as the published exe does.
 /// </summary>
 public sealed partial class RecordsApiTests : IDisposable
 {
@@ -257,6 +257,9 @@ public sealed partial class RecordsApiTests : IDisposable
     [InlineData(NoGuestMode, AccessRefusal.NotSignedIn, "tags")]
     [InlineData(Locked, AccessRefusal.NotSignedIn, "tags")]
     [InlineData(MadeUpKiler.Temporary, AccessRefusal.MustChangePassword, "tags")]
+    [InlineData(NoGuestMode, AccessRefusal.NotSignedIn, "trash")]
+    [InlineData(Locked, AccessRefusal.NotSignedIn, "trash")]
+    [InlineData(MadeUpKiler.Temporary, AccessRefusal.MustChangePassword, "trash")]
     public async Task TheEndpoints_RefuseWhomTheyMust(string caller, AccessRefusal refusal, string endpoint)
     {
         using var data = NewData(guestMode: false);
@@ -273,6 +276,7 @@ public sealed partial class RecordsApiTests : IDisposable
             "record" => await client.GetAsync($"/api/records/{MadeUpKiler.Database}", Cancel),
             "stashes" => await client.GetAsync("/api/stashes", Cancel),
             "tags" => await client.GetAsync("/api/tags", Cancel),
+            "trash" => await client.GetAsync("/api/trash", Cancel),
             _ => await PostSecretAsync(client, MadeUpKiler.Database, "password", "show"),
         };
 
