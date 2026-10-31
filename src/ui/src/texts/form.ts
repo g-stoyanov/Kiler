@@ -1,4 +1,7 @@
-/** The texts of the record form and the stash picker (M6.6, M6.7, M6.8), which `texts.ts` gives as `texts.form`. */
+/**
+ * The texts of the record form, the stash picker and the conflict (M6.6, M6.7, M6.8, M6.20), which `texts.ts` gives as
+ * `texts.form`.
+ */
 export const form = {
   newTitle: 'New record',
   editTitle: 'Edit the record',
@@ -32,9 +35,18 @@ export const form = {
   envUse: (env: string) => `Use ${env}`,
   conflict: (who: string, when: string) => `${who} changed the record at ${when}, after this page read it.`,
   conflictChoice:
-    '“Reload” shows the record as it is now, without your changes. “Overwrite” saves your changes over it.',
-  reload: 'Reload',
-  overwrite: 'Overwrite',
+    '“Keep mine” saves your edit over their version. “Take theirs” shows the record as it is now, without your changes.',
+  keepMine: 'Keep mine',
+  takeTheirs: 'Take theirs',
+  versions: {
+    mine: 'Your edit',
+    theirs: (who: string, when: string) => `Saved by ${who} at ${when}`,
+    differs: 'Differs',
+    newValue: 'New value',
+    typeAgain: 'New value, to be typed again',
+    unchanged: 'Unchanged',
+    hidden: 'Hidden',
+  },
   save: 'Save',
   saving: 'Saving…',
   cancel: 'Cancel',

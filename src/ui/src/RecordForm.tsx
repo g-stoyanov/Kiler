@@ -14,12 +14,14 @@ import {
   type Session,
   type Template,
 } from './api.ts';
+import { ConflictVersions } from './ConflictVersions.tsx';
 import { Field } from './Field.tsx';
 import { FieldInput } from './FieldInput.tsx';
 import { localDateTime, recordPath } from './fields.ts';
 import {
   checkDraft,
   conflictKey,
+  conflictRows,
   descriptionKey,
   editDraft,
   envKey,
@@ -31,6 +33,7 @@ import {
   recordRequest,
   suggestedEnv,
   type Draft,
+  type VersionRow,
 } from './recordForm.ts';
 import { useSessionStore } from './session.ts';
 import { StashPicker } from './StashPicker.tsx';
@@ -165,7 +168,7 @@ export function RecordForm({ id, session }: { id?: string; session: Session }) {
       templates={templates}
       levels={levels}
       session={session}
-      // "Reload" of a conflict: the form of the record as it is now, without a new request.
+      // "Take theirs" of a conflict: the form of the record as it is now, without a new request.
       onReload={(current) => setLoad((last) => (last.state === 'ready' ? { ...last, record: current } : last))}
     />
   );
@@ -215,7 +218,7 @@ function Editor({
     (field ?? saveButton.current)?.focus();
   }, [state.round, state.focus, base]);
 
-  /** A save, or the "Overwrite" of a conflict over the version of `current`. */
+  /** A save, or the "Keep mine" of a conflict over the version of `current`. */
   const send = (current: RecordData | undefined) => {
     if (sending.current) {
       return;
@@ -353,7 +356,13 @@ function Editor({
           </>
         )}
         {state.conflict !== undefined && (
-          <Conflict current={state.conflict} reloadId={idOf(conflictKey)} onReload={onReload} onOverwrite={send} />
+          <Conflict
+            current={state.conflict}
+            rows={conflictRows(draft, picker.path, state.conflict, top, levels)}
+            keepId={idOf(conflictKey)}
+            onKeep={send}
+            onTake={onReload}
+          />
         )}
         {state.error !== undefined && (
           <p className="banner banner-danger" role="alert">
@@ -374,30 +383,37 @@ function Editor({
 }
 
 /**
- * The conflict of a save (M6.8; docs/api.md, "Conflict"): who changed the record and when, with "Reload", the form of
- * the record as it is now, and "Overwrite", the edit sent again over its version. Side by side after the exam.
+ * The conflict of a save (M6.8, M6.20; docs/api.md, "Conflict"): who changed the record and when, the two versions
+ * side by side (`rows`), and the choice of a whole version: "Keep mine", the edit sent again over the version of
+ * `current`, and "Take theirs", the form of the record as it is now. Only the sentence is the alert, so a screen reader
+ * does not read out both versions.
  */
 function Conflict({
   current,
-  reloadId,
-  onReload,
-  onOverwrite,
+  rows,
+  keepId,
+  onKeep,
+  onTake,
 }: {
   current: RecordData;
-  reloadId: string;
-  onReload: (current: RecordData) => void;
-  onOverwrite: (current: RecordData) => void;
+  rows: VersionRow[];
+  keepId: string;
+  onKeep: (current: RecordData) => void;
+  onTake: (current: RecordData) => void;
 }) {
+  const who = current.updatedBy.name ?? current.updatedBy.account;
+  const when = localDateTime(current.updatedAt);
   return (
-    <div className="banner banner-warning form-conflict" role="alert">
-      <p>{t.conflict(current.updatedBy.name ?? current.updatedBy.account, localDateTime(current.updatedAt))}</p>
+    <div className="banner banner-warning form-conflict">
+      <p role="alert">{t.conflict(who, when)}</p>
+      <ConflictVersions rows={rows} theirs={t.versions.theirs(who, when)} />
       <p>{t.conflictChoice}</p>
       <div className="buttons">
-        <button type="button" id={reloadId} onClick={() => onReload(current)}>
-          {t.reload}
+        <button type="button" id={keepId} onClick={() => onKeep(current)}>
+          {t.keepMine}
         </button>
-        <button type="button" onClick={() => onOverwrite(current)}>
-          {t.overwrite}
+        <button type="button" onClick={() => onTake(current)}>
+          {t.takeTheirs}
         </button>
       </div>
     </div>
