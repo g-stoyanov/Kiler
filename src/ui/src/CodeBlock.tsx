@@ -1,6 +1,7 @@
-import { useRef, useState } from 'react';
+import { useId, useMemo, useRef, useState } from 'react';
 import { CopyButton } from './CopyButton.tsx';
 import { formatProblem, formatSql, isSql, useCodeView } from './code.ts';
+import { fillParameters, findParameters, parameterKey } from './params.ts';
 import { texts } from './texts.ts';
 import './Code.css';
 
@@ -9,7 +10,8 @@ type Formatted = { from: string } & ({ code: string } | { problem: string });
 
 /**
  * Code to read, in the record view (design 8.3): CodeMirror with its language, and the dialect of a SQL, with "Copy" of
- * the code that shows and, for a SQL, "Format". The format only shows: the record keeps its code.
+ * the code that shows and, for a SQL, "Format" and its "Parameters": a field for each bind variable above the code,
+ * and "Copy" of the query with their values (M6.15). The format and the values only show: the record keeps its code.
  */
 export function CodeBlock({
   code,
@@ -27,6 +29,12 @@ export function CodeBlock({
   const shown = current !== null && 'code' in current ? current.code : code;
   useCodeView(host, { code: shown, language, dialect, access: 'read' });
 
+  const parameters = useMemo(() => (isSql(language) ? findParameters(shown) : []), [language, shown]);
+  const [showParameters, setShowParameters] = useState(false);
+  // By `parameterKey`; a value stays while the code changes, such as by "Format" or a new read.
+  const [values, setValues] = useState<ReadonlyMap<string, string>>(() => new Map());
+  const id = useId();
+
   const format = () => {
     try {
       setFormatted({ from: code, code: formatSql(code, dialect) });
@@ -37,6 +45,36 @@ export function CodeBlock({
 
   return (
     <div className="code">
+      {showParameters && parameters.length > 0 && (
+        <fieldset className="code-parameters">
+          <legend>{texts.code.parameters}</legend>
+          <div className="code-parameter-fields">
+            {parameters.map((name, index) => {
+              const key = parameterKey(name);
+              return (
+                <div key={key} className="code-parameter">
+                  <label htmlFor={`${id}-${index}`}>{`:${name}`}</label>
+                  <input
+                    id={`${id}-${index}`}
+                    value={values.get(key) ?? ''}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setValues((earlier) => new Map(earlier).set(key, value));
+                    }}
+                    spellCheck={false}
+                    autoComplete="off"
+                  />
+                </div>
+              );
+            })}
+          </div>
+          <p className="muted">{texts.code.parametersHint}</p>
+          <div className="code-filled">
+            <CopyButton value={fillParameters(shown, values)} label={texts.code.copyFilledLabel} />
+            <span>{texts.code.filled}</span>
+          </div>
+        </fieldset>
+      )}
       <div ref={host} className="code-view" data-language={language ?? undefined} />
       <div className="buttons">
         <CopyButton value={shown} />
@@ -50,6 +88,11 @@ export function CodeBlock({
               {texts.code.asSaved}
             </button>
           ))}
+        {parameters.length > 0 && (
+          <button type="button" aria-expanded={showParameters} onClick={() => setShowParameters(!showParameters)}>
+            {texts.code.parameters}
+          </button>
+        )}
       </div>
       {current !== null && 'problem' in current && (
         <p className="code-problem" role="alert">
