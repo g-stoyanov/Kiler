@@ -6,7 +6,7 @@
 #   -NoBuild   the tests are already built in Release, as in CI after build.ps1
 # Each test runs a copy of the exe from a temporary folder with a data folder of its own, so it does not meet the Kiler you run.
 # The trace of a test that fails goes to artifacts\e2e-traces; open it with https://trace.playwright.dev or the show-trace
-# command of the Playwright CLI.
+# command of the Playwright CLI. The screenshots for the write-up (ScreenshotTests) go to artifacts\screenshots.
 
 param(
     [string]$Exe = (Join-Path $PSScriptRoot 'artifacts\publish\Kiler.exe'),
@@ -20,12 +20,16 @@ Set-StrictMode -Version Latest
 if (-not (Test-Path -LiteralPath $Exe -PathType Leaf)) { throw "There is no $Exe. Run publish.ps1 first." }
 $exePath = (Resolve-Path -LiteralPath $Exe).ProviderPath
 $traces = Join-Path $PSScriptRoot 'artifacts\e2e-traces'
+$screenshots = Join-Path $PSScriptRoot 'artifacts\screenshots'
 
 Push-Location -LiteralPath $PSScriptRoot
 $env:KILER_SMOKE_EXE = $exePath
 $env:KILER_E2E_TRACES = $traces
+$env:KILER_E2E_SCREENSHOTS = $screenshots
 try {
-    if (Test-Path -LiteralPath $traces) { Remove-Item -LiteralPath $traces -Recurse -Force }
+    foreach ($folder in $traces, $screenshots) {
+        if (Test-Path -LiteralPath $folder) { Remove-Item -LiteralPath $folder -Recurse -Force }
+    }
 
     $testArgs = @('test', '--project', 'tests\Kiler.E2E', '--configuration', 'Release')
     if ($NoBuild) { $testArgs += '--no-build' }
@@ -37,6 +41,6 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "The E2E tests failed with exit code $LASTEXITCODE." }
 }
 finally {
-    Remove-Item -LiteralPath Env:KILER_SMOKE_EXE, Env:KILER_E2E_TRACES -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath Env:KILER_SMOKE_EXE, Env:KILER_E2E_TRACES, Env:KILER_E2E_SCREENSHOTS -ErrorAction SilentlyContinue
     Pop-Location
 }

@@ -99,13 +99,13 @@ public sealed class KilerBrowser : IAsyncLifetime
     /// <summary>
     /// Opens the address of the <c>Open:</c> line of <paramref name="run"/> in a new context, as the browser does at a start:
     /// the exchange of the token for the cookie, then the page at <c>/</c>, which must connect its stream through the shared
-    /// worker.
+    /// worker. <paramref name="options"/> set the context, such as the size of the window of the screenshots.
     /// </summary>
-    internal async Task<KilerPage> OpenAsync(KilerRun run)
+    internal async Task<KilerPage> OpenAsync(KilerRun run, BrowserNewContextOptions? options = null)
     {
         var line = await run.WaitForLineAsync(OpenPrefix, Quick);
         var entry = new Uri(line[OpenPrefix.Length..]);
-        var context = await _browser!.NewContextAsync();
+        var context = await _browser!.NewContextAsync(options);
         var page = new KilerPage(context, await context.NewPageAsync(), entry.GetLeftPart(UriPartial.Authority) + "/");
         try
         {

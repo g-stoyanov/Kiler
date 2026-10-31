@@ -252,34 +252,34 @@
   overflow-wrap: anywhere;
 }
 
-.record-path {
+.record-row-path {
   font-size: 0.85rem;
   color: var(--color-muted);
   overflow-wrap: anywhere;
 }
 
-.record-fields {
+.record-row-fields {
   display: flex;
   flex-wrap: wrap;
   gap: 0.15rem calc(var(--space) * 1.5);
   margin: 0;
 }
 
-.record-fields div {
+.record-row-fields div {
   display: flex;
   gap: 0.4rem;
   min-width: 0;
 }
 
-.record-fields dt {
+.record-row-fields dt {
   color: var(--color-muted);
 }
 
-.record-fields dt::after {
+.record-row-fields dt::after {
   content: ':';
 }
 
-.record-fields dd {
+.record-row-fields dd {
   min-width: 0;
   margin: 0;
 }

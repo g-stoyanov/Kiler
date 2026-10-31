@@ -601,7 +601,7 @@ Throughout the project.
 4. `tools/Kiler.DemoData`. It uses the Kiler libraries, so it encrypts correctly. It grows with M4–M7. It has two modes:
    - a made-up set of about 30 records: stash paths of several systems, all templates, tags, levels 0–3, an admin and two users with demo passwords, and a few private records of one of the users;
    - a "volume" mode with 2000 records.
-5. Screenshots for the exam write-up from the E2E tests, with the demo data.
+5. Screenshots for the exam write-up from the E2E tests, with the demo data. Done in M6.13: `ScreenshotTests` saves seven PNGs into `artifacts\screenshots`, also the CI artifact `screenshots`, with the data folder at the foot blurred, as its path holds the Windows account (kiler-dotnet, host.md, "E2E tests").
 6. README for the public repo: what Kiler is, screenshots, how to build it and how to run the demo. How users start it: once from the shared folder, then from the Start menu (M1.5a).
 
 ---

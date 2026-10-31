@@ -34,14 +34,14 @@ function RecordRow({ record, template }: { record: ListItem; template: Template 
         </Link>
         <span className="mark">{template?.name ?? record.template}</span>
       </div>
-      <div className="record-path">{pathText(record.stash)}</div>
+      <div className="record-row-path">{pathText(record.stash)}</div>
       {record.description.kind === 'value' && (
         <div className="record-description">
           <FieldValue field={record.description} shorten={shorten} />
         </div>
       )}
       {record.fields.length > 0 && (
-        <dl className="record-fields">
+        <dl className="record-row-fields">
           {record.fields.map((field) => {
             const templateField = template?.fields.find((entry) => entry.key === field.key);
             return (

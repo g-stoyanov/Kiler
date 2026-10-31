@@ -1,6 +1,6 @@
 # On every push to main and every pull request: the format check, the UI checks, the build, the tests with coverage, the
-# publish of Kiler.exe, and the smoke and E2E tests against it. The coverage report and Kiler.exe are the artifacts of the run,
-# and the traces of the E2E tests that fail.
+# publish of Kiler.exe, and the smoke and E2E tests against it. The coverage report, Kiler.exe and the screenshots of the
+# E2E tests are the artifacts of the run, and the traces of the E2E tests that fail.
 # The steps call the scripts in the repository root, so the same commands run locally and can
 # move to another CI system (PLAN section 9). The YAML only sets up the machine around them.
 # The actions are pinned to a commit, because a tag can be moved to other code.
@@ -102,6 +102,13 @@ jobs:
 
       - name: E2E tests
         run: .\e2e.ps1 -NoBuild
+
+      # The screenshots for the write-up (ScreenshotTests), of the made-up demo data, with the data folder at their foot blurred.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: screenshots
+          path: artifacts/screenshots
+          if-no-files-found: error
 
       # A trace holds the address with the token of a Kiler that ended with its test, and the made-up passwords of the test.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
