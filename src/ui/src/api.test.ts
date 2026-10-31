@@ -4,18 +4,36 @@ import {
   ApiError,
   changeLevel,
   changePassword,
+  createRecord,
+  createStash,
+  deleteRecord,
+  editRecord,
   getAdminLevels,
   getAdminUsers,
   getData,
   getHealth,
+  getHistory,
   getJson,
+  getLevels,
+  getRecord,
+  getRecords,
   getSession,
+  getStashes,
+  getTags,
+  getTemplates,
+  getTrash,
   lockSession,
   messageOf,
+  recordsSearch,
   renameLevel,
+  requestSecret,
+  restoreFromTrash,
+  restoreVersion,
   runWizard,
   setRights,
   signIn,
+  type EditRecordRequest,
+  type NewRecordRequest,
   type Session,
 } from './api.ts';
 import { texts } from './texts.ts';
@@ -155,6 +173,8 @@ describe('refusals', () => {
     expect(error.kind).toBe('refused');
     expect(error.status).toBe(status);
     expect(error.message).toBe('The password is wrong.');
+    expect(error.field).toBeNull();
+    expect(error.current).toBeNull();
   });
 
   it.each([
@@ -363,6 +383,412 @@ describe('the admin actions', () => {
     stubFetch(() => json(body));
 
     expect((await failure(request())).kind).toBe('invalid');
+  });
+});
+
+// The records of docs/api.md, made up.
+const editor = { account: 'demo.editor', name: 'Demo Editor' };
+const description = {
+  key: 'description',
+  level: 0,
+  kind: 'value',
+  value: 'The main database of the payments',
+  levelName: null,
+};
+const listItem = {
+  id: 'k3x9q2mf',
+  template: 'db',
+  version: 7,
+  stash: [
+    { id: 'a1b2c3d4', name: 'Payments' },
+    { id: 'e5f6g7h8', name: null },
+  ],
+  name: 'Payments production database',
+  description,
+  tags: ['payments'],
+  fields: [{ key: 'host', level: 1, kind: 'locked', value: null, levelName: 'Team' }],
+  updatedBy: editor,
+  updatedAt: '2026-10-21T11:32:00Z',
+};
+const record = {
+  ...listItem,
+  levels: [1, 3],
+  fields: [
+    { key: 'env', level: 0, kind: 'value', value: 'prod', levelName: null },
+    { key: 'port', level: 1, kind: 'value', value: 1521, levelName: null },
+    { key: 'tns', level: 1, kind: 'empty', value: null, levelName: null },
+    { key: 'query', level: 1, kind: 'value', value: { language: 'sql', code: 'select 1 from dual' }, levelName: null },
+    { key: 'database', level: 0, kind: 'value', value: { id: 'm4n5p6q7', name: null }, levelName: null },
+    { key: 'password', level: 2, kind: 'secret', value: null, levelName: null },
+    { key: 'user', level: 3, kind: 'locked', value: null, levelName: 'Prod' },
+    { key: 'notes', level: 1, kind: 'unreadable', value: null, levelName: null },
+  ],
+  createdBy: { account: 'demo.admin', name: null },
+  createdAt: '2026-09-30T08:10:00Z',
+};
+const trashItem = { ...listItem, levels: [1] };
+const versions = [
+  { version: 8, updatedBy: editor, updatedAt: '2026-10-21T11:32:00Z', levels: [1, 3] },
+  { version: 6, updatedBy: { account: 'demo.admin', name: null }, updatedAt: '2026-10-20T09:00:00Z', levels: [] },
+];
+
+function templateField(key: string, type: string, settings: object = {}) {
+  return {
+    key,
+    label: key,
+    type,
+    level: 1,
+    levelByEnv: null,
+    required: false,
+    filter: false,
+    list: false,
+    options: null,
+    language: null,
+    dialect: null,
+    languages: null,
+    refTemplate: null,
+    ...settings,
+  };
+}
+
+const template = {
+  id: 'db',
+  name: 'Server / database',
+  icon: 'database',
+  fields: [
+    templateField('env', 'select', { level: 0, filter: true, options: ['prod', 'test', 'dev'] }),
+    templateField('password', 'secret', { level: null, levelByEnv: { prod: 3, test: 2, dev: 1 } }),
+    templateField('query', 'code', { required: true, list: true, languages: ['sql', 'bash'] }),
+    templateField('script', 'code', { language: 'sql', dialect: 'oracle' }),
+    templateField('database', 'ref', { refTemplate: 'db' }),
+  ],
+};
+const templates = { templates: [template], invalid: [{ id: 'old', reason: 'The template has no fields.' }] };
+const recordsAnswer = {
+  records: [listItem],
+  tree: [
+    { id: 'a1b2c3d4', name: 'Payments', count: 30, children: [{ id: 'e5f6g7h8', name: null, count: 9, children: [] }] },
+  ],
+  facets: {
+    templates: [{ id: 'db', count: 12 }],
+    tags: [{ tag: 'payments', count: 5 }],
+    fields: [{ key: 'env', values: [{ value: 'prod', count: 4 }] }],
+  },
+};
+const stashes = [
+  { id: 'e5f6g7h8', name: 'Prod', used: true },
+  { id: 'j9k0m1n2', name: 'Test', used: false },
+];
+
+const newRecord: NewRecordRequest = {
+  template: 'db',
+  stash: ['a1b2c3d4', 'e5f6g7h8'],
+  name: 'Payments production database',
+  description: 'The main database of the payments',
+  tags: ['payments'],
+  fields: {
+    env: 'prod',
+    port: 1521,
+    query: { language: 'sql', code: 'select 1 from dual' },
+    database: 'm4n5p6q7',
+    password: 'made-up-password',
+    tns: null,
+  },
+  levels: { description: 2 },
+};
+const edit: EditRecordRequest = {
+  version: 7,
+  stash: ['a1b2c3d4'],
+  name: 'Payments production database',
+  description: null,
+  tags: [],
+  fields: { env: 'prod', port: 1522 },
+  levels: { port: 2 },
+};
+
+describe('the reads of the records', () => {
+  it.each<[string, () => Promise<unknown>, string, unknown, unknown]>([
+    ['the templates', () => getTemplates(), '/api/templates', templates, templates],
+    [
+      'the levels',
+      () => getLevels(),
+      '/api/levels',
+      { levels: [{ level: 0, name: 'Guest' }] },
+      [{ level: 0, name: 'Guest' }],
+    ],
+    ['the records', () => getRecords({}), '/api/records', recordsAnswer, recordsAnswer],
+    ['a record', () => getRecord('k3x9q2mf'), '/api/records/k3x9q2mf', record, record],
+    ['the stashes of position 1', () => getStashes([]), '/api/stashes', { stashes }, stashes],
+    [
+      'the stashes of position 3',
+      () => getStashes(['a1b2c3d4', 'e5f6g7h8']),
+      '/api/stashes?path=a1b2c3d4,e5f6g7h8',
+      { stashes },
+      stashes,
+    ],
+    ['the tags', () => getTags(), '/api/tags', { tags: ['payments', 'reports'] }, ['payments', 'reports']],
+    ['the trash', () => getTrash(), '/api/trash', { records: [trashItem] }, [trashItem]],
+    ['the history', () => getHistory('k3x9q2mf'), '/api/records/k3x9q2mf/history', { versions }, versions],
+  ])('reads %s with GET', async (_, read, path, body, expected) => {
+    const fetch = stubFetch(() => json(body));
+
+    expect(await read()).toEqual(expected);
+
+    const [called, init] = fetch.mock.calls[0] ?? [];
+    expect(called).toBe(path);
+    expect(init).toMatchObject({ method: 'GET', body: undefined });
+  });
+
+  const withField = (field: object) => ({ ...record, fields: [field] });
+
+  it.each<[string, () => Promise<unknown>, unknown]>([
+    [
+      'a field of a template of a type that this page does not know',
+      () => getTemplates(),
+      { templates: [{ ...template, fields: [templateField('colour', 'color')] }], invalid: [] },
+    ],
+    [
+      'a level by env that is not a whole number',
+      () => getTemplates(),
+      { templates: [{ ...template, fields: [templateField('password', 'secret', { levelByEnv: { prod: '3' } })] }] },
+    ],
+    ['templates without the invalid ones', () => getTemplates(), { templates: [template] }],
+    ['a level without its name', () => getLevels(), { levels: [{ level: 0 }] }],
+    [
+      'a record of the list without its version',
+      () => getRecords({}),
+      { ...recordsAnswer, records: [{ ...listItem, version: undefined }] },
+    ],
+    [
+      'a node of the tree without its children',
+      () => getRecords({}),
+      { ...recordsAnswer, tree: [{ id: 'a1b2c3d4', name: 'Payments', count: 1 }] },
+    ],
+    ['facets without the fields', () => getRecords({}), { ...recordsAnswer, facets: { templates: [], tags: [] } }],
+    [
+      'a field of a kind that this page does not know',
+      () => getRecord('k3x9q2mf'),
+      withField({ key: 'host', level: 1, kind: 'hidden', value: null, levelName: null }),
+    ],
+    [
+      'a value without the value',
+      () => getRecord('k3x9q2mf'),
+      withField({ key: 'host', level: 1, kind: 'value', value: null, levelName: null }),
+    ],
+    [
+      'a secret with its value',
+      () => getRecord('k3x9q2mf'),
+      withField({ key: 'password', level: 2, kind: 'secret', value: 'made-up-password', levelName: null }),
+    ],
+    [
+      'a value that is true or false',
+      () => getRecord('k3x9q2mf'),
+      withField({ key: 'host', level: 1, kind: 'value', value: true, levelName: null }),
+    ],
+    ['a record without who created it', () => getRecord('k3x9q2mf'), { ...record, createdBy: undefined }],
+    ['a date that is not a date', () => getRecord('k3x9q2mf'), { ...record, updatedAt: 'yesterday' }],
+    ['levels that are not whole numbers', () => getRecord('k3x9q2mf'), { ...record, levels: [1, 'Prod'] }],
+    ['a stash without used', () => getStashes([]), { stashes: [{ id: 'a1b2c3d4', name: 'Payments' }] }],
+    ['a tag that is not a text', () => getTags(), { tags: [1] }],
+    ['an item of the trash without its levels', () => getTrash(), { records: [listItem] }],
+    ['a version without its date', () => getHistory('k3x9q2mf'), { versions: [{ ...versions[0], updatedAt: null }] }],
+    ['an answer of a secret without the value', () => requestSecret('k3x9q2mf', 'password', 'show'), {}],
+    ['a new stash without its name', () => createStash('Reports'), { id: 'p3q4r5s6', name: null }],
+    ['a record of a write without its fields', () => editRecord('k3x9q2mf', edit), { ...record, fields: undefined }],
+    ['a deleted record without its levels', () => deleteRecord('k3x9q2mf', 7), listItem],
+  ])('turns %s into "invalid"', async (_, request, body) => {
+    stubFetch(() => json(body));
+
+    expect((await failure(request())).kind).toBe('invalid');
+  });
+});
+
+describe('recordsSearch', () => {
+  it('leaves every blank part out', () => {
+    expect(recordsSearch({})).toBe('');
+    expect(recordsSearch({ q: ' ', stash: [], template: '', tags: [''], fields: { env: '' } })).toBe('');
+  });
+
+  it('writes each part, the stash path with its commas, a tag once per tag and a field by its key', () => {
+    const search = recordsSearch({
+      q: 'pay db',
+      stash: ['a1b2c3d4', 'e5f6g7h8'],
+      template: 'db',
+      tags: ['payments', '', 'reports'],
+      fields: { env: 'prod', region: '' },
+    });
+
+    expect(search).toBe('?q=pay%20db&stash=a1b2c3d4,e5f6g7h8&template=db&tag=payments&tag=reports&field.env=prod');
+  });
+
+  it('encodes a value, so the address reads it back as it was', () => {
+    const query = { q: 'база & db=1', tags: ['a+b'], fields: { env: '#prod?' } };
+
+    const read = new URLSearchParams(recordsSearch(query));
+
+    expect(read.get('q')).toBe(query.q);
+    expect(read.getAll('tag')).toEqual(query.tags);
+    expect(read.get('field.env')).toBe('#prod?');
+  });
+
+  it('is the query of GET /api/records', async () => {
+    const fetch = stubFetch(() => json(recordsAnswer));
+
+    await getRecords({ q: 'db', stash: ['a1b2c3d4'], tags: ['payments'] });
+
+    expect(fetch.mock.calls[0]?.[0]).toBe('/api/records?q=db&stash=a1b2c3d4&tag=payments');
+  });
+});
+
+describe('the writes of the records', () => {
+  it.each(['show', 'copy'] as const)(
+    'asks for a secret to %s with POST of its field and use, and gives the value of the answer',
+    async (use) => {
+      const fetch = stubFetch(() => json({ value: 'made-up-password' }));
+
+      expect(await requestSecret('k3x9q2mf', 'password', use)).toBe('made-up-password');
+
+      const [path, init] = fetch.mock.calls[0] ?? [];
+      expect(path).toBe('/api/records/k3x9q2mf/secret');
+      expect(init).toMatchObject({ method: 'POST', body: JSON.stringify({ field: 'password', use }) });
+    },
+  );
+
+  it('creates a record with POST, and gives the record of the answer', async () => {
+    const fetch = stubFetch(() => json(record, 201));
+
+    expect(await createRecord(newRecord)).toEqual(record);
+
+    const [path, init] = fetch.mock.calls[0] ?? [];
+    expect(path).toBe('/api/records');
+    expect(init?.method).toBe('POST');
+    expect(JSON.parse(String(init?.body))).toEqual(newRecord);
+  });
+
+  it('edits a record with PUT over the version that the editor read', async () => {
+    const fetch = stubFetch(() => json(record));
+
+    expect(await editRecord('k3x9q2mf', edit)).toEqual(record);
+
+    const [path, init] = fetch.mock.calls[0] ?? [];
+    expect(path).toBe('/api/records/k3x9q2mf');
+    expect(init?.method).toBe('PUT');
+    expect(JSON.parse(String(init?.body))).toEqual(edit);
+  });
+
+  it('creates a stash with POST of its name', async () => {
+    const fetch = stubFetch(() => json({ id: 'p3q4r5s6', name: 'Reports' }, 201));
+
+    expect(await createStash('Reports')).toEqual({ id: 'p3q4r5s6', name: 'Reports' });
+
+    const [path, init] = fetch.mock.calls[0] ?? [];
+    expect(path).toBe('/api/stashes');
+    expect(init).toMatchObject({ method: 'POST', body: '{"name":"Reports"}' });
+  });
+
+  it('deletes a record with DELETE over its version, without a body, and gives its trash item', async () => {
+    const fetch = stubFetch(() => json(trashItem));
+
+    expect(await deleteRecord('k3x9q2mf', 7)).toEqual(trashItem);
+
+    const [path, init] = fetch.mock.calls[0] ?? [];
+    expect(path).toBe('/api/records/k3x9q2mf?version=7');
+    expect(init).toMatchObject({ method: 'DELETE', body: undefined });
+  });
+
+  it('restores a record from the trash with POST, without a body', async () => {
+    const fetch = stubFetch(() => json(record));
+
+    expect(await restoreFromTrash('k3x9q2mf')).toEqual(record);
+
+    const [path, init] = fetch.mock.calls[0] ?? [];
+    expect(path).toBe('/api/trash/k3x9q2mf/restore');
+    expect(init).toMatchObject({ method: 'POST', body: undefined });
+    expect(init?.headers).toEqual({ Accept: 'application/json' });
+  });
+
+  it('restores an old version with POST of the current version', async () => {
+    const fetch = stubFetch(() => json(record));
+
+    expect(await restoreVersion('k3x9q2mf', 6, 8)).toEqual(record);
+
+    const [path, init] = fetch.mock.calls[0] ?? [];
+    expect(path).toBe('/api/records/k3x9q2mf/history/6/restore');
+    expect(init).toMatchObject({ method: 'POST', body: '{"version":8}' });
+  });
+
+  it('puts an id into the path as one segment', async () => {
+    const fetch = stubFetch(() => json(record));
+
+    await getRecord('a/b?c#d');
+
+    expect(fetch.mock.calls[0]?.[0]).toBe('/api/records/a%2Fb%3Fc%23d');
+  });
+
+  it.each([
+    ['a record', () => getRecord('..')],
+    ['the secret', () => requestSecret('..', 'password', 'copy')],
+    ['a restore from the trash', () => restoreFromTrash('.')],
+  ])('refuses %s with an id that the browser would resolve to another path, without a request', async (_, request) => {
+    const fetch = stubFetch(() => json(record));
+
+    await expect(request()).rejects.toThrow('Not a Kiler API path');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('the refusals of a write', () => {
+  it.each([
+    ['the key of the field', 'host', 'host'],
+    ['no field', null, null],
+  ])('keeps %s of a 400', async (_, field, kept) => {
+    stubFetch(() => json({ error: 'The value does not fit.', field }, 400));
+
+    const error = await failure(createRecord(newRecord));
+
+    expect(error.kind).toBe('refused');
+    expect(error.status).toBe(400);
+    expect(error.message).toBe('The value does not fit.');
+    expect(error.field).toBe(kept);
+    expect(error.current).toBeNull();
+  });
+
+  it('keeps the record of a conflict, as it is now', async () => {
+    const current = { ...record, version: 8 };
+    stubFetch(() => json({ error: 'The record has been changed meanwhile.', current }, 409));
+
+    const error = await failure(editRecord('k3x9q2mf', edit));
+
+    expect(error.kind).toBe('refused');
+    expect(error.status).toBe(409);
+    expect(error.message).toBe('The record has been changed meanwhile.');
+    expect(error.current).toEqual(current);
+    expect(error.field).toBeNull();
+  });
+
+  it('reads a 409 without current as a refusal like the others', async () => {
+    stubFetch(() => json({ error: 'The record is being written now. Try again in a moment.' }, 409));
+
+    const error = await failure(deleteRecord('k3x9q2mf', 7));
+
+    expect(error.kind).toBe('refused');
+    expect(error.message).toBe('The record is being written now. Try again in a moment.');
+    expect(error.current).toBeNull();
+  });
+
+  it.each([
+    [
+      'a current that is not a record',
+      { error: 'The record has been changed meanwhile.', current: { id: 'k3x9q2mf' } },
+    ],
+    ['a field that is not a text', { error: 'The value does not fit.', field: 1 }],
+  ])('turns a refusal with %s into "invalid"', async (_, body) => {
+    stubFetch(() => json(body, 409));
+
+    const error = await failure(editRecord('k3x9q2mf', edit));
+
+    expect(error.kind).toBe('invalid');
+    expect(error.status).toBe(409);
   });
 });
 
