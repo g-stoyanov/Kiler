@@ -1,17 +1,26 @@
-import { recordsSearch, type PathStash, type RecordsQuery, type StashNode } from './api.ts';
+import {
+  recordsSearch,
+  type FieldFacet,
+  type PathStash,
+  type RecordsQuery,
+  type StashNode,
+  type TagCount,
+  type Template,
+  type TemplateCount,
+} from './api.ts';
 import { texts } from './texts.ts';
 
 /*
- * The logic of the main view (M6.3): the query in the address and back, the search field, the state of the stash tree
- * and the shortening of a long value in the list.
+ * The logic of the main view (M6.3, M6.4): the query in the address and back, the filters, the search field, the state
+ * of the stash tree and the shortening of a long value in the list.
  */
 
 const fieldPrefix = 'field.';
 
 /**
- * The query of the main view from the search part of its address, the reverse of `recordsSearch` of `api.ts` (decided at
- * the start of M6): `stash` split at its commas, `tag` once per tag, and the keys that start with `field.`. A blank part
- * is left out, and a part given more than once, but `tag`, counts once, by its first.
+ * The query of the main view from the search part of its address, the reverse of `recordsSearch` of `api.ts`
+ * (decided at the start of M6): `stash` split at its commas, `tag` once per tag, and the keys that start with
+ * `field.`. A blank part is left out, and a part given more than once, but `tag`, counts once, by its first.
  */
 export function queryFromSearch(search: string): RecordsQuery {
   const params = new URLSearchParams(search);
@@ -69,6 +78,143 @@ export function newRecordPath(path?: readonly string[]): string {
  */
 export function filterKey(query: RecordsQuery): string {
   return recordsSearch({ ...query, stash: undefined });
+}
+
+/** Whether the query has a filter: a type, a tag or a value of a field. */
+export function hasFilters(query: RecordsQuery): boolean {
+  return query.template !== undefined || (query.tags ?? []).length > 0 || Object.keys(query.fields ?? {}).length > 0;
+}
+
+/** The query with the type `id`, or without a type. */
+export function withTemplate(query: RecordsQuery, id: string | undefined): RecordsQuery {
+  return { ...query, template: id };
+}
+
+/** The query with the tag chosen or not, without regard to case, as Kiler compares the tags (design 8.1). */
+export function withTag(query: RecordsQuery, tag: string, chosen: boolean): RecordsQuery {
+  const tags = (query.tags ?? []).filter((entry) => !sameText(entry, tag));
+  return { ...query, tags: chosen ? [...tags, tag] : tags };
+}
+
+/** The query with the value of a field, or without it. */
+export function withField(query: RecordsQuery, key: string, value: string | undefined): RecordsQuery {
+  const fields = new Map(Object.entries(query.fields ?? {}));
+  if (value === undefined) {
+    fields.delete(key);
+  } else {
+    fields.set(key, value);
+  }
+
+  return { ...query, fields: Object.fromEntries(fields) };
+}
+
+/** The query without its filters; the search and the node stay. */
+export function withoutFilters(query: RecordsQuery): RecordsQuery {
+  return { ...query, template: undefined, tags: undefined, fields: undefined };
+}
+
+/** A choice of a filter: its value in the query, what shows, how many records it gives, and whether it is chosen. */
+export interface FilterChoice {
+  value: string;
+  label: string;
+  count: number;
+  chosen: boolean;
+}
+
+/**
+ * The types: the templates of `facets.templates` by their names (`GET /api/templates`), and by their ids when the
+ * template is not there; a type chosen that no record has now still shows, with 0, so it can be cleared.
+ */
+export function templateChoices(
+  counts: readonly TemplateCount[],
+  templates: ReadonlyMap<string, Template> | undefined,
+  chosen: string | undefined,
+): FilterChoice[] {
+  const all = withChosen(
+    counts.map(({ id, count }) => ({ value: id, count })),
+    chosen === undefined ? [] : [chosen],
+    (a, b) => a === b,
+  );
+  return all
+    .map(({ value, count }) => ({
+      value,
+      label: templates?.get(value)?.name ?? value,
+      count,
+      chosen: value === chosen,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
+/** The tags, as Kiler gives them, with those chosen, without regard to case. */
+export function tagChoices(counts: readonly TagCount[], chosen: readonly string[]): FilterChoice[] {
+  return withChosen(
+    counts.map(({ tag, count }) => ({ value: tag, count })),
+    chosen,
+    sameText,
+  ).map(({ value, count }) => ({ value, label: value, count, chosen: chosen.some((tag) => sameText(tag, value)) }));
+}
+
+/** A field with `filter`: its key, its label and its values. */
+export interface FieldFilter {
+  key: string;
+  label: string;
+  choices: FilterChoice[];
+}
+
+/**
+ * The fields with `filter`, each under its label in the first template, by name, that has it with `filter`, and under
+ * its key when no template has it; a value chosen that no record has now still shows, with 0.
+ */
+export function fieldFilters(
+  facets: readonly FieldFacet[],
+  templates: ReadonlyMap<string, Template> | undefined,
+  chosen: Readonly<Record<string, string>>,
+): FieldFilter[] {
+  const keys = [...facets.map((facet) => facet.key), ...Object.keys(chosen)].filter(
+    (key, index, all) => all.indexOf(key) === index,
+  );
+  return keys.map((key) => {
+    const value = Object.hasOwn(chosen, key) ? chosen[key] : undefined;
+    const counts = facets.find((facet) => facet.key === key)?.values ?? [];
+    return {
+      key,
+      label: fieldLabel(key, templates),
+      choices: withChosen(counts, value === undefined ? [] : [value], sameText).map((entry) => ({
+        value: entry.value,
+        label: entry.value,
+        count: entry.count,
+        chosen: value !== undefined && sameText(value, entry.value),
+      })),
+    };
+  });
+}
+
+function fieldLabel(key: string, templates: ReadonlyMap<string, Template> | undefined): string {
+  for (const template of templates?.values() ?? []) {
+    const field = template.fields.find((entry) => entry.key === key && entry.filter);
+    if (field !== undefined) {
+      return field.label;
+    }
+  }
+
+  return key;
+}
+
+/** The counts, and after them each chosen value that they do not have, once, at 0. */
+function withChosen(
+  counts: readonly { value: string; count: number }[],
+  chosen: readonly string[],
+  same: (a: string, b: string) => boolean,
+): { value: string; count: number }[] {
+  const missing = chosen.filter(
+    (value, index) =>
+      !counts.some((entry) => same(entry.value, value)) && chosen.findIndex((other) => same(other, value)) === index,
+  );
+  return [...counts, ...missing.map((value) => ({ value, count: 0 }))];
+}
+
+function sameText(a: string, b: string): boolean {
+  return a.toLowerCase() === b.toLowerCase();
 }
 
 /** The address of the page as the search field reads it: React Router's `key` of each entry, and its `state`. */
@@ -255,8 +401,8 @@ export function pathText(path: readonly PathStash[]): string {
 export const shortLength = 80;
 
 /**
- * A value in the list (docs/api.md, "List item"): its first line, at most `max` characters, with `…` when there is more.
- * The characters are counted whole, so a pair of UTF-16 units is not cut.
+ * A value in the list (docs/api.md, "List item"): its first line, at most `max` characters, with `…` when there is
+ * more. The characters are counted whole, so a pair of UTF-16 units is not cut.
  */
 export function shorten(text: string, max: number = shortLength): string {
   const trimmed = text.trim();

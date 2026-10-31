@@ -6,8 +6,8 @@ import { recordPath } from './fields.ts';
 
 /**
  * The records of the main view (docs/api.md, "List item"): the name as a link to the record, the template, the stash
- * path, the description, and the fields with `list` under their labels, each shortened. The template gives the names and
- * the types; without it, the id of the template and the keys show, and a `url` is text.
+ * path, the description, and the fields with `list` under their labels, each shortened. The template gives the names
+ * and the types; without it, the id of the template and the keys show, and a `url` is text.
  */
 export function RecordList({
   records,

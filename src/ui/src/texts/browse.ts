@@ -16,5 +16,11 @@ export const browse = {
   closeNode: (name: string) => `Close ${name}`,
   unreadableStash: 'Unreadable stash',
   pathSeparator: ' › ',
+  filters: 'Filters',
+  type: 'Type',
+  tags: 'Tags',
+  clear: 'Clear',
+  clearFilter: (filter: string) => `Clear ${filter}`,
+  clearAll: 'Clear all',
   templatesFailed: (message: string) => `The templates could not be read, so the list shows their ids. ${message}`,
 } as const;

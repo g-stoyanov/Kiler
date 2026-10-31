@@ -25,6 +25,7 @@ import {
 } from './browse.ts';
 import './Browse.css';
 import { useChanges } from './changes.ts';
+import { Filters } from './Filters.tsx';
 import { RecordList } from './RecordList.tsx';
 import { useSessionStore } from './session.ts';
 import { texts } from './texts.ts';
@@ -42,9 +43,9 @@ type TemplatesRead =
   | { state: 'failed'; message: string };
 
 /**
- * The main view at `/` (M6.3, M6.4, design 8.1): the search, the stash tree and the list, with the query in the address
- * (decided at the start of M6), so a link to a node, Back and a reload keep the view. Each query is one read of
- * `GET /api/records`, where only the last one counts, and the changes of other users read it again.
+ * The main view at `/` (M6.3, M6.4, design 8.1): the search, the stash tree, the filters and the list, with the query
+ * in the address (decided at the start of M6), so a link to a node, Back and a reload keep the view. Each query is one
+ * read of `GET /api/records`, where only the last one counts, and the changes of other users read it again.
  */
 export function Browse({ session }: { session: Session }) {
   const location = useLocation();
@@ -88,6 +89,11 @@ export function Browse({ session }: { session: Session }) {
       {records.state === 'read' && (
         <aside className="browse-side">
           <Tree nodes={records.answer.tree} query={query} canEdit={canEdit} />
+          <Filters
+            facets={records.answer.facets}
+            query={query}
+            templates={templates.state === 'read' ? templates.templates : undefined}
+          />
         </aside>
       )}
       <section className="browse-main stack">

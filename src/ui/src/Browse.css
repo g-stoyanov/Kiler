@@ -127,7 +127,8 @@
   font-style: italic;
 }
 
-.tree-count {
+.tree-count,
+.filter-count {
   font-size: 0.85rem;
   font-weight: normal;
   color: var(--color-muted);
@@ -144,6 +145,78 @@
 .tree .tree-new:focus-visible {
   color: var(--color-accent);
   border-color: var(--color-accent);
+}
+
+/* The filters (Filters.tsx). */
+.filters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space);
+  padding: var(--space);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.filters h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.filters h3 {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+
+.filters-head,
+.filter-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: calc(var(--space) / 2);
+}
+
+.filters-clear {
+  font-size: 0.85rem;
+  color: var(--color-accent);
+}
+
+.filter-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.3rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.filter-choice {
+  display: inline-block;
+  padding: 0 0.55rem;
+  font-size: 0.85rem;
+  color: var(--color-text);
+  text-decoration: none;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  overflow-wrap: anywhere;
+}
+
+.filter-choice:hover,
+.filter-choice:focus-visible {
+  border-color: var(--color-accent);
+}
+
+.filter-choice.chosen {
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.filter-choice.chosen .filter-count {
+  color: inherit;
 }
 
 /* The list (RecordList.tsx). */

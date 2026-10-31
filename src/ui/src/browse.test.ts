@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { recordsSearch, type RecordsQuery } from './api.ts';
+import { recordsSearch, type RecordsQuery, type Template, type TemplateField } from './api.ts';
 import {
   browsePath,
   draftState,
+  fieldFilters,
+  hasFilters,
+  tagChoices,
+  templateChoices,
+  withField,
+  withoutFilters,
+  withTag,
+  withTemplate,
   filterKey,
   isNodeOpen,
   isSearchShortcut,
@@ -137,6 +145,160 @@ describe('the paths', () => {
         { id: 'e5f6g7h8', name: null },
       ]),
     ).toBe('Payments › Unreadable stash');
+  });
+});
+
+/** A field of a template with only what the filters read. */
+function field(key: string, label: string, filter: boolean): TemplateField {
+  return {
+    key,
+    label,
+    type: 'select',
+    level: 0,
+    levelByEnv: null,
+    required: false,
+    filter,
+    list: false,
+    options: ['prod', 'test'],
+    language: null,
+    dialect: null,
+    languages: null,
+    refTemplate: null,
+  };
+}
+
+/** The templates by id, in the order of `GET /api/templates`, by name. */
+const templates = new Map<string, Template>([
+  [
+    'db',
+    {
+      id: 'db',
+      name: 'Database server',
+      icon: 'database',
+      fields: [field('env', 'Environment', true), field('kind', 'Kind of server', false)],
+    },
+  ],
+  ['link', { id: 'link', name: 'Link', icon: 'link', fields: [field('kind', 'Kind of link', true)] }],
+  ['sql', { id: 'sql', name: 'SQL query', icon: 'code', fields: [field('env', 'Database environment', true)] }],
+]);
+
+describe('the filters', () => {
+  const base: RecordsQuery = { q: 'billing', stash: ['a1b2c3d4'] };
+
+  it('chooses and clears a type in the query, and keeps the search and the node', () => {
+    const chosen = withTemplate(base, 'db');
+
+    expect(browsePath(chosen)).toBe('/?q=billing&stash=a1b2c3d4&template=db');
+    expect(hasFilters(chosen)).toBe(true);
+    expect(browsePath(withTemplate(chosen, undefined))).toBe('/?q=billing&stash=a1b2c3d4');
+    expect(hasFilters(withTemplate(chosen, undefined))).toBe(false);
+  });
+
+  it('chooses and clears a value of a field in the query', () => {
+    const chosen = withField(withField(base, 'env', 'prod'), 'kind', 'docs');
+
+    expect(browsePath(chosen)).toBe('/?q=billing&stash=a1b2c3d4&field.env=prod&field.kind=docs');
+    expect(browsePath(withField(chosen, 'env', 'test'))).toBe(
+      '/?q=billing&stash=a1b2c3d4&field.env=test&field.kind=docs',
+    );
+    expect(browsePath(withField(chosen, 'env', undefined))).toBe('/?q=billing&stash=a1b2c3d4&field.kind=docs');
+  });
+
+  it('chooses several tags, and clears one without regard to case', () => {
+    const chosen = withTag(withTag(base, 'payments', true), 'отчети', true);
+
+    expect(chosen.tags).toEqual(['payments', 'отчети']);
+    expect(browsePath(chosen)).toBe('/?q=billing&stash=a1b2c3d4&tag=payments&tag=%D0%BE%D1%82%D1%87%D0%B5%D1%82%D0%B8');
+    expect(withTag(chosen, 'ОТЧЕТИ', false).tags).toEqual(['payments']);
+    expect(withTag(chosen, 'Payments', true).tags).toEqual(['отчети', 'Payments']);
+    expect(hasFilters(withTag(withTag(chosen, 'payments', false), 'отчети', false))).toBe(false);
+  });
+
+  it('clears every filter at once, and keeps the search and the node', () => {
+    const chosen = withField(withTag(withTemplate(base, 'db'), 'payments', true), 'env', 'prod');
+
+    expect(withoutFilters(chosen)).toEqual({ ...base, template: undefined, tags: undefined, fields: undefined });
+    expect(browsePath(withoutFilters(chosen))).toBe('/?q=billing&stash=a1b2c3d4');
+  });
+
+  it('gives the types by the names of their templates, and by the id one that is not there', () => {
+    const choices = templateChoices(
+      [
+        { id: 'sql', count: 3 },
+        { id: 'db', count: 5 },
+        { id: 'gone', count: 1 },
+      ],
+      templates,
+      'db',
+    );
+
+    expect(choices).toEqual([
+      { value: 'db', label: 'Database server', count: 5, chosen: true },
+      { value: 'gone', label: 'gone', count: 1, chosen: false },
+      { value: 'sql', label: 'SQL query', count: 3, chosen: false },
+    ]);
+    expect(templateChoices([{ id: 'db', count: 5 }], undefined, undefined)[0]?.label).toBe('db');
+  });
+
+  it('keeps a type, a tag and a value chosen that no record has now, at 0, so they can be cleared', () => {
+    expect(templateChoices([{ id: 'sql', count: 3 }], templates, 'link')).toContainEqual({
+      value: 'link',
+      label: 'Link',
+      count: 0,
+      chosen: true,
+    });
+    expect(tagChoices([], ['payments', 'Payments'])).toEqual([
+      { value: 'payments', label: 'payments', count: 0, chosen: true },
+    ]);
+    expect(fieldFilters([], templates, { env: 'prod' })).toEqual([
+      { key: 'env', label: 'Environment', choices: [{ value: 'prod', label: 'prod', count: 0, chosen: true }] },
+    ]);
+  });
+
+  it('marks the tags chosen without regard to case', () => {
+    expect(
+      tagChoices(
+        [
+          { tag: 'Payments', count: 4 },
+          { tag: 'reports', count: 2 },
+        ],
+        ['payments'],
+      ),
+    ).toEqual([
+      { value: 'Payments', label: 'Payments', count: 4, chosen: true },
+      { value: 'reports', label: 'reports', count: 2, chosen: false },
+    ]);
+  });
+
+  it('gives a field the label of the first template that filters by it, and its key without one', () => {
+    const filters = fieldFilters(
+      [
+        {
+          key: 'env',
+          values: [
+            { value: 'Prod', count: 4 },
+            { value: 'test', count: 2 },
+          ],
+        },
+        { key: 'kind', values: [{ value: 'docs', count: 1 }] },
+        { key: 'owner', values: [{ value: 'team', count: 1 }] },
+      ],
+      templates,
+      { env: 'prod' },
+    );
+
+    expect(filters.map(({ key, label }) => [key, label])).toEqual([
+      ['env', 'Environment'],
+      ['kind', 'Kind of link'],
+      ['owner', 'owner'],
+    ]);
+    expect(filters[0]?.choices).toEqual([
+      { value: 'Prod', label: 'Prod', count: 4, chosen: true },
+      { value: 'test', label: 'test', count: 2, chosen: false },
+    ]);
+    expect(fieldFilters([{ key: 'env', values: [] }], undefined, {})).toEqual([
+      { key: 'env', label: 'env', choices: [] },
+    ]);
   });
 });
 
