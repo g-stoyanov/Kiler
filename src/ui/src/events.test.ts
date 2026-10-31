@@ -137,6 +137,39 @@ describe('KilerEvents', () => {
 
     expect(sessions).toBe(0);
   });
+
+  it('tells a listener of each "changed" event, apart from "session", until it unsubscribes', () => {
+    const events = newEvents();
+    let changes = 0;
+    let sessions = 0;
+    const unsubscribe = events.onChanged(() => changes++);
+    events.onSession(() => sessions++);
+    events.start();
+    lastSource().emit('ping');
+
+    lastSource().emit('changed');
+    lastSource().emit('changed');
+    lastSource().emit('session');
+    unsubscribe();
+    lastSource().emit('changed');
+
+    expect(changes).toBe(2);
+    expect(sessions).toBe(1);
+  });
+
+  it('tells nothing of a "changed" event of a stream that has stopped', () => {
+    const events = newEvents();
+    let changes = 0;
+    events.onChanged(() => changes++);
+    events.start();
+    const stopped = lastSource();
+    stopped.emit('error');
+    events.start();
+
+    stopped.emit('changed');
+
+    expect(changes).toBe(0);
+  });
 });
 
 describe('createEventsHub', () => {
@@ -193,6 +226,22 @@ describe('createEventsHub', () => {
     for (const page of [first, second]) {
       expect(page.received.at(-1)).toEqual({ type: 'session' });
       expect(page.received.filter((message) => message.type === 'session')).toHaveLength(1);
+    }
+  });
+
+  it('sends each "changed" event to every page', () => {
+    const hub = createEventsHub(newEvents());
+    const first = new FakePort();
+    const second = new FakePort();
+    hub.connect(first);
+    hub.connect(second);
+    lastSource().emit('ping');
+
+    lastSource().emit('changed');
+
+    for (const page of [first, second]) {
+      expect(page.received.at(-1)).toEqual({ type: 'changed' });
+      expect(page.received.filter((message) => message.type === 'changed')).toHaveLength(1);
     }
   });
 

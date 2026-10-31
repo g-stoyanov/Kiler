@@ -1,11 +1,23 @@
-import { KilerEvents, type HubMessage, type PageMessage, type SessionListener, type StateListener } from './events.ts';
+import {
+  KilerEvents,
+  type ChangedListener,
+  type HubMessage,
+  type PageMessage,
+  type SessionListener,
+  type StateListener,
+} from './events.ts';
 
 /**
  * The page side of the heartbeat (events.ts): joins the stream that the SharedWorker shares between the pages, or
  * opens one of its own without SharedWorker or when the worker does not start. Behind the worker, the first state comes
- * once the port is in the worker's set, so no `session` event after it is missed. Returns the function that leaves.
+ * once the port is in the worker's set, so no `session` or `changed` event after it is missed. Returns the function that
+ * leaves.
  */
-export function connectEvents(onState: StateListener, onSession: SessionListener): () => void {
+export function connectEvents(
+  onState: StateListener,
+  onSession: SessionListener,
+  onChanged: ChangedListener,
+): () => void {
   if (typeof SharedWorker === 'function') {
     let left = false;
     let fellBack = false;
@@ -21,6 +33,8 @@ export function connectEvents(onState: StateListener, onSession: SessionListener
           onState(event.data.state);
         } else if (event.data.type === 'session') {
           onSession();
+        } else if (event.data.type === 'changed') {
+          onChanged();
         }
       });
       worker.port.start();
@@ -37,7 +51,7 @@ export function connectEvents(onState: StateListener, onSession: SessionListener
         // The worker did not start, so this page holds a stream of its own.
         fellBack = true;
         leave();
-        leave = connectOwn(onState, onSession);
+        leave = connectOwn(onState, onSession, onChanged);
       });
       return () => {
         left = true;
@@ -48,17 +62,19 @@ export function connectEvents(onState: StateListener, onSession: SessionListener
     }
   }
 
-  return connectOwn(onState, onSession);
+  return connectOwn(onState, onSession, onChanged);
 }
 
-function connectOwn(onState: StateListener, onSession: SessionListener): () => void {
+function connectOwn(onState: StateListener, onSession: SessionListener, onChanged: ChangedListener): () => void {
   const events = new KilerEvents();
   const unsubscribe = events.subscribe(onState);
   const unsubscribeSession = events.onSession(onSession);
+  const unsubscribeChanged = events.onChanged(onChanged);
   events.start();
   return () => {
     unsubscribe();
     unsubscribeSession();
+    unsubscribeChanged();
     events.close();
   };
 }

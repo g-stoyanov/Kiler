@@ -233,17 +233,22 @@ public sealed class KilerDataTests : IDisposable
         using var data = NewData(clock);
         data.Start();
         await data.Started.WaitAsync(Quick, Cancel);
+        // The records are read again at each, so the pages read again too (M6.11).
+        var raised = 0;
+        data.Changes.Changed += (_, _) => Interlocked.Increment(ref raised);
 
         var away = $"{_place.DataFolder}-away";
         Directory.Move(_place.DataFolder, away);
         clock.Advance(DataWatch.Interval);
         await _output.WaitForLineAsync("The data folder cannot be reached, so Kiler works from its local copy: ", Quick);
         await WaitForStateAsync(data, DataState.Offline);
+        await WaitForAsync(() => Volatile.Read(ref raised) >= 1, "offline");
 
         Directory.Move(away, _place.DataFolder);
         clock.Advance(DataWatch.Interval);
         await _output.WaitForLineAsync("The data folder can be reached again.", Quick);
         await WaitForStateAsync(data, DataState.Open);
+        await WaitForAsync(() => Volatile.Read(ref raised) >= 2, "back");
         Assert.Empty(_errors.Lines);
     }
 
@@ -340,6 +345,35 @@ public sealed class KilerDataTests : IDisposable
         Assert.Empty(_errors.Lines);
     }
 
+    [Fact]
+    public async Task AChangeOfTheShare_GivesChangedOnTheStream_AndALoadWithoutOneDoesNot()
+    {
+        var made = MadeUp();
+        made.Create(StashFile.KeyOf("a1b2c3d4"), Stash("a1b2c3d4", "Payments"));
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        using var data = NewData(clock);
+        await using var server = await StartServerAsync(data);
+        // The first load raises a change of its own, before the start ends.
+        await data.Started.WaitAsync(Quick, Cancel);
+        var raised = 0;
+        data.Changes.Changed += (_, _) => Interlocked.Increment(ref raised);
+        using var page = await EventStream.OpenAsync(server);
+
+        // A load that changed nothing gives no change, as it says no line (StopOfTheHost_StopsTheWatch_AndDisposeLetsTheCopyGo).
+        clock.Advance(DataWatch.Interval);
+        await Task.Delay(TimeSpan.FromSeconds(1), Cancel);
+        made.Create(StashFile.KeyOf("e5f6g7h8"), Stash("e5f6g7h8", "Prod"));
+        clock.Advance(DataWatch.Interval);
+        // The whole line: the first load says one stash too, with its time.
+        await _output.WaitForLineAsync($"{FirstLoad}1 new or changed, 0 gone, 0 changed outside Kiler, 0 skipped.", Quick);
+
+        // After the records have taken it, so a page that reads at it finds the new stash.
+        Assert.Equal("event: changed\ndata: \n\n", await page.ReadAfterPingsAsync());
+        Assert.Equal(["a1b2c3d4", "e5f6g7h8"], Assert.IsType<Records>(data.Records).Read(null).Stashes.Keys);
+        Assert.Equal(1, Volatile.Read(ref raised));
+        Assert.Empty(_errors.Lines);
+    }
+
     private static JsonObject Stash(string id, string name) =>
         new StashFile(id, name, new Authorship("demo.admin", new DateTime(2026, 10, 30, 8, 0, 0, DateTimeKind.Utc), "demo.admin", new DateTime(2026, 10, 30, 8, 0, 0, DateTimeKind.Utc))).ToContent();
 
@@ -352,6 +386,15 @@ public sealed class KilerDataTests : IDisposable
         for (var waited = Stopwatch.StartNew(); data.State != state; await Task.Delay(TimeSpan.FromMilliseconds(20), Cancel))
         {
             Assert.True(waited.Elapsed < Quick, $"The state stayed {data.State}, not {state}.");
+        }
+    }
+
+    /// <summary>Waits for what a handler of the watch does after the state, such as the change it raises.</summary>
+    private static async Task WaitForAsync(Func<bool> done, string what)
+    {
+        for (var waited = Stopwatch.StartNew(); !done(); await Task.Delay(TimeSpan.FromMilliseconds(20), Cancel))
+        {
+            Assert.True(waited.Elapsed < Quick, $"No change was raised: {what}.");
         }
     }
 

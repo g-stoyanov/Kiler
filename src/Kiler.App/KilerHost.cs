@@ -74,6 +74,8 @@ internal static class KilerHost
         app.UseRouting();
         // After routing, so it knows the endpoint, what it needs (M4.4) and whether it is an activity (M4.5b).
         AccessRules.Use(app, sessions, data, autoLock);
+        // After the rights, so only a write that ran tells the pages (M6.11).
+        EventsApi.Use(app, data.Changes);
         UiFiles.Use(app, uiFiles ?? UiFiles.Embedded());
         HealthApi.Map(app, heartbeat);
         DataApi.Map(app, data);
@@ -84,7 +86,7 @@ internal static class KilerHost
         TemplatesApi.Map(app, data);
         RecordsApi.Map(app, data, time);
         StashesApi.Map(app, data, time);
-        EventsApi.Map(app, heartbeat, sessions, times.PingInterval, time, app.Lifetime.ApplicationStopping);
+        EventsApi.Map(app, heartbeat, sessions, data.Changes, times.PingInterval, time, app.Lifetime.ApplicationStopping);
         return app;
     }
 }

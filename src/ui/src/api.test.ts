@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  activityHeader,
   addUser,
   ApiError,
   changeLevel,
@@ -24,6 +25,7 @@ import {
   getTrash,
   lockSession,
   messageOf,
+  noActivity,
   recordsSearch,
   renameLevel,
   requestSecret,
@@ -36,6 +38,7 @@ import {
   type NewRecordRequest,
   type Session,
 } from './api.ts';
+import { changes } from './changes.ts';
 import { texts } from './texts.ts';
 
 function stubFetch(answer: () => Promise<Response>) {
@@ -61,6 +64,38 @@ async function failure(promise: Promise<unknown>): Promise<ApiError> {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  // The changes of the page are one for the module, so a test that notes one ends what it started.
+  changes.input();
+});
+
+describe('the mark of a read that follows a change (M6.11)', () => {
+  it('goes on each read from a "changed" event until the input of the user', async () => {
+    const fetch = stubFetch(() => json({ version: '0.1.0' }));
+
+    changes.note();
+    await getHealth();
+    await getHealth();
+    changes.input();
+    await getHealth();
+
+    expect(fetch.mock.calls.map(([, init]) => init?.headers)).toEqual([
+      { Accept: 'application/json', [activityHeader]: noActivity },
+      { Accept: 'application/json', [activityHeader]: noActivity },
+      { Accept: 'application/json' },
+    ]);
+  });
+
+  it('never goes on a write, which Kiler counts as activity anyway', async () => {
+    const fetch = stubFetch(() => json({ id: 'a1b2c3d4', name: 'Reports' }, 201));
+
+    changes.note();
+    await createStash('Reports');
+
+    expect(fetch.mock.calls[0]?.[1]?.headers).toEqual({
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    });
+  });
 });
 
 describe('getHealth', () => {

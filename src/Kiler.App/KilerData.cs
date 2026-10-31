@@ -162,6 +162,13 @@ internal sealed partial class KilerData : IDisposable
     public CurrentSession Sessions { get; } = new();
 
     /// <summary>
+    /// The changes that the pages read again (M6.11): raised after each load that changed something, a failed load and each
+    /// change of offline, once the team and the records have taken it and the state is set. The host raises it after the
+    /// writes of this Kiler too.
+    /// </summary>
+    public DataChanges Changes { get; } = new();
+
+    /// <summary>
     /// Completes when the start of the data has ended: the first load of the watch has ended, offline or failed too, or Kiler
     /// runs without data, or stops before. It never fails.
     /// </summary>
@@ -407,7 +414,7 @@ internal sealed partial class KilerData : IDisposable
     }
 
     // Each handler takes the change into the team, then says its line and the state, before the start ends, so whoever waits
-    // for it finds them.
+    // for it finds them. The change is raised after the state, so a page that reads at it finds the records (M6.11).
     private void OnLoaded(Team team, Records records, LoadResult load)
     {
         var first = !_heard;
@@ -418,8 +425,9 @@ internal sealed partial class KilerData : IDisposable
         Update(() => records.Follow(load));
 
         // A load that changed nothing is not said, and neither are the skipped entries that every load repeats (M2.8).
+        var changed = load.Changed.Count > 0 || load.Gone.Count > 0 || load.Outside.Count > 0 || load.TrashChanged;
         var skipped = load.Skipped.Count + load.MoreSkipped;
-        if (!_saidLoad || load.Changed.Count > 0 || load.Gone.Count > 0 || load.Outside.Count > 0 || load.TrashChanged || skipped != _saidSkipped)
+        if (!_saidLoad || changed || skipped != _saidSkipped)
         {
             _saidLoad = true;
             _saidSkipped = skipped;
@@ -437,6 +445,11 @@ internal sealed partial class KilerData : IDisposable
 
         // A load that ends is not offline: the watch says that the copy is back before it.
         SetState(DataState.Open);
+        if (changed)
+        {
+            Changes.Raise();
+        }
+
         _started.TrySetResult();
     }
 
@@ -451,6 +464,7 @@ internal sealed partial class KilerData : IDisposable
         // A fault of the code, so the whole exception, with where it was thrown.
         SayError($"A load of the data folder failed: {failure}");
         SetState(copy.Offline ? DataState.Offline : DataState.Open);
+        Changes.Raise();
         _started.TrySetResult();
     }
 
@@ -465,6 +479,7 @@ internal sealed partial class KilerData : IDisposable
             ? $"The data folder cannot be reached, so Kiler works from its local copy: {change.Cause?.Message}"
             : "The data folder can be reached again.");
         SetState(change.Offline ? DataState.Offline : DataState.Open);
+        Changes.Raise();
         _started.TrySetResult();
     }
 

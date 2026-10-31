@@ -1,4 +1,13 @@
+import { changes } from './changes.ts';
 import { texts } from './texts.ts';
+
+/**
+ * The header of a read that follows a `changed` event before the user's next input (changes.ts, decided by the user in
+ * M6.11), with {@link noActivity}: Kiler does not count such a `GET` as activity for the automatic lock. The names are
+ * `AccessRules.ActivityHeader` and `AccessRules.NoActivity` in Kiler.App, so a change of one changes the other.
+ */
+export const activityHeader = 'Kiler-Activity';
+export const noActivity = 'none';
 
 /**
  * What went wrong with a request, so the page can tell the user. `refused` is an answer of Kiler that says why in a
@@ -469,14 +478,21 @@ async function requestJson<T>(
     throw new Error(`Not a Kiler API path: ${path}`);
   }
 
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  // Only a read: Kiler counts a write and the request of a secret as activity anyway.
+  if (method === 'GET' && changes.follows) {
+    headers[activityHeader] = noActivity;
+  }
+
   let response: Response;
   try {
     response = await fetch(path, {
       method,
-      headers:
-        body === undefined
-          ? { Accept: 'application/json' }
-          : { Accept: 'application/json', 'Content-Type': 'application/json' },
+      headers,
       body: body === undefined ? undefined : JSON.stringify(body),
       credentials: 'same-origin',
       cache: 'no-store',

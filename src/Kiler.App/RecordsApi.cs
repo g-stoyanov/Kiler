@@ -245,18 +245,23 @@ internal static class RecordsApi
         endpoints.MapGet("/api/records/{id}", (HttpContext context, string id) => Get(context, data, id)).Needs(Need.Reader);
         endpoints.MapPost("/api/records/{id}/secret", (HttpContext context, string id, SecretRequest request) => Secret(context, data, id, request))
             .Needs(Need.Reader);
-        endpoints.MapPost("/api/records", (HttpContext context, RecordRequest request) => Create(context, data, request, time)).Needs(Need.Editor);
+        // The writes tell the other pages of this Kiler (M6.11).
+        endpoints.MapPost("/api/records", (HttpContext context, RecordRequest request) => Create(context, data, request, time)).Needs(Need.Editor).ChangesData();
         endpoints.MapPut("/api/records/{id}", (HttpContext context, string id, RecordRequest request) => Edit(context, data, id, request, time))
-            .Needs(Need.Editor);
+            .Needs(Need.Editor)
+            .ChangesData();
         endpoints.MapGet("/api/tags", (HttpContext context) => Tags(context, data)).Needs(Need.Reader);
-        endpoints.MapDelete("/api/records/{id}", (HttpContext context, string id, int? version) => Delete(context, data, id, version)).Needs(Need.Editor);
+        endpoints.MapDelete("/api/records/{id}", (HttpContext context, string id, int? version) => Delete(context, data, id, version))
+            .Needs(Need.Editor)
+            .ChangesData();
         endpoints.MapGet("/api/trash", (HttpContext context) => Trash(context, data)).Needs(Need.Reader);
-        endpoints.MapPost("/api/trash/{id}/restore", (HttpContext context, string id) => Restore(context, data, id)).Needs(Need.Editor);
+        endpoints.MapPost("/api/trash/{id}/restore", (HttpContext context, string id) => Restore(context, data, id)).Needs(Need.Editor).ChangesData();
         endpoints.MapGet("/api/records/{id}/history", (HttpContext context, string id) => History(context, data, id)).Needs(Need.Reader);
         endpoints.MapPost(
             "/api/records/{id}/history/{version}/restore",
             (HttpContext context, string id, string version, VersionRequest request) => RestoreVersion(context, data, id, version, request, time))
-            .Needs(Need.Editor);
+            .Needs(Need.Editor)
+            .ChangesData();
     }
 
     /// <summary>What the page says when a write of a record was refused, but for a value that does not fit, whose reason is its own (docs/api.md).</summary>

@@ -61,6 +61,7 @@ describe('connectEvents', () => {
     connectEvents(
       (state) => states.push(state),
       () => {},
+      () => {},
     );
     worker().port.deliver({ type: 'state', state: 'connected' } satisfies HubMessage);
 
@@ -78,6 +79,7 @@ describe('connectEvents', () => {
     connectEvents(
       () => {},
       () => sessions++,
+      () => {},
     );
     worker().port.deliver({ type: 'state', state: 'connected' } satisfies HubMessage);
     worker().port.deliver({ type: 'session' } satisfies HubMessage);
@@ -85,10 +87,29 @@ describe('connectEvents', () => {
     expect(sessions).toBe(1);
   });
 
+  it('passes the "changed" event of the worker on', () => {
+    vi.stubGlobal('SharedWorker', FakeSharedWorker);
+    let changes = 0;
+    let sessions = 0;
+
+    connectEvents(
+      () => {},
+      () => sessions++,
+      () => changes++,
+    );
+    worker().port.deliver({ type: 'state', state: 'connected' } satisfies HubMessage);
+    worker().port.deliver({ type: 'changed' } satisfies HubMessage);
+    worker().port.deliver({ type: 'changed' } satisfies HubMessage);
+
+    expect(changes).toBe(2);
+    expect(sessions).toBe(0);
+  });
+
   it('says bye to the worker and closes its port when the page leaves', () => {
     vi.stubGlobal('SharedWorker', FakeSharedWorker);
 
     const leave = connectEvents(
+      () => {},
       () => {},
       () => {},
     );
@@ -104,6 +125,7 @@ describe('connectEvents', () => {
 
     const leave = connectEvents(
       (state) => states.push(state),
+      () => {},
       () => {},
     );
     worker().fail();
@@ -122,6 +144,7 @@ describe('connectEvents', () => {
     connectEvents(
       (state) => states.push(state),
       () => {},
+      () => {},
     );
     worker().fail();
     lastSource().emit('error');
@@ -138,9 +161,11 @@ describe('connectEvents', () => {
     connectEvents(
       (state) => states.push(state),
       () => {},
+      () => {},
     )();
     connectEvents(
       (state) => states.push(state),
+      () => {},
       () => {},
     );
     worker().port.deliver({ type: 'state', state: 'connected' } satisfies HubMessage);
@@ -158,6 +183,7 @@ describe('connectEvents', () => {
     const leave = connectEvents(
       () => {},
       () => {},
+      () => {},
     );
     leave();
     worker().fail();
@@ -171,6 +197,7 @@ describe('connectEvents', () => {
 
     const leave = connectEvents(
       (state) => states.push(state),
+      () => {},
       () => {},
     );
     lastSource().emit('error');
@@ -187,6 +214,7 @@ describe('connectEvents', () => {
     const leave = connectEvents(
       () => {},
       () => sessions++,
+      () => {},
     );
     lastSource().emit('ping');
     lastSource().emit('session');
@@ -196,12 +224,30 @@ describe('connectEvents', () => {
     expect(sessions).toBe(1);
   });
 
+  it('passes the "changed" event of a stream of its own on, until the page leaves', () => {
+    vi.stubGlobal('SharedWorker', undefined);
+    let changes = 0;
+
+    const leave = connectEvents(
+      () => {},
+      () => {},
+      () => changes++,
+    );
+    lastSource().emit('ping');
+    lastSource().emit('changed');
+    leave();
+    lastSource().emit('changed');
+
+    expect(changes).toBe(1);
+  });
+
   it('holds a stream of its own when the browser refuses the worker', () => {
     vi.stubGlobal('SharedWorker', function refused() {
       throw new DOMException('Refused', 'SecurityError');
     });
 
     connectEvents(
+      () => {},
       () => {},
       () => {},
     );

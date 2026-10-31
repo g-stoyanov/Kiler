@@ -12,10 +12,11 @@
 export type ConnectionState = 'connecting' | 'connected' | 'stopped';
 
 /**
- * A message from the worker to a page: the state of the stream, or its `session` event, on which the page drops what it
- * shows and reads the session again (M4.5b). Change notifications (M6) will be another type.
+ * A message from the worker to a page: the state of the stream; its `session` event, on which the page drops what it
+ * shows and reads the session again (M4.5b); or its `changed` event, on which the page reads again what it shows
+ * (M6.11).
  */
-export type HubMessage = { type: 'state'; state: ConnectionState } | { type: 'session' };
+export type HubMessage = { type: 'state'; state: ConnectionState } | { type: 'session' } | { type: 'changed' };
 
 /** A message from a page to the worker: the page lets its port go. */
 export type PageMessage = { type: 'bye' };
@@ -28,6 +29,12 @@ export type StateListener = (state: ConnectionState) => void;
 export type SessionListener = () => void;
 
 /**
+ * Called on each `changed` event: the stashes, the records, the templates or the trash have changed, by a load of the
+ * shared folder or a write of this Kiler (M6.11). The event has no data.
+ */
+export type ChangedListener = () => void;
+
+/**
  * One `EventSource` on {@link eventsPath}. On its first error it is closed for good, before the browser can
  * reconnect: after a stop, each try would send the cookie to the old port, which by then can belong to another
  * program, and the cookie can hold the token of a newer Kiler (M1.6 security review).
@@ -36,6 +43,7 @@ export class KilerEvents {
   readonly #createSource: (url: string) => EventSource;
   readonly #listeners = new Set<StateListener>();
   readonly #sessionListeners = new Set<SessionListener>();
+  readonly #changedListeners = new Set<ChangedListener>();
   #source: EventSource | undefined;
   #state: ConnectionState = 'connecting';
 
@@ -66,13 +74,15 @@ export class KilerEvents {
     };
     source.addEventListener('open', connected);
     source.addEventListener('ping', connected);
-    source.addEventListener('session', () => {
+    const tell = (listeners: Set<() => void>) => () => {
       if (this.#source === source) {
-        for (const listener of this.#sessionListeners) {
+        for (const listener of listeners) {
           listener();
         }
       }
-    });
+    };
+    source.addEventListener('session', tell(this.#sessionListeners));
+    source.addEventListener('changed', tell(this.#changedListeners));
     source.addEventListener('error', () => {
       // Closed in the error handler itself, so the browser does not reconnect.
       source.close();
@@ -100,6 +110,12 @@ export class KilerEvents {
   onSession(listener: SessionListener): () => void {
     this.#sessionListeners.add(listener);
     return () => this.#sessionListeners.delete(listener);
+  }
+
+  /** Calls the listener on each `changed` event. Returns the function that stops the calls. */
+  onChanged(listener: ChangedListener): () => void {
+    this.#changedListeners.add(listener);
+    return () => this.#changedListeners.delete(listener);
   }
 
   #setState(state: ConnectionState): void {
@@ -131,6 +147,7 @@ export function createEventsHub(events: KilerEvents): { connect(port: PagePort):
   };
   events.subscribe((state) => send({ type: 'state', state }));
   events.onSession(() => send({ type: 'session' }));
+  events.onChanged(() => send({ type: 'changed' }));
 
   return {
     connect(port) {

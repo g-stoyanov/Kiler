@@ -3,6 +3,7 @@ import { BrowserRouter, Link, Navigate, Outlet, Route, Routes, useLocation, useP
 import { getHealth, lockSession, type Session } from './api.ts';
 import { Browse } from './Browse.tsx';
 import { ChangePassword } from './ChangePassword.tsx';
+import { changes } from './changes.ts';
 import { connectEvents } from './connection.ts';
 import { DataGate } from './DataGate.tsx';
 import type { ConnectionState } from './events.ts';
@@ -19,16 +20,22 @@ import { applyThemeChoice, readThemeChoice, saveThemeChoice, themeChoices, type 
 import { Trash } from './Trash.tsx';
 import { Users } from './Users.tsx';
 
-/** The page: the session of the event stream (session.ts), and the frame with the routes. */
+/**
+ * The page: the session of the event stream (session.ts), its changes of the data with the input of the user that ends
+ * their reads (changes.ts), and the frame with the routes.
+ */
 export function App() {
   const [store] = useState(() => new SessionStore());
   useEffect(() => {
+    const stopWatching = changes.watchInput(window);
     const leave = connectEvents(
       (state) => store.connectionChanged(state),
       () => store.sessionChanged(),
+      () => changes.note(),
     );
     return () => {
       leave();
+      stopWatching();
       store.stop();
     };
   }, [store]);

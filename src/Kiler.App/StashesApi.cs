@@ -30,7 +30,8 @@ internal static class StashesApi
     public static void Map(IEndpointRouteBuilder endpoints, KilerData data, TimeProvider time)
     {
         endpoints.MapGet("/api/stashes", (HttpContext context) => List(context, data)).Needs(Need.Reader);
-        endpoints.MapPost("/api/stashes", (HttpContext context, StashRequest request) => Create(context, data, request, time)).Needs(Need.Editor);
+        // A new stash tells the other pages of this Kiler (M6.11).
+        endpoints.MapPost("/api/stashes", (HttpContext context, StashRequest request) => Create(context, data, request, time)).Needs(Need.Editor).ChangesData();
     }
 
     /// <summary>

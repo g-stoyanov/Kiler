@@ -15,11 +15,23 @@ internal sealed record NotActivityMetadata;
 /// reason (<see cref="ErrorResponse"/>); 401 stays the answer of a missing cookie (<see cref="AccessGuard"/>). An endpoint
 /// that uses the keys finds the session that was checked with <see cref="SessionOf"/>, and a lock while it runs answers as
 /// locked (<see cref="SessionLockedException"/>). Each request of an endpoint is an activity of the page for the automatic lock
-/// (<see cref="AutoLock"/>, M4.5b), but those of the endpoints that a page asks of its own (<see cref="NotActivity"/>).
+/// (<see cref="AutoLock"/>, M4.5b), but those of the endpoints that a page asks of its own (<see cref="NotActivity"/>), and a
+/// read that the page marks as its own (<see cref="ActivityHeader"/>, M6.11).
 /// </summary>
 internal static class AccessRules
 {
     public const string Locked = "The session has been locked. Sign in again.";
+
+    /// <summary>
+    /// The header of a read that the page makes of its own after a <c>changed</c> event, until the user's next input in the
+    /// page (decided by the user in M6.11): with <see cref="NoActivity"/>, a <c>GET</c> is no activity, as otherwise a page
+    /// that the changes of others keep reading would never lock. Only a <c>GET</c>, so a write and the request of a secret
+    /// always are. The header can only make the lock come sooner. <c>activityHeader</c> in <c>src/ui/src/api.ts</c> sends it.
+    /// </summary>
+    public const string ActivityHeader = "Kiler-Activity";
+
+    /// <summary>The value of <see cref="ActivityHeader"/> that makes a read no activity.</summary>
+    public const string NoActivity = "none";
 
     public static void Use(IApplicationBuilder app, CurrentSession sessions, KilerData data, AutoLock autoLock) =>
         app.Use((context, next) => CheckAsync(context, next, sessions, data, autoLock));
@@ -68,7 +80,7 @@ internal static class AccessRules
 
         // Before the session is read, so the automatic lock seldom comes between the check and the endpoint; one that does
         // makes the keys answer as locked, as the "Lock" button does. A refused request is the user's too.
-        if (endpoint.Metadata.GetMetadata<NotActivityMetadata>() is null)
+        if (endpoint.Metadata.GetMetadata<NotActivityMetadata>() is null && !IsMarkedNoActivity(context.Request))
         {
             autoLock.Activity();
         }
@@ -98,6 +110,9 @@ internal static class AccessRules
             await RefuseAsync(context, Locked);
         }
     }
+
+    private static bool IsMarkedNoActivity(HttpRequest request) =>
+        HttpMethods.IsGet(request.Method) && request.Headers[ActivityHeader] == NoActivity;
 
     private static Task RefuseAsync(HttpContext context, string error)
     {

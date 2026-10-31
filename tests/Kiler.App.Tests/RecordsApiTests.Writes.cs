@@ -284,6 +284,34 @@ public sealed partial class RecordsApiTests
     }
 
     [Fact]
+    public async Task AWrite_GivesChangedToThePages_AndARefusedOneDoesNot()
+    {
+        // No load gives a write of this Kiler (M2.7a), so its other pages hear of it from the write (M6.11).
+        using var data = NewData(guestMode: false);
+        await using var server = await StartAsync(data, MadeUpKiler.Editor);
+        // The first load raises a change of its own.
+        await data.Started.WaitAsync(Quick, Cancel);
+        var raised = 0;
+        data.Changes.Changed += (_, _) => Interlocked.Increment(ref raised);
+        using var page = await EventStream.OpenAsync(server);
+        using var client = await SignedInAsync(server);
+        Assert.Equal("event: session\ndata: \n\n", await page.ReadAfterPingsAsync());
+
+        using (var blank = await SendAsync(client, HttpMethod.Post, "/api/stashes", """{"name":"  "}"""))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, blank.StatusCode);
+        }
+
+        using (var created = await SendAsync(client, HttpMethod.Post, "/api/stashes", """{"name":"Reports"}"""))
+        {
+            Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        }
+
+        Assert.Equal("event: changed\ndata: \n\n", await page.ReadAfterPingsAsync());
+        Assert.Equal(1, Volatile.Read(ref raised));
+    }
+
+    [Fact]
     public async Task TheTags_AreEachOnceWithoutRegardToCase_ByName()
     {
         using var data = NewData(guestMode: false);

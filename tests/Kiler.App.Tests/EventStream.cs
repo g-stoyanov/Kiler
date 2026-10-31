@@ -65,6 +65,19 @@ internal sealed class EventStream : IDisposable
         return text.ToString();
     }
 
+    /// <summary>The next event that is not a <c>ping</c>: a fake clock gives a ping with each long step, the real one every interval.</summary>
+    public async Task<string?> ReadAfterPingsAsync()
+    {
+        while (true)
+        {
+            var next = await ReadEventAsync();
+            if (next != "event: ping\ndata: \n\n")
+            {
+                return next;
+            }
+        }
+    }
+
     public void Dispose()
     {
         _body.Dispose();

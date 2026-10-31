@@ -18,6 +18,7 @@ namespace Kiler.App.Tests;
 public sealed class AutoLockApiTests : IDisposable
 {
     private const string Reader = "/api/test/reader";
+    private const string Writer = "/api/test/writer";
     private const string SessionEvent = "event: session\ndata: \n\n";
 
     /// <summary>The longest wait for a load of a few files on the local disk, on a busy CI machine.</summary>
@@ -48,7 +49,7 @@ public sealed class AutoLockApiTests : IDisposable
         using var page = await EventStream.OpenAsync(server);
         using var client = server.CreateSignedInClient();
         await SignInAsync(client);
-        Assert.Equal(SessionEvent, await ReadAfterPingsAsync(page));
+        Assert.Equal(SessionEvent, await page.ReadAfterPingsAsync());
 
         _time.Advance(Default - Tick);
         // What a page asks of its own, again and again, does not put the lock off.
@@ -67,7 +68,7 @@ public sealed class AutoLockApiTests : IDisposable
         _time.Advance(Tick);
 
         Assert.Null(sessions.Session);
-        Assert.Equal(SessionEvent, await ReadAfterPingsAsync(page));
+        Assert.Equal(SessionEvent, await page.ReadAfterPingsAsync());
         using (var refused = await client.GetAsync(Reader, Cancel))
         {
             Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
@@ -102,6 +103,32 @@ public sealed class AutoLockApiTests : IDisposable
     }
 
     [Theory]
+    [InlineData("GET", AccessRules.NoActivity, false)]
+    [InlineData("GET", "all", true)]
+    [InlineData("POST", AccessRules.NoActivity, true)]
+    public async Task TheMarkOfThePage_MakesOnlyAReadNoActivity(string method, string mark, bool isActivity)
+    {
+        // A page marks the reads that follow a changed event until the user's next input (M6.11).
+        using var data = NewData();
+        await using var server = await StartAsync(data);
+        var sessions = server.Services.GetRequiredService<CurrentSession>();
+        using var page = await EventStream.OpenAsync(server);
+        using var client = server.CreateSignedInClient();
+        await SignInAsync(client);
+
+        _time.Advance(TimeSpan.FromMinutes(20));
+        using (var request = new HttpRequestMessage(new HttpMethod(method), method == "GET" ? Reader : Writer))
+        {
+            request.Headers.Add(AccessRules.ActivityHeader, mark);
+            using var response = await client.SendAsync(request, Cancel);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        _time.Advance(Default - TimeSpan.FromMinutes(20));
+        Assert.Equal(isActivity, sessions.Session is not null);
+    }
+
+    [Theory]
     [InlineData(5, 5)]
     [InlineData(0, AutoLock.DefaultMinutes)]
     public async Task TheMinutes_AreThoseOfTheSettings_OrTheDefaultWithoutSettingsThatFit(int inTheSettings, int minutes)
@@ -131,16 +158,16 @@ public sealed class AutoLockApiTests : IDisposable
 
         await SignInAsync(client);
 
-        Assert.Equal(SessionEvent, await ReadAfterPingsAsync(first));
-        Assert.Equal(SessionEvent, await ReadAfterPingsAsync(second));
+        Assert.Equal(SessionEvent, await first.ReadAfterPingsAsync());
+        Assert.Equal(SessionEvent, await second.ReadAfterPingsAsync());
 
         using (var locked = await client.DeleteAsync("/api/session", Cancel))
         {
             Assert.Equal(HttpStatusCode.OK, locked.StatusCode);
         }
 
-        Assert.Equal(SessionEvent, await ReadAfterPingsAsync(first));
-        Assert.Equal(SessionEvent, await ReadAfterPingsAsync(second));
+        Assert.Equal(SessionEvent, await first.ReadAfterPingsAsync());
+        Assert.Equal(SessionEvent, await second.ReadAfterPingsAsync());
     }
 
     [Fact]
@@ -165,19 +192,6 @@ public sealed class AutoLockApiTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
-    /// <summary>The next event that is not a <c>ping</c>: the fake clock gives a ping with each long step.</summary>
-    private static async Task<string?> ReadAfterPingsAsync(EventStream page)
-    {
-        while (true)
-        {
-            var next = await page.ReadEventAsync();
-            if (next != "event: ping\ndata: \n\n")
-            {
-                return next;
-            }
-        }
-    }
-
     private static async Task<JsonObject> ReadAsync(HttpResponseMessage response)
     {
         Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
@@ -192,11 +206,12 @@ public sealed class AutoLockApiTests : IDisposable
         return new KilerData(place, FileOwner.Instance, TimeProvider.System, _output, _errors);
     }
 
-    /// <summary>Starts Kiler on the fake clock as the user of level 1, with a test endpoint of a reader, and waits until the copy is open.</summary>
+    /// <summary>Starts Kiler on the fake clock as the user of level 1, with test endpoints of a reader, and waits until the copy is open.</summary>
     private async Task<KilerServer> StartAsync(KilerData data)
     {
         var app = KilerHost.Build(new StartOptions { DataFolder = data.Folder }, data: data, account: new FakeAccount(MadeUpKiler.User), time: _time);
         app.MapGet(Reader, () => "read").Needs(Need.Reader);
+        app.MapPost(Writer, () => "written").Needs(Need.Reader);
         var server = await KilerServer.StartAsync(app, data.Folder);
         for (var waited = Stopwatch.StartNew(); data.State != DataState.Open; await Task.Delay(TimeSpan.FromMilliseconds(20), Cancel))
         {
