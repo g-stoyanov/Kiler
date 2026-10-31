@@ -1,0 +1,101 @@
+/* The record view (RecordPage.tsx, SecretField.tsx). */
+.record-path {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  font-size: 0.9rem;
+}
+
+.record-path a {
+  color: var(--color-accent);
+}
+
+.record-path a.muted {
+  color: var(--color-muted);
+}
+
+.record-path a + a::before {
+  content: '›';
+  margin-right: 0.3rem;
+  color: var(--color-muted);
+}
+
+.record-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space);
+}
+
+.record-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: calc(var(--space) / 2);
+}
+
+.card .record-title h1 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.record-fields {
+  display: grid;
+  grid-template-columns: minmax(8rem, max-content) minmax(0, 1fr);
+  gap: calc(var(--space) * 0.6) calc(var(--space) * 1.5);
+}
+
+.record-field {
+  display: contents;
+}
+
+.record-field dt {
+  font-weight: 600;
+  color: var(--color-muted);
+}
+
+.record-field dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.record-value,
+.record-padlock,
+.secret-field {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--space) / 2);
+}
+
+/* The value as it is, with every space, as the user may type it by hand. */
+.secret-shown {
+  padding: 0.1rem 0.4rem;
+  white-space: pre-wrap;
+  font-family: Consolas, 'Cascadia Mono', monospace;
+  background: var(--color-page);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.secret-hint {
+  font-size: 0.85rem;
+}
+
+.record-authors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--space) * 1.5);
+  font-size: 0.9rem;
+}
+
+@media (width < 40rem) {
+  .record-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .record-field dd {
+    margin-bottom: calc(var(--space) / 2);
+  }
+}

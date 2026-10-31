@@ -1,0 +1,13 @@
+/* The history of a record and the trash (History.tsx, Trash.tsx). */
+.history-record {
+  font-size: 1.05rem;
+}
+
+.history-record a {
+  color: var(--color-accent);
+}
+
+.history-table td:last-child {
+  text-align: right;
+  white-space: nowrap;
+}
