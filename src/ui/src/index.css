@@ -307,9 +307,7 @@ a.field-value {
   white-space: pre-wrap;
 }
 
-.field-code,
-.code-block,
-.code-editor {
+.field-code {
   font-family: Consolas, 'Cascadia Mono', monospace;
   font-size: 0.9rem;
 }
@@ -331,25 +329,6 @@ a.field-value {
 
 .field-unreadable {
   color: var(--color-danger);
-}
-
-/* The code until CodeMirror (M6.9). */
-.code-block {
-  margin: 0;
-  padding: var(--space);
-  overflow-x: auto;
-  background: var(--color-page);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-}
-
-.code-editor {
-  color: var(--color-text);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  padding: 0.3rem 0.5rem;
-  resize: vertical;
 }
 
 .card.card-wide {
