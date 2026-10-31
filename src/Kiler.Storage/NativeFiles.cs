@@ -89,6 +89,12 @@ internal static partial class NativeFiles
 
     private const uint OpenExisting = 3;
 
+    /// <summary><c>OPEN_ALWAYS</c>: open the file that is there, else make it.</summary>
+    private const uint OpenAlways = 4;
+
+    /// <summary><c>FILE_APPEND_DATA</c>: a write only at the end of the file. Without <c>FILE_WRITE_DATA</c>, the handle cannot write over what is in the file.</summary>
+    private const uint AppendData = 0x4;
+
     /// <summary><c>FILE_FLAG_BACKUP_SEMANTICS</c>, which a folder needs to be opened.</summary>
     private const uint BackupSemantics = 0x02000000;
 
@@ -414,6 +420,91 @@ internal static partial class NativeFiles
         return handle;
     }
 
+    /// <summary>
+    /// Opens a file only to append to it, as itself, and makes it when it is missing (M6.17): <c>FILE_APPEND_DATA</c> without
+    /// <c>FILE_WRITE_DATA</c>, so the handle cannot write over what is in the file, and the attributes for the check that it
+    /// is a file. Shared to be read and written, not deleted. A link at the name, also one whose target is missing, is opened
+    /// as the link and refused, so its target is never made or written, which <c>OPEN_ALWAYS</c> without
+    /// <c>FILE_FLAG_OPEN_REPARSE_POINT</c> could do (the M2.3 note on create-new). A file with more names than one is refused
+    /// too: a hard link has neither the attributes of a link nor of a folder, and is another name of a file anywhere on the
+    /// volume, which the append would write with the user's rights (security review of M6.17). A missing folder is a
+    /// <see cref="DirectoryNotFoundException"/>; a folder at the name, which CreateFileW refuses without
+    /// <c>FILE_FLAG_BACKUP_SEMANTICS</c>, or a file that may not be written, an <see cref="UnauthorizedAccessException"/>; a
+    /// link, a hard link, a sharing violation and any other error an <see cref="IOException"/>.
+    /// </summary>
+    public static SafeFileHandle OpenFileToAppend(string path)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            throw NotWindows();
+        }
+
+        var handle = CreateFile(Extended(path), AppendData | ReadAttributes, (uint)(FileShare.Read | FileShare.Write), 0, OpenAlways, OpenReparsePoint | AnonymousToPipes, 0);
+        if (handle.IsInvalid)
+        {
+            var error = Marshal.GetLastPInvokeError();
+            handle.Dispose();
+            var message = $"Kiler cannot open the file to append to it: {new Win32Exception(error).Message} {path}";
+            throw error switch
+            {
+                ErrorFileNotFound or ErrorPathNotFound => new DirectoryNotFoundException(message),
+                ErrorAccessDenied => new UnauthorizedAccessException(message),
+                _ => new IOException(message, HResult(error)),
+            };
+        }
+
+        var file = Checked(handle, attributes => !attributes.HasFlag(FileAttributes.ReparsePoint) && !attributes.HasFlag(FileAttributes.Directory), $"The file is a link, which Kiler does not follow: {path}");
+        try
+        {
+            // A name added after this check is only a second name of the file of the audit.
+            if (!GetFileInformationByHandle(file, out var information))
+            {
+                var error = Marshal.GetLastPInvokeError();
+                throw new IOException($"Kiler cannot read how many names the file has: {new Win32Exception(error).Message} {path}", HResult(error));
+            }
+
+            return information.NumberOfLinks == 1 ? file : throw new IOException($"The file has more names than one, a hard link, which Kiler does not write through: {path}");
+        }
+        catch
+        {
+            file.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Writes the bytes at the end of the file as it is at that moment, in one write (M6.17): WriteFile at the offset of all
+    /// ones, which it takes as the end of the file, as a handle with only <c>FILE_APPEND_DATA</c> writes anyway, so a line
+    /// that another handle appended since the open is never written over. Then flushes them to the disk, as a write of a
+    /// document does. A write that wrote less than all the bytes is an <see cref="IOException"/>.
+    /// </summary>
+    public static unsafe void AppendToEnd(SafeFileHandle handle, ReadOnlySpan<byte> bytes)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            throw NotWindows();
+        }
+
+        var atEnd = new NativeOverlapped { OffsetLow = -1, OffsetHigh = -1 };
+        bool done;
+        int written;
+        fixed (byte* buffer = bytes)
+        {
+            done = WriteFile(handle, buffer, bytes.Length, out written, &atEnd);
+        }
+
+        if (!done || !FlushFileBuffers(handle))
+        {
+            var error = Marshal.GetLastPInvokeError();
+            throw new IOException($"Kiler cannot append to the file: {new Win32Exception(error).Message}", HResult(error));
+        }
+
+        if (written != bytes.Length)
+        {
+            throw new IOException("Kiler wrote only part of the bytes at the end of the file.");
+        }
+    }
+
     /// <summary>Whether the file or folder of an open handle is a link now.</summary>
     public static bool IsLink(SafeFileHandle handle) => File.GetAttributes(handle).HasFlag(FileAttributes.ReparsePoint);
 
@@ -496,6 +587,16 @@ internal static partial class NativeFiles
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool GetFileInformationByHandle(SafeFileHandle file, out ByHandleFileInformation information);
+
+    [SupportedOSPlatform("windows")]
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static unsafe partial bool WriteFile(SafeFileHandle file, byte* buffer, int numberOfBytesToWrite, out int numberOfBytesWritten, NativeOverlapped* overlapped);
+
+    [SupportedOSPlatform("windows")]
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool FlushFileBuffers(SafeFileHandle file);
 
     [SupportedOSPlatform("windows")]
     [LibraryImport("kernel32.dll", EntryPoint = "MoveFileExW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]

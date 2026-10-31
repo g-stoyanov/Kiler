@@ -48,7 +48,7 @@ public sealed class OfflineTests : IDisposable
         Watch(_watch);
     }
 
-    /// <summary>A write through the copy.</summary>
+    /// <summary>A write through the copy, or the read of the audit, which reaches the share as a write does (M6.17).</summary>
     public enum Write
     {
         Create,
@@ -57,6 +57,8 @@ public sealed class OfflineTests : IDisposable
         RestoreFromTrash,
         CreatePrivate,
         WriteBack,
+        AppendAudit,
+        ReadAudit,
     }
 
     /// <summary>A member of the copy that reads it, or that a sign-in calls, without touching the share.</summary>
@@ -192,6 +194,8 @@ public sealed class OfflineTests : IDisposable
     [InlineData(Write.Delete)]
     [InlineData(Write.RestoreFromTrash)]
     [InlineData(Write.CreatePrivate)]
+    [InlineData(Write.AppendAudit)]
+    [InlineData(Write.ReadAudit)]
     public void AWriteWhileOffline_IsRefusedBeforeItTouchesTheShare_AndGoesThroughOnceTheShareIsBack(Write write)
     {
         Create(Record, "record");
@@ -258,6 +262,8 @@ public sealed class OfflineTests : IDisposable
     [InlineData(Write.RestoreFromTrash)]
     [InlineData(Write.CreatePrivate)]
     [InlineData(Write.WriteBack)]
+    [InlineData(Write.AppendAudit)]
+    [InlineData(Write.ReadAudit)]
     public void AWriteWhileOffline_IsRefusedAtOnce_AlsoWhileALoadIsUnderWay(Write write)
     {
         GoAway();
@@ -303,6 +309,8 @@ public sealed class OfflineTests : IDisposable
     [InlineData(Write.RestoreFromTrash)]
     [InlineData(Write.CreatePrivate)]
     [InlineData(Write.WriteBack)]
+    [InlineData(Write.AppendAudit)]
+    [InlineData(Write.ReadAudit)]
     public void AWriteWhileOffline_IsRefusedAtOnce_AlsoWhileALoadHoldsTheCopy(Write write)
     {
         GoAway();
@@ -342,6 +350,8 @@ public sealed class OfflineTests : IDisposable
     [InlineData(Write.RestoreFromTrash)]
     [InlineData(Write.CreatePrivate)]
     [InlineData(Write.WriteBack)]
+    [InlineData(Write.AppendAudit)]
+    [InlineData(Write.ReadAudit)]
     public void AWriteThatWaitedForALoadThatWentOffline_IsRefused(Write write)
     {
         _watch.Start();
@@ -605,19 +615,33 @@ public sealed class OfflineTests : IDisposable
     }
 
     /// <summary>
-    /// Makes a write through the copy and gives how it ended; <see cref="DataCopy.CreatePrivate"/>, which gives nothing, ends
-    /// <see cref="WriteOutcome.Written"/>, or <see cref="WriteOutcome.Offline"/> with an <see cref="OfflineException"/>.
+    /// Makes a write through the copy and gives how it ended; <see cref="DataCopy.CreatePrivate"/> and
+    /// <see cref="DataCopy.ReadAudit"/>, which give no outcome, end <see cref="WriteOutcome.Written"/>, or
+    /// <see cref="WriteOutcome.Offline"/> with an <see cref="OfflineException"/>.
     /// </summary>
     private WriteOutcome Attempt(Write write)
     {
-        if (write != Write.CreatePrivate)
+        if (write == Write.AppendAudit)
+        {
+            return _copy.AppendAudit(new DateOnly(2026, 10, 31), Me, "{}"u8);
+        }
+
+        if (write is not (Write.CreatePrivate or Write.ReadAudit))
         {
             return Call(write).Outcome;
         }
 
         try
         {
-            _copy.CreatePrivate();
+            if (write == Write.CreatePrivate)
+            {
+                _copy.CreatePrivate();
+            }
+            else
+            {
+                _copy.ReadAudit(new DateOnly(2026, 10, 31), new DateOnly(2026, 10, 31));
+            }
+
             return WriteOutcome.Written;
         }
         catch (OfflineException)

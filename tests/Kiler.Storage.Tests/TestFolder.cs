@@ -76,6 +76,27 @@ internal sealed class TestFolder : IDisposable
     }
 
     /// <summary>
+    /// A hard link: another name of the same file, with neither the attributes of a link nor of a folder (M6.17). Windows makes
+    /// one only on a file system that has them, so the test is skipped elsewhere.
+    /// </summary>
+    public static void CreateHardLink(string link, string target)
+    {
+        var start = new ProcessStartInfo("cmd.exe") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true };
+        foreach (var argument in new[] { "/c", "mklink", "/H", link, target })
+        {
+            start.ArgumentList.Add(argument);
+        }
+
+        using var process = Process.Start(start)!;
+        process.StandardOutput.ReadToEnd();
+        process.WaitForExit();
+        if (process.ExitCode != 0)
+        {
+            Assert.Skip($"Windows made no hard link here: exit code {process.ExitCode}.");
+        }
+    }
+
+    /// <summary>
     /// Makes an empty folder a mount point to another folder in place, as anyone who can write the folder can do while Kiler
     /// holds it (measured in M2.3). Windows makes one only on a local disk, so the test is skipped elsewhere.
     /// </summary>

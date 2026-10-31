@@ -65,6 +65,8 @@ public sealed class DataWatchTests : IDisposable
         Delete,
         RestoreFromTrash,
         WriteBack,
+        AppendAudit,
+        ReadAudit,
     }
 
     public void Dispose()
@@ -291,6 +293,8 @@ public sealed class DataWatchTests : IDisposable
     [InlineData(Member.Delete)]
     [InlineData(Member.RestoreFromTrash)]
     [InlineData(Member.WriteBack)]
+    [InlineData(Member.AppendAudit)]
+    [InlineData(Member.ReadAudit)]
     public void EachPublicMemberOfTheCopy_WaitsForALoadUnderWay(Member member)
     {
         Create(Record, "record");
@@ -465,6 +469,12 @@ public sealed class DataWatchTests : IDisposable
                 break;
             case Member.WriteBack:
                 _copy.WriteBack(new OutsideChange(Record, InTrash: false, OutsideReason.Gone, LastGood: 1));
+                break;
+            case Member.AppendAudit:
+                _copy.AppendAudit(new DateOnly(2026, 10, 31), "demo.user", "{}"u8);
+                break;
+            case Member.ReadAudit:
+                _copy.ReadAudit(new DateOnly(2026, 10, 31), new DateOnly(2026, 10, 31));
                 break;
         }
     }

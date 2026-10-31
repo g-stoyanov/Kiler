@@ -215,6 +215,10 @@ internal sealed class FileSystem(IFileOwner owners) : IFileSystem
 
     public void DeleteHeldFolder(PinnedFolder folder) => NativeFiles.DeleteOnClose(folder.Handle);
 
+    public SafeFileHandle OpenToAppend(string path) => NativeFiles.OpenFileToAppend(path);
+
+    public void Append(SafeFileHandle file, ReadOnlySpan<byte> bytes) => NativeFiles.AppendToEnd(file, bytes);
+
     public void Wait(TimeSpan time) => Thread.Sleep(time);
 
     private static FileStamp StampOf(SafeFileHandle handle) =>

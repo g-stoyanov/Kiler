@@ -75,7 +75,8 @@ public sealed record LoadedDocument(DocumentKey Key, DocumentRead Read);
 /// the current user, the same after <c>private\&lt;account&gt;</c>, such as <c>private\demo.user\records</c>, and
 /// <c>private\demo.user</c> alone for its root, or for the whole private folder when it cannot be opened (M2.7b); the same
 /// for the private folder of another user that an admin's copy is given (M2.7c). <c>private</c> for a stopped create of the
-/// private folder of the current user (M2.7e).
+/// private folder of the current user (M2.7e). In a read of the audit, <c>audit</c> or its day folder, such as
+/// <c>audit\2026-10-31</c> (M6.17).
 /// </param>
 /// <param name="Name">
 /// The escaped name of the file, or <c>null</c> for the whole folder: one that could not be listed, or one that lists too
@@ -105,7 +106,9 @@ public enum SkipReason
     /// once read, to need room for its last good bytes too (a version that is not after them), which is given all the same
     /// and keeps the version the copy has (M2.7a). Or a history slot over the budget of the history
     /// (<see cref="DataCopy.MaxHistoryBytes"/>, <see cref="DataCopy.MaxHistorySlots"/>). Or a folder that lists more entries
-    /// than a load takes, whose documents stay as the copy has them.
+    /// than a load takes, whose documents stay as the copy has them. In a read of the audit (M6.17), a file over
+    /// <see cref="DataFolder.MaxAuditFile"/>, whose lines within it are given, or one that the budget of the read has no room
+    /// for, which is not read.
     /// </summary>
     OverBudget,
 

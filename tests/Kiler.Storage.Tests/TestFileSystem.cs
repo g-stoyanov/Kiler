@@ -1,3 +1,5 @@
+using Microsoft.Win32.SafeHandles;
+
 namespace Kiler.Storage.Tests;
 
 /// <summary>
@@ -348,6 +350,19 @@ internal sealed class TestFileSystem : IFileSystem
     {
         Step(nameof(CreateMarker), path);
         return MarkersKeepNothing ? new NoMarker() : _real.CreateMarker(path);
+    }
+
+    public SafeFileHandle OpenToAppend(string path)
+    {
+        Step(nameof(OpenToAppend), path);
+        return _real.OpenToAppend(path);
+    }
+
+    /// <summary><see cref="IFileSystem.Append"/>; the step gives no path.</summary>
+    public void Append(SafeFileHandle file, ReadOnlySpan<byte> bytes)
+    {
+        Step(nameof(Append), "");
+        _real.Append(file, bytes);
     }
 
     public void Wait(TimeSpan time)

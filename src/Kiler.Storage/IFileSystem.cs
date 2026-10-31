@@ -1,3 +1,5 @@
+using Microsoft.Win32.SafeHandles;
+
 namespace Kiler.Storage;
 
 /// <summary>
@@ -166,6 +168,23 @@ internal interface IFileSystem
     /// it after a check stops the delete.
     /// </summary>
     void DeleteHeldFolder(PinnedFolder folder);
+
+    /// <summary>
+    /// Opens a file only to append to it (M6.17), as itself, and makes it when it is missing: the handle cannot write anywhere
+    /// but at the end of the file, and a link at the name is opened as the link and refused, also one whose target is missing,
+    /// so its target is never made or written; a file with more names than one, a hard link, is refused too. Shared to be read
+    /// and written, so the file can be read meanwhile and another Kiler of the same account can append too, but not to be
+    /// deleted. A missing folder is a <see cref="DirectoryNotFoundException"/>; a folder in its place, or a file that may not be written, an
+    /// <see cref="UnauthorizedAccessException"/>; a link, a hard link, or a file that someone holds without sharing the write,
+    /// an <see cref="IOException"/>.
+    /// </summary>
+    SafeFileHandle OpenToAppend(string path);
+
+    /// <summary>
+    /// Writes the bytes at the end of a file that <see cref="OpenToAppend"/> opened, as the file is at that moment, in one write,
+    /// and flushes them to the disk (M6.17).
+    /// </summary>
+    void Append(SafeFileHandle file, ReadOnlySpan<byte> bytes);
 
     /// <summary>Waits between two tries of a step. The tests count the waits instead.</summary>
     void Wait(TimeSpan time);
