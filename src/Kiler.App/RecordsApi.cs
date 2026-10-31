@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Kiler.Core;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -125,26 +126,89 @@ internal sealed record SecretResponse(string Value)
 }
 
 /// <summary>
+/// A new record or an edit as the page sends it (docs/api.md, <c>POST /api/records</c> and <c>PUT /api/records/{id}</c>). A
+/// member that it does not have, such as the dates and the authors, is ignored.
+/// </summary>
+/// <param name="Template">The id of the template of a new record; an edit does not read it.</param>
+/// <param name="Version">The version that the editor read, which an edit is over; a new record does not read it.</param>
+/// <param name="Stash">The ids of the stashes of the path, from the first.</param>
+/// <param name="Name">The name.</param>
+/// <param name="Description">The description.</param>
+/// <param name="Tags">The tags.</param>
+/// <param name="Fields">The values of the fields of the template by key, each a JSON value of its type, read by <see cref="FieldValue.TryRead"/>.</param>
+/// <param name="Levels">The levels asked, by key.</param>
+internal sealed record RecordRequest(
+    string? Template,
+    int? Version,
+    IReadOnlyList<string?>? Stash,
+    string? Name,
+    string? Description,
+    IReadOnlyList<string?>? Tags,
+    IReadOnlyDictionary<string, JsonElement>? Fields,
+    IReadOnlyDictionary<string, int>? Levels)
+{
+    /// <summary>The name of the type: a record prints its properties, and this one holds the value of a <c>secret</c> (SKILL.md, "Style").</summary>
+    public override string ToString() => nameof(RecordRequest);
+}
+
+/// <summary>The 400 of a write (docs/api.md, "Conventions").</summary>
+/// <param name="Error">Why the write was refused, for the page.</param>
+/// <param name="Field">The key of what does not fit, or null when it is none of the members of the record.</param>
+internal sealed record WriteErrorResponse(string Error, string? Field);
+
+/// <summary>The 409 of a write over an older version (docs/api.md, "Conflict").</summary>
+/// <param name="Error">That the record has been changed meanwhile.</param>
+/// <param name="Current">The record as it is now, as this session reads it.</param>
+internal sealed record ConflictResponse(string Error, RecordResponse Current);
+
+/// <param name="Tags">The tags of the records, each once without regard to case, by name.</param>
+internal sealed record TagsResponse(IReadOnlyList<string> Tags);
+
+/// <summary>
 /// The records (docs/api.md): the list (M5.6), <c>GET /api/records</c>, with the search, the filters, the tree and the facets
 /// over the records in memory as the session of the request reads them (<see cref="RecordSearch"/>); a record (M5.7),
-/// <c>GET /api/records/{id}</c>; and the value of a <c>secret</c> (M5.7), <c>POST /api/records/{id}/secret</c>, which
-/// decrypts its group again (<see cref="RecordView.Secret"/>). They need <see cref="Need.Reader"/>, so a guest in guest mode
-/// reads level 0, but the secret refuses a guest.
+/// <c>GET /api/records/{id}</c>; the value of a <c>secret</c> (M5.7), <c>POST /api/records/{id}/secret</c>, which
+/// decrypts its group again (<see cref="RecordView.Secret"/>); and the tags (M5.9), <c>GET /api/tags</c>. They need
+/// <see cref="Need.Reader"/>, so a guest in guest mode reads level 0, but the secret refuses a guest. A new record and an edit
+/// (M5.9), <c>POST /api/records</c> and <c>PUT /api/records/{id}</c>, need <see cref="Need.Editor"/> and are
+/// <see cref="RecordActions"/>; the dates and the authors come from Kiler, never from the request.
 /// </summary>
 internal static class RecordsApi
 {
     /// <summary>The 404 of a record that is not there, or is in the trash.</summary>
     public const string NotThere = "The record is not there. It may have been deleted.";
 
+    /// <summary>The 400 of a value of <c>fields</c> that has no shape of a value, with its key.</summary>
+    public const string NoShape = "The value is not a text, a number or a code.";
+
+    /// <summary>The 400 of an edit without the version that the editor read.</summary>
+    public const string NoVersion = "The request has no version.";
+
     private const string FieldPrefix = "field.";
 
-    public static void Map(IEndpointRouteBuilder endpoints, KilerData data)
+    public static void Map(IEndpointRouteBuilder endpoints, KilerData data, TimeProvider time)
     {
         endpoints.MapGet("/api/records", (HttpContext context) => List(context, data)).Needs(Need.Reader);
         endpoints.MapGet("/api/records/{id}", (HttpContext context, string id) => Get(context, data, id)).Needs(Need.Reader);
         endpoints.MapPost("/api/records/{id}/secret", (HttpContext context, string id, SecretRequest request) => Secret(context, data, id, request))
             .Needs(Need.Reader);
+        endpoints.MapPost("/api/records", (HttpContext context, RecordRequest request) => Create(context, data, request, time)).Needs(Need.Editor);
+        endpoints.MapPut("/api/records/{id}", (HttpContext context, string id, RecordRequest request) => Edit(context, data, id, request, time))
+            .Needs(Need.Editor);
+        endpoints.MapGet("/api/tags", (HttpContext context) => Tags(context, data)).Needs(Need.Reader);
     }
+
+    /// <summary>What the page says when a write of a record was refused, but for a value that does not fit, whose reason is its own (docs/api.md).</summary>
+    public static string Message(RecordOutcome outcome) => outcome switch
+    {
+        RecordOutcome.Busy => "The record is being written now. Try again in a moment.",
+        RecordOutcome.Offline => "The shared folder cannot be reached. The change can be made once it is back.",
+        RecordOutcome.Conflict => "The record has been changed meanwhile.",
+        RecordOutcome.Missing => NotThere,
+        RecordOutcome.NoTemplate => "The template of this record is not there, or cannot be used, so the record cannot be changed.",
+        RecordOutcome.Unreadable => "A part of this record cannot be read, so it cannot be changed. An admin restores it from the history.",
+        _ => "The record could not be written to the shared folder. Try again in a moment.",
+    };
 
     /// <summary>What the page says when the request of a secret is refused for its field (docs/api.md).</summary>
     public static string Message(SecretOutcome outcome) => outcome switch
@@ -258,6 +322,131 @@ internal static class RecordsApi
             SecretOutcome.NoField or SecretOutcome.NotSecret => TypedResults.BadRequest(new ErrorResponse(Message(outcome))),
             _ => TypedResults.Conflict(new ErrorResponse(Message(outcome))),
         };
+    }
+
+    private static Results<Ok<RecordResponse>, Created<RecordResponse>, BadRequest<WriteErrorResponse>, NotFound<ErrorResponse>, Conflict<ErrorResponse>, Conflict<ConflictResponse>> Create(
+        HttpContext context, KilerData data, RecordRequest request, TimeProvider time)
+    {
+        // Need.Editor lets no request through without a session.
+        var author = AccessRules.SessionOf(context) ?? throw new InvalidOperationException("A new record has no session.");
+        if (!TryDraft(request, request.Template, out var draft, out var refused))
+        {
+            return TypedResults.BadRequest(refused);
+        }
+
+        if (data.Files is not { } files || data.Records is not { } records)
+        {
+            return TypedResults.Conflict(new ErrorResponse(SessionApi.NoData));
+        }
+
+        // A lock before the write, or after it before its record was read, is SessionLockedException, which the rights answer
+        // as locked (host.md, "Rights").
+        return Answer(RecordActions.NewRecord(author, records, files, draft, time), author, records, files, created: true);
+    }
+
+    private static Results<Ok<RecordResponse>, Created<RecordResponse>, BadRequest<WriteErrorResponse>, NotFound<ErrorResponse>, Conflict<ErrorResponse>, Conflict<ConflictResponse>> Edit(
+        HttpContext context, KilerData data, string id, RecordRequest request, TimeProvider time)
+    {
+        var editor = AccessRules.SessionOf(context) ?? throw new InvalidOperationException("An edit has no session.");
+        if (request.Version is not { } version)
+        {
+            return TypedResults.BadRequest(new WriteErrorResponse(NoVersion, null));
+        }
+
+        // An edit keeps the template of the record, so the template of the request is not read (core.md).
+        if (!TryDraft(request, null, out var draft, out var refused))
+        {
+            return TypedResults.BadRequest(refused);
+        }
+
+        if (data.Files is not { } files || data.Records is not { } records)
+        {
+            return TypedResults.Conflict(new ErrorResponse(SessionApi.NoData));
+        }
+
+        return Answer(RecordActions.Edit(editor, records, id, version, draft, time), editor, records, files, created: false);
+    }
+
+    /// <summary>
+    /// The answer of a write of a record (docs/api.md): the record as <paramref name="session"/> reads it, 201 for a new one
+    /// and 200 for an edit; at a conflict, the 409 with the record as it is now.
+    /// </summary>
+    private static Results<Ok<RecordResponse>, Created<RecordResponse>, BadRequest<WriteErrorResponse>, NotFound<ErrorResponse>, Conflict<ErrorResponse>, Conflict<ConflictResponse>> Answer(
+        RecordResult result, Session session, Records records, TeamFiles files, bool created)
+    {
+        if (result.Outcome is RecordOutcome.Done or RecordOutcome.Conflict)
+        {
+            // A record that a load took away at once, or one on the share whose file does not fit, has no record to give (decided in M5.9).
+            if (result.Record is not { File.IsValid: true } view)
+            {
+                return TypedResults.NotFound(new ErrorResponse(NotThere));
+            }
+
+            var record = Record(view, records.Read(session), files);
+            return result.Outcome == RecordOutcome.Conflict ? TypedResults.Conflict(new ConflictResponse(Message(result.Outcome), record))
+                : created ? TypedResults.Created($"/api/records/{record.Id}", record)
+                : TypedResults.Ok(record);
+        }
+
+        return result.Outcome switch
+        {
+            RecordOutcome.Invalid => TypedResults.BadRequest(new WriteErrorResponse(result.Invalid!, result.Field)),
+            RecordOutcome.Missing => TypedResults.NotFound(new ErrorResponse(Message(result.Outcome))),
+            _ => TypedResults.Conflict(new ErrorResponse(Message(result.Outcome))),
+        };
+    }
+
+    /// <summary>
+    /// The draft of a write (core.md, "Templates, stashes and records"): a list or an object that the request leaves out is
+    /// empty, and each value of <c>fields</c> is read as a value of a document is, a key with <c>null</c> or <c>""</c> there as
+    /// none. A value of no shape is refused with its key, and so is a text with an escaped lone surrogate, which has the shape
+    /// of a value but no string (M5.4 security review).
+    /// </summary>
+    private static bool TryDraft(RecordRequest request, string? template, [NotNullWhen(true)] out RecordDraft? draft, [NotNullWhen(false)] out WriteErrorResponse? refused)
+    {
+        draft = null;
+        var fields = new Dictionary<string, FieldValue?>(StringComparer.Ordinal);
+        foreach (var (key, element) in request.Fields ?? new Dictionary<string, JsonElement>())
+        {
+            FieldValue? value;
+            bool fits;
+            try
+            {
+                fits = FieldValue.TryRead(element, out value);
+            }
+            catch (InvalidOperationException)
+            {
+                (fits, value) = (false, null);
+            }
+
+            if (!fits)
+            {
+                refused = new(NoShape, key);
+                return false;
+            }
+
+            fields[key] = value;
+        }
+
+        refused = null;
+        draft = new(template, request.Stash ?? [], request.Name, request.Description, request.Tags ?? [], fields, request.Levels ?? new Dictionary<string, int>());
+        return true;
+    }
+
+    /// <summary>The tags of the records that the session reads, for the suggestions of the form (docs/api.md, <c>GET /api/tags</c>).</summary>
+    private static Results<Ok<TagsResponse>, Conflict<ErrorResponse>> Tags(HttpContext context, KilerData data)
+    {
+        if (data.Records is not { } records)
+        {
+            return TypedResults.Conflict(new ErrorResponse(SessionApi.NoData));
+        }
+
+        var tags = records.Read(AccessRules.SessionOf(context)).Records.Values
+            .Where(view => view.File.IsValid)
+            .SelectMany(view => view.File.Model!.Tags)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.OrdinalIgnoreCase);
+        return TypedResults.Ok(new TagsResponse([.. tags]));
     }
 
     /// <summary>The record <paramref name="id"/> of the set, unless its file does not fit, as the list leaves it out (docs/api.md).</summary>

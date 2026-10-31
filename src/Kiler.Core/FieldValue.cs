@@ -63,10 +63,11 @@ public sealed class FieldValue : IEquatable<FieldValue>
     }
 
     /// <summary>
-    /// The value of an element of a document or of a decrypted group, or <c>false</c> when it has no shape of a value. A
-    /// <c>null</c> and an empty text are no value: <paramref name="value"/> is then <c>null</c>.
+    /// The value of an element of a document, of a decrypted group or of a request (M5.9), or <c>false</c> when it has no
+    /// shape of a value. A <c>null</c> and an empty text are no value: <paramref name="value"/> is then <c>null</c>.
     /// </summary>
-    internal static bool TryRead(JsonElement element, out FieldValue? value)
+    /// <exception cref="InvalidOperationException">A text has an escaped lone surrogate, which has the shape of a value but no string.</exception>
+    public static bool TryRead(JsonElement element, out FieldValue? value)
     {
         value = null;
         if (!Fits(element, out var isValue))

@@ -26,8 +26,9 @@ internal static class KilerHost
     /// (<see cref="WindowsAccount"/>). The API tests give a fake.
     /// </param>
     /// <param name="time">
-    /// The clock of the heartbeat, the event stream and the automatic lock; by default the system's. The API tests of the
-    /// automatic lock give a fake one, and keep a page open, as the heartbeat runs on it too.
+    /// The clock of the heartbeat, the event stream, the automatic lock and the dates of the writes of records and stashes
+    /// (M5.9); by default the system's. The API tests of the automatic lock give a fake one, and keep a page open, as the
+    /// heartbeat runs on it too.
     /// </param>
     public static WebApplication Build(
         StartOptions options, IFileProvider? uiFiles = null, KilerData? data = null, ICurrentAccount? account = null, TimeProvider? time = null)
@@ -81,7 +82,8 @@ internal static class KilerHost
         PasswordApi.Map(app, sessions, data, account);
         AdminApi.Map(app, data);
         TemplatesApi.Map(app, data);
-        RecordsApi.Map(app, data);
+        RecordsApi.Map(app, data, time);
+        StashesApi.Map(app, data, time);
         EventsApi.Map(app, heartbeat, sessions, times.PingInterval, time, app.Lifetime.ApplicationStopping);
         return app;
     }

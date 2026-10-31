@@ -9,10 +9,11 @@ namespace Kiler.App.Tests;
 /// <summary>
 /// <c>GET /api/records</c> (M5.6), <c>GET /api/records/{id}</c> and <c>POST /api/records/{id}/secret</c> (M5.7, docs/api.md)
 /// on a made-up Kiler with five records (<see cref="MadeUpKiler.WriteRecords"/>): what each kind of caller reads, the query,
-/// the value of a secret, and whom each refuses. It runs with reflection-based JSON off, as Native AOT does, so it reads
-/// records as the published exe does.
+/// the value of a secret, and whom each refuses; the writes, the stashes and the tags (M5.9) are in
+/// <c>RecordsApiTests.Writes.cs</c>. It runs with reflection-based JSON off, as Native AOT does, so it reads records as the
+/// published exe does.
 /// </summary>
-public sealed class RecordsApiTests : IDisposable
+public sealed partial class RecordsApiTests : IDisposable
 {
     /// <summary>A caller without a session, with guest mode.</summary>
     private const string Guest = "guest";
@@ -250,6 +251,12 @@ public sealed class RecordsApiTests : IDisposable
     [InlineData(NoGuestMode, AccessRefusal.NotSignedIn, "secret")]
     [InlineData(Locked, AccessRefusal.NotSignedIn, "secret")]
     [InlineData(MadeUpKiler.Temporary, AccessRefusal.MustChangePassword, "secret")]
+    [InlineData(NoGuestMode, AccessRefusal.NotSignedIn, "stashes")]
+    [InlineData(Locked, AccessRefusal.NotSignedIn, "stashes")]
+    [InlineData(MadeUpKiler.Temporary, AccessRefusal.MustChangePassword, "stashes")]
+    [InlineData(NoGuestMode, AccessRefusal.NotSignedIn, "tags")]
+    [InlineData(Locked, AccessRefusal.NotSignedIn, "tags")]
+    [InlineData(MadeUpKiler.Temporary, AccessRefusal.MustChangePassword, "tags")]
     public async Task TheEndpoints_RefuseWhomTheyMust(string caller, AccessRefusal refusal, string endpoint)
     {
         using var data = NewData(guestMode: false);
@@ -264,6 +271,8 @@ public sealed class RecordsApiTests : IDisposable
         {
             "list" => await client.GetAsync("/api/records", Cancel),
             "record" => await client.GetAsync($"/api/records/{MadeUpKiler.Database}", Cancel),
+            "stashes" => await client.GetAsync("/api/stashes", Cancel),
+            "tags" => await client.GetAsync("/api/tags", Cancel),
             _ => await PostSecretAsync(client, MadeUpKiler.Database, "password", "show"),
         };
 
@@ -308,10 +317,13 @@ public sealed class RecordsApiTests : IDisposable
         return Assert.IsType<JsonObject>(JsonNode.Parse(await response.Content.ReadAsStringAsync(Cancel)));
     }
 
-    /// <summary>Starts Kiler with the data and the account of the test, and waits until the copy is open.</summary>
-    private static async Task<KilerServer> StartAsync(KilerData data, string account)
+    /// <summary>
+    /// Starts Kiler with the data and the account of the test, and the clock of its writes, by default the system's, and
+    /// waits until the copy is open. A fake clock that does not move never ends the first wait of the heartbeat.
+    /// </summary>
+    private static async Task<KilerServer> StartAsync(KilerData data, string account, TimeProvider? time = null)
     {
-        var app = KilerHost.Build(new StartOptions { DataFolder = data.Folder }, data: data, account: new FakeAccount(account));
+        var app = KilerHost.Build(new StartOptions { DataFolder = data.Folder }, data: data, account: new FakeAccount(account), time: time);
         var server = await KilerServer.StartAsync(app, data.Folder);
         for (var waited = Stopwatch.StartNew(); data.State != DataState.Open; await Task.Delay(TimeSpan.FromMilliseconds(20), Cancel))
         {

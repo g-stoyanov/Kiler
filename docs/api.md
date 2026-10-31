@@ -18,7 +18,7 @@ The examples are made up.
   A request that does not get what its endpoint needs is 403 with the sentence of `AccessRules.Message`. A session that was locked meanwhile is 403 with `AccessRules.Locked` (`host.md`, "Rights"). The other 403s of this contract are of the same kind: something that this session may not do. So after any 403 the page reads the session again (`kiler-ui`, "API"), and the page hides what the session may not do, so these 403s come only from a race. A request that the page built wrong is 400.
 - **Activity.** Every endpoint here is activity for the automatic lock (`host.md`, "Automatic lock"); none is `.NotActivity()`.
 - **Refusals** are an `ErrorResponse`, `{ "error": "<sentence>" }`, whose sentence is for the user (`kiler-ui`, "API"):
-  - **400**: the request does not fit. A write also gives `field`: the key of the field that does not fit (`stash`, `name`, `description`, `tags` or a field of the template), or `null`. A record too large for a document (`DocumentFormat.MaxSize`; the encrypted groups are about a third larger than their fields) is 400 with `field` `null`.
+  - **400**: the request does not fit. A write also gives `field`, `{ "error": "<sentence>", "field": "host" }`: the key of the field that does not fit (`stash`, `name`, `description`, `tags` or a field of the template), or `null`. A record too large for a document (`DocumentFormat.MaxSize`; the encrypted groups are about a third larger than their fields) is 400 with `field` `null`. A body that is not JSON, or a member of another JSON type than the contract gives (such as a level that is not a whole number, or a list given as a string), is 400 without a body, as ASP.NET Core answers it (M5.9). A number given as a string, such as `"version": "7"`, is read as the number, as the web defaults of the JSON allow.
   - **403**: see "Rights".
   - **404**: the record is not there, or it is in the trash; where a path names a version, that one is not there. `api.ts` already reads it as a refusal.
   - **409**: not now.
@@ -307,9 +307,10 @@ A new record:
 - `fields`: the fields of the template by key, each a value of its type ("Values by type"). A field left out has no value. A field with `required` needs a value (design 6.5). A key that the template does not have is 400.
 - `levels`: the levels asked, by key ("Levels of a field"). A field left out has its default. A key that is neither `description` nor a field of the template is 400 with `field` `null`, and a level that is not from 0 to 9 is 400 with that key (M5.4).
 - Kiler sets the id, the dates and the authors (design 6.1).
-- The answer is 201 with the record.
-- 400, with `field`: a value that does not fit, and a field with a value at a level above the author's.
-- 409: offline.
+- The answer is 201 with the record, and `Location: /api/records/<id>`.
+- 400, with `field`: a value that does not fit, and a field with a value at a level above the author's. A value of `fields` that is not a text, a number, `null` or a code object is 400 with its key (M5.9).
+- 404: the record was written, but a load took it away before the answer, as another Kiler deleted it at once (decided in M5.9). The page reads the list again.
+- 409: offline; the slot of another write; the other outcomes of a write.
 
 ### `PUT /api/records/{id}`
 
@@ -329,9 +330,9 @@ The request holds the record as the editor wants it at the levels that they hold
 - A `secret` that the edit keeps goes into its new group as its group had it, never decoded (M5.8, kiler-crypto). A field that its group marks as a `secret` never goes to level 0, and a field that a group above the editor also lists is not written: both are 400, and only a file changed by hand has them.
 - `createdAt` and `createdBy` never change, and Kiler sets `updatedAt` and `updatedBy`.
 - The answer is 200 with the record.
-- 400, with `field`: as for a new record, and the cases above.
-- 404: the record is not there, its file does not fit (as for `GET /api/records/{id}`), or it has gone meanwhile.
-- 409: the conflict, with `current`; offline; the slot of another write; a template that cannot be used ("Record"); a group at a level of the editor that does not decrypt, as the edit would write over what it cannot read: "A part of this record cannot be read, so it cannot be changed. An admin restores it from the history."
+- 400, with `field`: as for a new record, and the cases above. A request without `version` is 400 with `field` `null` (decided in M5.9).
+- 404: the record is not there, its file does not fit (as for `GET /api/records/{id}`), or it has gone meanwhile, also right after the write, as for a new record. At a conflict on the share whose file there does not fit, the record has no `current` to give, so it is 404 too (decided in M5.9).
+- 409: the conflict, with `current`; offline; the slot of another write; a template that cannot be used ("Record"): "The template of this record is not there, or cannot be used, so the record cannot be changed." (decided in M5.9); a group at a level of the editor that does not decrypt, as the edit would write over what it cannot read: "A part of this record cannot be read, so it cannot be changed. An admin restores it from the history."
 - The conflict is found twice: against the version that this Kiler has, and against the share, where another Kiler may have written a version that no load has brought yet. Then `current` is the record on the share, read for this session (M5.8).
 
 ### `GET /api/stashes`
@@ -354,9 +355,9 @@ A new stash, from the form of a record (design 6.6):
 ```
 
 - The name is trimmed and must not be blank.
-- The answer is 201 with `{ "id": "p3q4r5s6", "name": "Reports" }`.
-- 400: a blank name.
-- 409: a stash of that name is there, without regard to case; the page reads the stashes again and offers it. Also offline.
+- The answer is 201 with `{ "id": "p3q4r5s6", "name": "Reports" }`, the shape of "A stash of a path".
+- 400, with `field` `name`: a blank name.
+- 409: a stash of that name is there, without regard to case: "There is a stash of that name already." (decided in M5.9); the page reads the stashes again and offers it. Also offline, and the other outcomes of a write, whose sentence names the stash instead of the record.
 
 ### `GET /api/tags`
 
