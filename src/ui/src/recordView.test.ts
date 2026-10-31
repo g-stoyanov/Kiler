@@ -3,6 +3,7 @@ import { ApiError, type RecordData, type RecordField, type Session, type Templat
 import {
   fieldRows,
   hideAtSessionChange,
+  keepsShown,
   offersEdit,
   offersSecret,
   padlockAction,
@@ -195,6 +196,22 @@ describe('readsSession', () => {
   });
 });
 
+describe('which record keeps the shown secrets', () => {
+  it('is the same record in the same version, such as a read at a change of another record', () => {
+    expect(keepsShown(record, { ...record })).toBe(true);
+  });
+
+  it('is not another version or another record', () => {
+    expect(keepsShown(record, { ...record, version: 8 })).toBe(false);
+    expect(keepsShown(record, { ...record, id: 'p4q5r6s7' })).toBe(false);
+  });
+
+  it('is not a read that failed, nor the first record of the page', () => {
+    expect(keepsShown(record, null)).toBe(false);
+    expect(keepsShown(null, record)).toBe(false);
+  });
+});
+
 describe('the shown secrets', () => {
   /** A request of the value that the test answers. */
   interface Request {
@@ -304,6 +321,47 @@ describe('the shown secrets', () => {
     expect(vi.getTimerCount()).toBe(0);
     await answer('made-up-2', 1);
     expect(view('token')).toEqual({ state: 'hidden' });
+  });
+
+  it('keeps the shown values, and a request under way, while the page shows the same version of the record', async () => {
+    secrets.showsRecord(record);
+    secrets.show('password');
+    await answer('made-up-1');
+    secrets.show('token');
+
+    secrets.showsRecord({ ...record });
+    expect(requests[1]?.signal.aborted).toBe(false);
+    await answer('made-up-2', 1);
+    expect(view()).toEqual({ state: 'shown', value: 'made-up-1' });
+    expect(view('token')).toEqual({ state: 'shown', value: 'made-up-2' });
+  });
+
+  it('hides every value, and aborts its request, when the page shows another version of the record', async () => {
+    secrets.showsRecord(record);
+    secrets.show('password');
+    await answer('made-up-1');
+    secrets.show('token');
+
+    secrets.showsRecord({ ...record, version: 8 });
+    expect(secrets.getSnapshot().size).toBe(0);
+    expect(requests[1]?.signal.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+
+    // The new version is the one the values belong to now: a read again of it keeps what shows after it.
+    secrets.show('password');
+    await answer('made-up-3');
+    secrets.showsRecord({ ...record, version: 8 });
+    expect(view()).toEqual({ state: 'shown', value: 'made-up-3' });
+  });
+
+  it('hides every value when the page shows no record, as after a read that failed', async () => {
+    secrets.showsRecord(record);
+    secrets.show('password');
+    await answer('made-up-1');
+
+    secrets.showsRecord(null);
+    expect(view()).toEqual({ state: 'hidden' });
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('hides a shown value at a session event, and drops the answer of a request under way', async () => {

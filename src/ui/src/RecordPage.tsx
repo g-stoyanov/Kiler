@@ -53,7 +53,9 @@ type ReadState =
  * levels change.
  *
  * It reads the record again at each change of other users (`useChanges()`), and keeps the last one on the screen
- * meanwhile. A shown `secret` hides again after its time, on leaving the page, at a `session` event and at each read.
+ * meanwhile. A shown `secret` hides again after its time, on leaving the page, at a `session` event, and when the page
+ * shows another version of the record or none, as after a read that failed (M6.16); a read that gives the same version
+ * keeps it.
  */
 export function RecordPage({ id, session }: { id: string; session: Session }) {
   const store = useSessionStore();
@@ -77,12 +79,12 @@ export function RecordPage({ id, session }: { id: string; session: Session }) {
   useEffect(() => () => secrets.hideAll(), [secrets]);
 
   useEffect(() => {
-    secrets.hideAll();
     const abort = new AbortController();
     Promise.all([getRecord(id, abort.signal), getTemplates(abort.signal)]).then(
       ([record, templates]) => {
         if (!abort.signal.aborted) {
           const template = templates.templates.find((entry) => entry.id === record.template);
+          secrets.showsRecord(record);
           setRead({ state: 'ready', record, template });
         }
       },
@@ -91,6 +93,7 @@ export function RecordPage({ id, session }: { id: string; session: Session }) {
           return;
         }
 
+        secrets.showsRecord(null);
         // The read after a delete of this page finds no record: the page keeps saying that it is in the trash.
         if (isNotThere(error)) {
           setRead((previous) => (previous.state === 'deleted' ? previous : { state: 'notThere' }));
@@ -144,7 +147,10 @@ export function RecordPage({ id, session }: { id: string; session: Session }) {
         <DeletedView
           item={read.item}
           session={session}
-          onRestored={(record) => setRead({ state: 'ready', record, template: read.template })}
+          onRestored={(record) => {
+            secrets.showsRecord(record);
+            setRead({ state: 'ready', record, template: read.template });
+          }}
           onGone={() => setRound((value) => value + 1)}
         />
       );
@@ -156,14 +162,17 @@ export function RecordPage({ id, session }: { id: string; session: Session }) {
           session={session}
           secrets={secrets}
           onDeleted={(item) => {
-            secrets.hideAll();
+            secrets.showsRecord(null);
             setRead({ state: 'deleted', item, template: read.template });
           }}
           onReload={(record) => {
-            secrets.hideAll();
+            secrets.showsRecord(record);
             setRead({ state: 'ready', record, template: read.template });
           }}
-          onGone={() => setRead({ state: 'notThere' })}
+          onGone={() => {
+            secrets.showsRecord(null);
+            setRead({ state: 'notThere' });
+          }}
         />
       );
   }
