@@ -11,7 +11,7 @@ Here [the plan](../PLAN.md) is broken into small tasks with ticks. The work foll
 | M3 Cryptography | [M3.md](M3.md) | done; part of it deferred until after the exam ([PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam)) |
 | M4 Users and permissions | [M4.md](M4.md) | done; part of it deferred until after the exam ([PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam)) |
 | M5 Templates, records and search | [M5.md](M5.md) | done; part of it deferred until after the exam ([PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam)) |
-| M6 User interface | | not started |
+| M6 User interface | [M6.md](M6.md) | in progress |
 | M7 Documents and diagrams | | deferred until after the exam ([PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam)) |
 
 M8 (tests and automation) has no file of its own. Its tasks go into the modules when they are needed:
@@ -106,10 +106,12 @@ Decided by the user on 2026-10-29, with the steps deferred until after the exam 
 
 ## Parallel sessions
 
-A piece of work that needs nothing of a task under way can run in a session of its own, at the same time as the main one. Until the exam this is the UI of M6, once the first task of M5 has fixed the API (PLAN.md, M5). The rules:
+A piece of work that needs nothing of a task under way can run in a session of its own, at the same time as the main one. Until the exam these are the areas of the UI that [M6.md](M6.md) marks as parallel, once M6.2 has made the base of the screens. The rules:
 
 - The session works in a git worktree of its own, on a branch of its own, never in the main working tree: two builds in one folder fight over `bin\` and `obj\`, and the `git add -A` of step 7 would take the files of the other session.
-- It changes only its own project or folder, such as `src/ui`, and the main session leaves that folder alone while it runs. The shared files are changed only by the main session: `docs/`, `Kiler.slnx`, `Directory.Packages.props`, `.github/` and the startup of Kiler.App. The parallel session puts its ticks and notes into its final report, and the main session writes them into the docs when it merges the branch.
+- It changes only the files that its task lists under "Owns", and no other session changes them while it runs, the main one included. Two tasks that run at the same time never own the same file; the tasks of one area go one after another in its session. A change of a file that the task does not own, such as `api.ts`, `App.tsx` or `package.json` of `src/ui`, is asked of the main session, not made.
+- The shared files are changed only by the main session: `docs/`, `Kiler.slnx`, `Directory.Packages.props`, `.github/` and the startup of Kiler.App. The parallel session puts its ticks and notes into its final report, and the main session writes them into the docs when it merges the branch.
+- A worktree has no `dev-data`, as it is outside git: make it there with the demo data tool (CLAUDE.md) before the dev mode. Its data folder is its own, so its dev Kiler is an instance apart from that of the main working tree and of the other worktrees, and Vite takes the next free port.
 - `.claude/settings.local.json` is outside git, so a new worktree has no hooks of Claude. Copy it into the `.claude\` of the worktree before the work: its paths point to the scripts of the main working tree, so `log-prompt` writes to the `course/` there. The git hooks need nothing: `core.hooksPath` is shared, and `data-guard` reads the terms file of the main working tree.
 - `KILER_DESIGN.md` and `course/` are not in a worktree either. Read the design in the main working tree, the parent folder of `git rev-parse --path-format=absolute --git-common-dir`.
 - Two sessions that build and test at once slow each other down. A test that fails on a time limit runs again alone before it counts as a failure.

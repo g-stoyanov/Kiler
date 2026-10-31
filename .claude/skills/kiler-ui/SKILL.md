@@ -5,7 +5,7 @@ description: Kiler's rules for the browser UI in src/ui. Use when writing or cha
 
 # Kiler: UI
 
-Decisions come from `docs/PLAN.md` (section 2, M1, M4, M6, M7), `docs/tasks/M1.md`, `docs/tasks/M4.md` and sections 7.5–7.7 and 8–10 of the design (`KILER_DESIGN.md`, local, not in git). Anything not decided yet is listed under "Deferred". Do not invent it; if a task needs such a decision, ask.
+Decisions come from `docs/PLAN.md` (section 2, M1, M4, M6, M7), `docs/tasks/M1.md`, `docs/tasks/M4.md`, `docs/tasks/M6.md` and sections 7.5–7.7 and 8–10 of the design (`KILER_DESIGN.md`, local, not in git). Anything not decided yet is listed under "Deferred". Do not invent it; if a task needs such a decision, ask.
 
 ## Basics
 
@@ -26,7 +26,9 @@ Decisions come from `docs/PLAN.md` (section 2, M1, M4, M6, M7), `docs/tasks/M1.m
 
 ## Layout (M1.7)
 
-- `src/texts.ts`: all the UI texts, in one place (decided in M1.7). Components take their texts from it.
+- `src/texts.ts`: all the UI texts, in one place (decided in M1.7). Components take their texts from it. From M6 (decided by the user at its start), `texts.ts` takes each area of M6 from a file of its own in `src/texts/` (`browse.ts`, `record.ts`, `form.ts`, `code.ts`, `history.ts`), so two parallel sessions never write one file; the components still read `texts.<area>`, and a new text of an area goes into its file.
+- A screen of M6 keeps its CSS in a file of its own beside its component, which imports it (`Browse.css`), on the variables of `index.css`; `index.css` keeps the shared classes. The build puts the imported CSS into its stylesheet file, which the policy allows.
+- The shared files of `src/ui` (`api.ts`, `App.tsx`, `texts.ts`, `index.css`, the shared parts of M6.2, `package.json`, `package-lock.json`, `vite.config.ts` and the other configs) change only in the task that owns them (its "Owns" in `docs/tasks/M6.md`, and `docs/tasks/README.md`, "Parallel sessions"). A task in a parallel session that needs a change of one asks the main session instead.
 - Screens (decided at the start of M4, whose screens come first): no component library, own CSS on the variables of `index.css`; React Router for the addresses, which have no dot in their last segment (M1.8); the data through `api.ts` and React state, with no data library.
 - React Router 8 (M4.7, from `docs-researcher`): the package `react-router` only (v8 dropped `react-router-dom`, whose npm `latest` is still v7), in declarative mode: `BrowserRouter`, `Routes`, `Route`, `Link`, `Navigate`, `useNavigate`, all from `react-router`. No data mode and no `ScrollRestoration`, which writes an inline script that the CSP blocks. A test that needs a route renders it in `MemoryRouter` with `initialEntries`.
 - `src/api.ts`: the API client, with a function and a reader for each endpoint. `src/theme.ts`: the theme.
@@ -36,6 +38,8 @@ Decisions come from `docs/PLAN.md` (section 2, M1, M4, M6, M7), `docs/tasks/M1.m
 - Each screen keeps its logic in a `.ts` module apart from its component, as a pure function or reducer (`wizard.ts`, `signIn.ts`, `changePassword.ts`, and `admin.ts` for both admin screens), so Vitest tests it in `node` without rendering. A form field is `Field.tsx`: the label, the input and the problem of the page's checks.
 - The admin screens (M4.9): `/users` (`Users.tsx`) and `/levels` (`Levels.tsx`) in the last set of routes, behind `AdminOnly` in `App.tsx` (a guest to the sign-in, a user who is not an admin to `/`), with links in the header of an admin without a temporary password. A refusal of an admin request shows through `AdminRefusal.tsx`: Kiler's sentence, and "Sign in again" (a lock) on `levelsChanged`.
 - A field that is disabled while its request runs loses the focus, so the screen gives it back after a refusal (`SignIn.tsx`).
+- The screens of the records (M6, decided at its start): `/` is the main view (`Browse.tsx`), and its query is in the address as the query of `GET /api/records` (`q`, `stash`, `template`, `tag` once per tag, `field.<key>`), so a link to a node is `/?stash=<ids>`, and Back and a reload keep the view; `/records/<id>` is a record (`RecordPage.tsx`), `/records/<id>/edit` its edit and `/new` a new record (`RecordForm.tsx`), with `?stash=<ids>` from a "+"; `/trash` and `/records/<id>/history` are M6.14. `AppRoutes` is keyed by `signedIn` and `levels`, so a change of the levels mounts every screen again.
+- The shared parts of the records (M6.2): `fields.ts` (the text of a value by type, whether a `url` is a link, dates in local time), `FieldValue.tsx` (a field by its `kind`), `CopyButton.tsx`, `CodeBlock.tsx` and `CodeEditor.tsx` (CodeMirror from M6.9), and `changes.ts`, whose `useChanges()` grows at each `changed` event (M6.11): a screen that reads records puts it among the dependencies of its read.
 - `src/events.ts`: the event stream and the hub that shares it; it runs in the page and in the worker, so it uses only what both have. `src/events-worker.ts`: the SharedWorker. `src/connection.ts`: the page side.
 - Three TypeScript projects (`tsc -b`): `tsconfig.app.json` (DOM), `tsconfig.worker.json` (WebWorker, only the worker file) and `tsconfig.node.json` (`vite.config.ts` and `dev/`). DOM and WebWorker cannot be in one project. A module imported by the worker is checked in both, so it must not use `SharedWorker` or other names that only one of them has.
 - `dev/`: the dev mode (Node), with its tests.
@@ -48,7 +52,7 @@ Decisions come from `docs/PLAN.md` (section 2, M1, M4, M6, M7), `docs/tasks/M1.m
 - The API of the templates, stashes and records (M5, M6) is the contract in `docs/api.md` (M5.1): the endpoints, the shapes, the rights and the refusals. `api.ts` follows it, and a change of the API goes there first.
 - Sign-in uses an HttpOnly cookie set by the server. JavaScript never sees or stores the token, not in `localStorage` or anywhere else. The cookie is named per instance (M1.7): `kiler`, and `kiler-<key>` with `--data`.
 - The API client (`api.ts`) handles errors in one place: every failure becomes an `ApiError` with a message for the user (401, 503, another status, no answer, an answer it cannot read), and the page shows it instead of breaking. An abort by the caller passes through. It refuses a path outside `/api/` before any request.
-- `EventSource` on `/api/events` is the heartbeat. Since M4 it also carries `session` (no data): the session was locked or changed, so every page drops the data it shows and reads the session again; it goes through the SharedWorker as another `HubMessage` type. Change notifications come through it later (M6).
+- `EventSource` on `/api/events` is the heartbeat. Since M4 it also carries `session` (no data): the session was locked or changed, so every page drops the data it shows and reads the session again; it goes through the SharedWorker as another `HubMessage` type. Change notifications come through it later (M6.11).
 - The session is one per Kiler process, shared by all its pages (M4). A guest, a locked session and a session that must change its password see only the screens they may; the server checks every request anyway.
 - `SessionStore` (`session.ts`, M4.7) reads `GET /api/session` once the stream has connected (behind the worker, once the page's port is in its set, so no `session` event after it is missed), again on each connect and each `session` event, and on an action of the user (`reload`), never on a timer: the read is activity for the automatic lock. On the event and on a stop it drops the session first, so everything under `SessionGate` unmounts and drops its state. Only the last read counts; the answer of an action (`set`) cancels a read under way. A session without a sign-in after one with it is `locked` (M4.8), until the next sign-in or a stop: the sign-in is then the lock screen, and a guest's start page says that Kiler has locked.
 - A refusal of Kiler, `{ "error" }` with 400, 403 or 409, is an `ApiError` of kind `refused` whose message is Kiler's sentence, with its status. After a 403 of an endpoint other than the sign-in, the screen reads the session again (`store.reload()`); after a 409 of the wizard, the state of the data.
@@ -99,7 +103,8 @@ Decisions come from `docs/PLAN.md` (section 2, M1, M4, M6, M7), `docs/tasks/M1.m
 
 - Passwords (`secret` fields) do not come with lists. The value is requested from the server only on "show" or "copy".
 - A shown value does not stay in state longer than needed. It is never logged and never put in a URL.
-- Fields above the user's level are shown with a lock.
+- Fields above the user's level are shown with a lock: "🔒 requires level X", with the `levelName` of the field. Until the locking per level (PLAN section 10) the unlock button is the sign-in, for a guest; a signed-in user below the level has nothing to unlock, so the padlock has no button (decided at the start of M6).
+- A value of a `secret` comes only from its own request, on "Show" or "Copy" (`use`). A shown value hides again after some seconds, on leaving the screen and at a `session` event (M6.5).
 - A password is kept in state only until its request is sent. Its fields have `autocomplete="current-password"` or `"new-password"`.
 - The recovery key (the wizard) and a temporary password (the admin actions) come once, in the answer of their request: shown with a copy button (`Secret.tsx`, for both), kept in state only while their screen is open, and gone when it closes. The temporary password is `temporary` of `usersReducer` (`admin.ts`), shown in place of the list until "Close"; leaving the screen drops it too. A pasted recovery key is trimmed first (`kiler-crypto`, "Rules"). The recovery key sits above `SessionGate` (in `DataGate`), so a `session` event does not take it away before the user has saved it; a stop of the stream does, as Kiler has stopped.
 - The copy button uses `navigator.clipboard.writeText`; 127.0.0.1 is a secure context. When the browser refuses, the screen says to copy by hand (the Claude Code in-app browser refuses).
@@ -108,11 +113,12 @@ Decisions come from `docs/PLAN.md` (section 2, M1, M4, M6, M7), `docs/tasks/M1.m
 ## HTML, Markdown, Mermaid
 
 - No `dangerouslySetInnerHTML` with unsanitized HTML. All HTML from Markdown goes through DOMPurify.
+- A `url` of a record is a link only with `http` or `https` (`docs/api.md`, "Values by type"), opened in a new tab with `rel="noopener noreferrer"`. One whose host is `localhost`, a name under `.localhost`, an address of `127.0.0.0/8` or `[::1]` is text with "Copy", and a short sentence says why: the browser sends the cookie of Kiler to every port of 127.0.0.1 (the M1.4 risk; decided by the user at the start of M6). `fields.ts` decides it (M6.2).
 - Mermaid in strict mode (M7).
 
 ## Theme
 
-Light, dark and system (M1.7). Until M6 the choice is kept in `localStorage` (`kiler.theme`); from M6 it is part of the personal configuration through the API.
+Light, dark and system (M1.7). The choice is kept in `localStorage` (`kiler.theme`) until the personal configuration after the exam (PLAN section 10, item 11), which keeps it through the API. The origin has the port, which changes with every start, so until then a choice in `localStorage` lasts one run of Kiler; the open nodes of the tree (M6.3) too.
 
 - Every colour is a CSS variable with `light-dark(<light>, <dark>)` (`index.css`). The root has `color-scheme: light dark`, so "system" follows Windows by CSS alone, also before the script runs and when Windows changes its theme. A light or dark choice sets `data-theme` on the root, which sets `color-scheme` to one side.
 - `main.tsx` applies the saved choice before the first render. A storage that throws counts as no choice.
@@ -124,7 +130,7 @@ Light, dark and system (M1.7). Until M6 the choice is kept in `localStorage` (`k
   - the API client and theme switching (M1.7);
   - the `EventSource`: closed on the first error, without a reconnect, and the worker hub (M1.7);
   - the dev server against a made-up Kiler on 127.0.0.1: `Host`, the exchange, the close of the stream, a foreign `Host`, the framing headers, no WebSocket, the token hidden in the log (M1.7);
-  - bind parameter detection and form generation from templates (M6).
+  - form generation from templates (M6.7), and bind parameter detection (M6.15, only if there is time before the exam).
 - The default environment is `node`. A file that needs the DOM starts with `// @vitest-environment jsdom`.
 - Browser objects that a test drives (EventSource, MessagePort, SharedWorker) are fakes in `src/test-fakes.ts` or in the test; globals are replaced with `vi.stubGlobal` and restored with `vi.unstubAllGlobals()`.
 - A new test is checked to fail against broken code, as in `kiler-dotnet`.
@@ -145,3 +151,6 @@ Light, dark and system (M1.7). Until M6 the choice is kept in `localStorage` (`k
 | Question | When |
 |---|---|
 | Code highlighting in Markdown | M7 |
+| The private records in the screens, the "Private only" filter | after the exam (PLAN section 10, item 4) |
+| The personal configuration: the theme and the open nodes of the tree across starts | after the exam (PLAN section 10, item 11) |
+| The two versions of a conflict side by side | after the exam (PLAN section 10, item 12) |
