@@ -14,6 +14,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Kiler.DemoData.Tests" />
+    <!-- The E2E tests start Kiler on a data folder that DemoKiler.Make writes, with the demo users (M6.12). -->
+    <InternalsVisibleTo Include="Kiler.E2E" />
   </ItemGroup>
 
 </Project>

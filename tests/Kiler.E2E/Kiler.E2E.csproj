@@ -20,6 +20,11 @@
     <ProjectReference Include="..\..\src\Kiler.App\Kiler.App.csproj" />
   </ItemGroup>
 
+  <!-- The tests of the screens run on the demo data, which DemoKiler.Make writes as the tool does (M6.12). -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\tools\Kiler.DemoData\Kiler.DemoData.csproj" />
+  </ItemGroup>
+
   <!-- Kiler.App is for Windows only, so the platform analyzer (CA1416) needs the same here to let the tests call it. -->
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.Versioning.SupportedOSPlatformAttribute">
