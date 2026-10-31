@@ -39,6 +39,9 @@ export default defineConfig({
     // Browsers with light-dark() (index.css). For older ones, lightningcss would rewrite it into toggle variables that
     // resolve once on the root, so a part of the page with a color-scheme of its own (M6, M7) would not follow it.
     cssTarget: ['chrome123', 'edge123', 'firefox120'],
+    // The UI is one chunk of about 950 kB with CodeMirror and sql-formatter (M6.9). Kiler serves it from 127.0.0.1 and
+    // the browser keeps it (/assets/), so its size costs little; Vite's warning at 500 kB is meant for the internet.
+    chunkSizeWarningLimit: 1200,
   },
   worker: {
     // The events worker is a module worker (src/events.ts), so its build is a module too.

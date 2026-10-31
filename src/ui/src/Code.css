@@ -1,0 +1,30 @@
+/*
+ * The code of a field (CodeBlock.tsx, CodeEditor.tsx). CodeMirror sits in a shadow root, which this file does not
+ * reach: its look is in code.ts, on the variables of index.css and on these, which inherit into the shadow root and
+ * follow the theme by light-dark().
+ */
+.code {
+  --code-keyword: light-dark(#7c3aed, #c4a1ff);
+  --code-string: light-dark(#1f7a45, #7ee2a8);
+  --code-number: light-dark(#a14b00, #f0a35e);
+  --code-comment: var(--color-muted);
+  --code-type: light-dark(#0e7490, #5fd4e8);
+  --code-property: light-dark(#2457b8, #8fb8ff);
+  --code-name: light-dark(#a3367a, #f09ad0);
+
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--space) / 2);
+  min-width: 0;
+}
+
+.code-view {
+  display: block;
+  min-width: 0;
+}
+
+.code-problem {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 0.9rem;
+}
