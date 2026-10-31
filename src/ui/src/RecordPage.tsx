@@ -2,21 +2,25 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router';
 import {
   ApiError,
+  deleteRecord,
   getRecord,
   getTemplates,
   messageOf,
   requestSecret,
+  restoreFromTrash,
   type FieldType,
   type RecordData,
   type RecordField,
   type Session,
   type Template,
+  type TrashItem,
 } from './api.ts';
 import { useChanges } from './changes.ts';
 import { CodeBlock } from './CodeBlock.tsx';
 import { CopyButton } from './CopyButton.tsx';
 import { FieldValue } from './FieldValue.tsx';
 import { localDateTime, recordPath } from './fields.ts';
+import { offersDelete, offersTrashRestore } from './history.ts';
 import {
   authorName,
   fieldRows,
@@ -37,13 +41,16 @@ import { texts } from './texts.ts';
 type ReadState =
   | { state: 'reading' }
   | { state: 'ready'; record: RecordData; template: Template | undefined }
+  | { state: 'deleted'; item: TrashItem; template: Template | undefined }
   | { state: 'notThere' }
   | { state: 'failed'; message: string };
 
 /**
  * A record at `/records/<id>` (M6.5, design 8.2): its header, its fields in the order of the template with "Copy" on
- * each value, the padlocks of the levels that the session does not hold, and "Show" and "Copy" of a `secret`.
- * `App.tsx` mounts it again for another `id` and when the session signs in or out or its levels change.
+ * each value, the padlocks of the levels that the session does not hold, and "Show" and "Copy" of a `secret`; "History",
+ * and "Delete" for an editor who holds every level of the record (M6.14). After a delete it says that the record is in
+ * the trash, with "Restore". `App.tsx` mounts it again for another `id` and when the session signs in or out or its
+ * levels change.
  *
  * It reads the record again at each change of other users (`useChanges()`), and keeps the last one on the screen
  * meanwhile. A shown `secret` hides again after its time, on leaving the page, at a `session` event and at each read.
@@ -84,8 +91,9 @@ export function RecordPage({ id, session }: { id: string; session: Session }) {
           return;
         }
 
-        if (error instanceof ApiError && error.kind === 'refused' && error.status === 404) {
-          setRead({ state: 'notThere' });
+        // The read after a delete of this page finds no record: the page keeps saying that it is in the trash.
+        if (isNotThere(error)) {
+          setRead((previous) => (previous.state === 'deleted' ? previous : { state: 'notThere' }));
           return;
         }
 
@@ -131,23 +139,87 @@ export function RecordPage({ id, session }: { id: string; session: Session }) {
           </div>
         </section>
       );
+    case 'deleted':
+      return (
+        <DeletedView
+          item={read.item}
+          session={session}
+          onRestored={(record) => setRead({ state: 'ready', record, template: read.template })}
+          onGone={() => setRound((value) => value + 1)}
+        />
+      );
     case 'ready':
-      return <RecordView record={read.record} template={read.template} session={session} secrets={secrets} />;
+      return (
+        <RecordView
+          record={read.record}
+          template={read.template}
+          session={session}
+          secrets={secrets}
+          onDeleted={(item) => {
+            secrets.hideAll();
+            setRead({ state: 'deleted', item, template: read.template });
+          }}
+          onReload={(record) => {
+            secrets.hideAll();
+            setRead({ state: 'ready', record, template: read.template });
+          }}
+          onGone={() => setRead({ state: 'notThere' })}
+        />
+      );
   }
 }
+
+/** What "Delete" shows below the header: nothing, the question, the request, a conflict, or why it was refused. */
+type Deleting =
+  | { state: 'none' }
+  | { state: 'confirm' }
+  | { state: 'sending' }
+  | { state: 'conflict'; current: RecordData }
+  | { state: 'refused'; message: string };
 
 function RecordView({
   record,
   template,
   session,
   secrets,
+  onDeleted,
+  onReload,
+  onGone,
 }: {
   record: RecordData;
   template: Template | undefined;
   session: Session;
   secrets: ShownSecrets;
+  onDeleted: (item: TrashItem) => void;
+  /** Shows the record of a conflict, without a new request. */
+  onReload: (record: RecordData) => void;
+  onGone: () => void;
 }) {
+  const store = useSessionStore();
+  const [deleting, setDeleting] = useState<Deleting>({ state: 'none' });
   const path = pathParts(record.stash);
+
+  // Over the version that the page shows; a newer one is a conflict, with the record as it is now (docs/api.md).
+  const sendDelete = () => {
+    if (deleting.state === 'sending') {
+      return;
+    }
+
+    setDeleting({ state: 'sending' });
+    deleteRecord(record.id, record.version).then(onDeleted, (error: unknown) => {
+      if (error instanceof ApiError && error.current !== null) {
+        setDeleting({ state: 'conflict', current: error.current });
+      } else if (isNotThere(error)) {
+        onGone();
+      } else {
+        setDeleting({ state: 'refused', message: messageOf(error) });
+        if (readsSession(error)) {
+          store.reload();
+        }
+      }
+    });
+  };
+
   return (
     <article className="card card-wide stack record">
       {path.length > 0 && (
@@ -164,12 +236,37 @@ function RecordView({
           <h1>{record.name}</h1>
           <span className="mark">{template?.name ?? record.template}</span>
         </div>
-        {offersEdit(session, record) && (
-          <Link className="button" to={`${recordPath(record.id)}/edit`}>
-            {texts.record.edit}
+        <div className="buttons">
+          {offersEdit(session, record) && (
+            <Link className="button" to={`${recordPath(record.id)}/edit`}>
+              {texts.record.edit}
+            </Link>
+          )}
+          <Link className="button" to={`${recordPath(record.id)}/history`}>
+            {texts.history.historyLink}
           </Link>
-        )}
+          {offersDelete(session, record) && (
+            <button
+              type="button"
+              onClick={() => setDeleting({ state: 'confirm' })}
+              disabled={deleting.state !== 'none' && deleting.state !== 'refused'}
+            >
+              {texts.history.delete}
+            </button>
+          )}
+        </div>
       </header>
+      {deleting.state !== 'none' && (
+        <DeletePanel
+          deleting={deleting}
+          onSend={sendDelete}
+          onCancel={() => setDeleting({ state: 'none' })}
+          onReload={(current) => {
+            setDeleting({ state: 'none' });
+            onReload(current);
+          }}
+        />
+      )}
       {record.fields.length === 0 && (
         <p className="banner banner-warning" role="status">
           {texts.record.noTemplate(record.template)}
@@ -257,4 +354,127 @@ function Padlocked({
       </Link>
     </span>
   );
+}
+
+/** The question of "Delete", its request, a conflict with "Reload", or why it was refused. */
+function DeletePanel({
+  deleting,
+  onSend,
+  onCancel,
+  onReload,
+}: {
+  deleting: Exclude<Deleting, { state: 'none' }>;
+  onSend: () => void;
+  onCancel: () => void;
+  onReload: (current: RecordData) => void;
+}) {
+  switch (deleting.state) {
+    case 'confirm':
+    case 'sending':
+      return (
+        <div className="panel stack" role="group" aria-label={texts.history.delete}>
+          <p>{texts.history.deleteConfirm}</p>
+          <div className="buttons">
+            <button type="button" onClick={onSend} disabled={deleting.state === 'sending'}>
+              {deleting.state === 'sending' ? texts.history.deleting : texts.history.delete}
+            </button>
+            <button type="button" onClick={onCancel} disabled={deleting.state === 'sending'}>
+              {texts.history.cancel}
+            </button>
+          </div>
+        </div>
+      );
+    case 'conflict':
+      return (
+        <div className="panel stack" role="alert">
+          <p>
+            {texts.history.conflict(authorName(deleting.current.updatedBy), localDateTime(deleting.current.updatedAt))}
+          </p>
+          <div className="buttons">
+            <button type="button" onClick={() => onReload(deleting.current)}>
+              {texts.history.reload}
+            </button>
+            <button type="button" onClick={onCancel}>
+              {texts.history.cancel}
+            </button>
+          </div>
+        </div>
+      );
+    case 'refused':
+      return (
+        <p className="banner banner-danger" role="alert">
+          {deleting.message}
+        </p>
+      );
+  }
+}
+
+/**
+ * A record that this page has moved to the trash: so it says, with "Restore" for an editor who holds every level of
+ * it, which brings it back as it was deleted. A record that another Kiler has restored meanwhile (404) is read again.
+ */
+function DeletedView({
+  item,
+  session,
+  onRestored,
+  onGone,
+}: {
+  item: TrashItem;
+  session: Session;
+  onRestored: (record: RecordData) => void;
+  onGone: () => void;
+}) {
+  const store = useSessionStore();
+  const [restoring, setRestoring] = useState(false);
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const restore = () => {
+    if (restoring) {
+      return;
+    }
+
+    setRestoring(true);
+    setRefusal(null);
+    restoreFromTrash(item.id).then(onRestored, (error: unknown) => {
+      setRestoring(false);
+      setRefusal(messageOf(error));
+      if (readsSession(error)) {
+        store.reload();
+      } else if (isNotThere(error)) {
+        onGone();
+      }
+    });
+  };
+
+  return (
+    <section className="card stack">
+      <p className="banner banner-ok" role="status">
+        {texts.history.deleted(item.name)}
+      </p>
+      {refusal !== null && (
+        <p className="banner banner-danger" role="alert">
+          {refusal}
+        </p>
+      )}
+      <div className="buttons">
+        {offersTrashRestore(session, item) && (
+          <button type="button" onClick={restore} disabled={restoring}>
+            {restoring ? texts.history.restoring : texts.history.restore}
+          </button>
+        )}
+        {session.signedIn && (
+          <Link className="button" to="/trash">
+            {texts.history.toTrash}
+          </Link>
+        )}
+        <Link className="button" to="/">
+          {texts.record.toMain}
+        </Link>
+      </div>
+    </section>
+  );
+}
+
+/** A 404 of Kiler: the record is not there, or is in the trash. */
+function isNotThere(error: unknown): boolean {
+  return error instanceof ApiError && error.kind === 'refused' && error.status === 404;
 }
