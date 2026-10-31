@@ -1,0 +1,285 @@
+/*
+ * The main view (Browse.tsx, M6.3, M6.4): the search on top, the tree and the filters at the side, the list.
+ * main.tsx imports index.css after App.tsx, so this file comes first, and a rule that meets one of index.css with the
+ * same specificity loses: such a rule names its parent too (M6.3 code review).
+ */
+.browse {
+  display: grid;
+  grid-template-columns: minmax(14rem, 20rem) minmax(0, 1fr);
+  grid-template-areas:
+    'search search'
+    'side main';
+  align-items: start;
+  gap: calc(var(--space) * 1.5);
+  max-width: 80rem;
+}
+
+@media (max-width: 48rem) {
+  .browse {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'search'
+      'side'
+      'main';
+  }
+}
+
+.browse-search {
+  grid-area: search;
+}
+
+.browse-search input[type='search'] {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 40rem;
+  padding: 0.45rem 0.7rem;
+}
+
+.browse-side {
+  grid-area: side;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space);
+}
+
+.browse-main {
+  grid-area: main;
+  min-width: 0;
+}
+
+.browse-main h1 {
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+/* The stash tree (Tree.tsx). */
+.tree {
+  padding: var(--space);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.tree h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.tree-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: calc(var(--space) / 2);
+}
+
+.tree-nodes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tree-nodes .tree-nodes {
+  padding-left: 1rem;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.05rem 0.25rem;
+  border-radius: var(--radius);
+}
+
+.tree-row.chosen {
+  background: var(--color-page);
+}
+
+.tree-toggle {
+  flex: none;
+  width: 1.4rem;
+  padding: 0;
+  color: var(--color-muted);
+  background: none;
+  border: none;
+  text-align: center;
+}
+
+.tree-name {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-text);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.tree-name:hover,
+.tree-name:focus-visible {
+  text-decoration: underline;
+}
+
+.tree-row.chosen .tree-name {
+  font-weight: 600;
+  color: var(--color-accent);
+}
+
+.tree-name.muted {
+  font-style: italic;
+}
+
+.tree-count,
+.filter-count {
+  font-size: 0.85rem;
+  font-weight: normal;
+  color: var(--color-muted);
+}
+
+.tree .tree-new {
+  flex: none;
+  padding: 0 0.45rem;
+  line-height: 1.4;
+  color: var(--color-muted);
+}
+
+.tree .tree-new:hover,
+.tree .tree-new:focus-visible {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+/* The filters (Filters.tsx). */
+.filters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space);
+  padding: var(--space);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.filters h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.filters h3 {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+
+.filters-head,
+.filter-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: calc(var(--space) / 2);
+}
+
+.filters-clear {
+  font-size: 0.85rem;
+  color: var(--color-accent);
+}
+
+.filter-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.3rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.filter-choice {
+  display: inline-block;
+  padding: 0 0.55rem;
+  font-size: 0.85rem;
+  color: var(--color-text);
+  text-decoration: none;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  overflow-wrap: anywhere;
+}
+
+.filter-choice:hover,
+.filter-choice:focus-visible {
+  border-color: var(--color-accent);
+}
+
+.filter-choice.chosen {
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.filter-choice.chosen .filter-count {
+  color: inherit;
+}
+
+/* The list (RecordList.tsx). */
+.record-list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--space) * 0.75);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.record-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: calc(var(--space) * 0.75) var(--space);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.record-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: calc(var(--space) / 2);
+}
+
+.record-name {
+  font-weight: 600;
+  color: var(--color-accent);
+  overflow-wrap: anywhere;
+}
+
+.record-path {
+  font-size: 0.85rem;
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+
+.record-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem calc(var(--space) * 1.5);
+  margin: 0;
+}
+
+.record-fields div {
+  display: flex;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.record-fields dt {
+  color: var(--color-muted);
+}
+
+.record-fields dt::after {
+  content: ':';
+}
+
+.record-fields dd {
+  min-width: 0;
+  margin: 0;
+}
