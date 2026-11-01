@@ -84,7 +84,7 @@ The types are those of design 6.4.
 | `number` | a JSON number | a JSON number |
 | `date` | an ISO 8601 date, such as `"2026-10-21"` | the same |
 | `url` | a string | an absolute `http` or `https` address |
-| `code` | a string; `{ "language": "bash", "code": "…" }` when the template gives `languages` (design 6.3) | the same, `language` one of `languages` |
+| `code` | a string; `{ "language": "bash", "code": "…" }` when the template gives `languages` (design 6.3), such as the initial template `snippet` | the same, `language` one of `languages` |
 | `ref` | `{ "id": "k3x9q2mf", "name": "Payments production database" }`; `name` is `null` when that record has gone (deleted, or never there) | the id of a record of `refTemplate` |
 | `secret` | never (`kind` is `secret`) | a string |
 

@@ -40,7 +40,7 @@ public sealed class TemplatesApiTests : IDisposable
         var answer = await GetAsync(client, "/api/templates");
 
         var templates = answer["templates"]!.AsArray();
-        Assert.Equal(["Link", "Note", "Server / database", "SQL query"], templates.Select(template => (string?)template!["name"]));
+        Assert.Equal(["Link", "Note", "Server / database", "Snippet", "SQL query"], templates.Select(template => (string?)template!["name"]));
         var db = Assert.Single(templates, template => (string?)template!["id"] == "db")!;
         Assert.Equal("database", (string?)db["icon"]);
         Assert.Equal(["env", "host", "port", "tns", "user", "password"], db["fields"]!.AsArray().Select(field => (string?)field!["key"]));
@@ -52,6 +52,12 @@ public sealed class TemplatesApiTests : IDisposable
         Assert.Equal(
             """{"key":"env","label":"Environment","type":"select","level":0,"levelByEnv":null,"required":false,"filter":true,"list":false,"options":["prod","test","dev"],"language":null,"dialect":null,"languages":null,"refTemplate":null}""",
             db["fields"]![0]!.ToJsonString());
+
+        // A snippet gives the languages of its code, of which its record picks one (design 6.3).
+        var snippet = Assert.Single(templates, template => (string?)template!["id"] == "snippet")!;
+        Assert.Equal(
+            """{"key":"code","label":"Code","type":"code","level":1,"levelByEnv":null,"required":true,"filter":false,"list":false,"options":null,"language":null,"dialect":null,"languages":["text","powershell","bash","python","java","json","xml","yaml","sql"],"refTemplate":null}""",
+            snippet["fields"]![0]!.ToJsonString());
         Assert.Equal("""[{"id":"bad","reason":"icon is missing."}]""", answer["invalid"]!.ToJsonString());
 
         var levels = await GetAsync(client, "/api/levels");
@@ -92,7 +98,7 @@ public sealed class TemplatesApiTests : IDisposable
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal(SessionApi.NoData, (string?)(await ReadAsync(response))["error"]);
-        Assert.Equal(4, (await GetAsync(client, "/api/templates"))["templates"]!.AsArray().Count);
+        Assert.Equal(5, (await GetAsync(client, "/api/templates"))["templates"]!.AsArray().Count);
     }
 
     private static async Task<HttpClient> SignedInAsync(KilerServer server)

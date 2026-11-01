@@ -4,7 +4,7 @@ namespace Kiler.DemoData;
 
 /// <summary>
 /// The stashes and the records of the demo (M5.5, PLAN M8 step 4): the notes of a programmer, two projects of work with
-/// their environments, the home, a photo blog of their own and the team's handbook, in about 30 records of the four initial
+/// their environments, the home, a photo blog of their own and the team's handbook, in some 36 records of the five initial
 /// templates, with tags, at the levels 0 to 3, some by the demo editor; and a volume mode of <see cref="VolumeCount"/>
 /// records in all, for the timing of the search (M5.6). They are written through the code of an editor
 /// (<see cref="RecordActions"/>), so each field takes the level of its template and each group is encrypted as Kiler does
@@ -126,6 +126,30 @@ internal static class DemoRecords
             3. If the database is the cause, call the database team on call.
             """,
             ["runbook", "on-call"], description: "Steps for an outage of the fitness app.", levels: new() { ["text"] = 3 }),
+        Snippet(Admin, ["Fitness app", Live], "Clean up the old sync logs", "bash",
+            """
+            #!/usr/bin/env bash
+            # Deletes the logs of the sync workers older than 14 days, then shows how much is left.
+            set -euo pipefail
+            logs=/var/log/fitness-sync
+            find "$logs" -name '*.log' -mtime +14 -print -delete
+            du -sh "$logs"
+            """,
+            ["logs", "maintenance"], notes: "Run it as the user of the sync workers when the disk is over 80% full."),
+        Snippet(Editor, ["Fitness app", Sandbox], "Fitness app settings for the sandbox", "json",
+            """
+            {
+              "api": "https://fitness-api-sandbox.example.com/v2",
+              "syncEveryMinutes": 15,
+              "units": "metric",
+              "features": {
+                "heartRate": true,
+                "challenges": false
+              },
+              "logLevel": "debug"
+            }
+            """,
+            ["settings", "fitness"], notes: "The challenges stay off in the sandbox until the next release."),
 
         // Home: the home server with the database of the budget, the router, the logs of the smart home three stashes deep,
         // and the printer.
@@ -150,6 +174,17 @@ internal static class DemoRecords
             Add the printer from Settings › Printers, then print the test page. The spare ink is in the hall cupboard.
             """,
             ["hardware"]),
+        Snippet(Admin, ["Home"], "Back up the photos", "powershell",
+            """
+            # Copies the new and changed photos to the home server.
+            $source = Join-Path $env:USERPROFILE 'Pictures'
+            $target = '\\home.example.com\backup\photos'
+            robocopy $source $target /E /XO /R:2 /W:5 /LOG:"$env:TEMP\photo-backup.log"
+            if ($LASTEXITCODE -ge 8) {
+                Write-Error "The backup failed; see $env:TEMP\photo-backup.log"
+            }
+            """,
+            ["backup", "photos"], description: "Run it on Sunday evening."),
 
         // Photo blog: its hosting, and a payment provider four stashes deep for the prints, its notes raised.
         Db(Admin, ["Photo blog", Live], "Photo blog hosting", "prod", "sftp.example.com", 22, "photoblog", "Demo-Blog-Live-6V",
@@ -166,6 +201,39 @@ internal static class DemoRecords
             - [ ] The prints of the gallery are in the shop.
             """,
             ["publishing"]),
+        Snippet(Editor, ["Photo blog"], "Resize the photos for the blog", "python",
+            """
+            from pathlib import Path
+
+            from PIL import Image
+
+            # A copy of each photo of the gallery, at most 1600 px on its longest side, without its location.
+            web = Path("web")
+            web.mkdir(exist_ok=True)
+            for photo in sorted(Path("gallery").glob("*.jpg")):
+                with Image.open(photo) as image:
+                    image.thumbnail((1600, 1600))
+                    image.save(web / photo.name, quality=85)
+                print(f"{photo.name}: done")
+            """,
+            ["photos", "publishing"], notes: "Needs Pillow: pip install Pillow.", description: "The copies for the web of a new gallery; the originals stay as they are."),
+        Snippet(Admin, ["Photo blog", Live], "Photo blog build pipeline", "yaml",
+            """
+            # Builds the blog and uploads it to the hosting at each push to main.
+            name: publish
+            on:
+              push:
+                branches: [main]
+            jobs:
+              publish:
+                runs-on: ubuntu-latest
+                steps:
+                  - uses: actions/checkout@v4
+                  - run: npm ci && npm run build
+                  - name: Upload
+                    run: rsync -az --delete public/ photoblog@sftp.example.com:/var/www/blog
+            """,
+            ["build", "blog"], notes: "The key of the upload is a secret of the repository, never in the pipeline."),
 
         // Handbook: what the whole team needs.
         Note(Admin, ["Handbook"], "Support rota",
@@ -232,7 +300,7 @@ internal static class DemoRecords
     public static string SystemName(int number) => $"System {number:00}";
 
     /// <summary>
-    /// The made-up records of the volume mode, in groups of four of each template: a database, a query on it, a link and a note
+    /// The made-up records of the volume mode, in groups of four templates: a database, a query on it, a link and a note
     /// of one word, system and environment, so the search, the filters and the tree have many of each. The password of a
     /// database is at the level of its environment, and the note of each group rises from 1 to 3.
     /// </summary>
@@ -298,6 +366,11 @@ internal static class DemoRecords
     /// <summary>A record of the template <c>note</c>.</summary>
     private static DemoRecord Note(string author, string[] path, string name, string text, string[] tags, string? description = null, Dictionary<string, int>? levels = null) =>
         new(author, "note", path, name, tags, Values(("text", text)), description, levels ?? NoLevels, NoRefs);
+
+    /// <summary>A record of the template <c>snippet</c>, whose code is in <paramref name="language"/>.</summary>
+    private static DemoRecord Snippet(
+        string author, string[] path, string name, string language, string code, string[] tags, string? notes = null, string? description = null) =>
+        new(author, "snippet", path, name, tags, Values(("code", FieldValue.OfCode(language, code)), ("notes", notes)), description, NoLevels, NoRefs);
 
     /// <summary>The values by key: a text, or a <see cref="FieldValue"/>; a <c>null</c> is no value and is left out.</summary>
     private static Dictionary<string, FieldValue> Values(params (string Key, object? Value)[] values) =>

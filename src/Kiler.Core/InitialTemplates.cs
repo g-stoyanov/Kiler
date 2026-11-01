@@ -1,13 +1,17 @@
 namespace Kiler.Core;
 
 /// <summary>
-/// The four initial templates (design 6.1 to 6.3, decided at the start of M5): "Server / database", "SQL query", "Link" and
-/// "Note", in English. The wizard writes them into a new Kiler (<see cref="NewKiler"/>), so the demo data gets them by the
-/// same path, and admins change them after the exam. Level 0 holds only what anyone with access to the share may read
-/// (design 7.1): the environment, the links and their kind; addresses, queries and notes are at 1 or higher.
+/// The five initial templates (design 6.1 to 6.3, decided at the start of M5): "Server / database", "SQL query", "Link",
+/// "Note", and "Snippet", the code of any of its languages (PLAN M8, "Before the exam", item 4), in English. The wizard
+/// writes them into a new Kiler (<see cref="NewKiler"/>), so the demo data gets them by the same path, and admins change
+/// them after the exam. Level 0 holds only what anyone with access to the share may read (design 7.1): the environment,
+/// the links and their kind; addresses, queries, code and notes are at 1 or higher.
 /// </summary>
 public static class InitialTemplates
 {
+    /// <summary>The languages of a snippet, in the order of its picker: those of <c>src/ui/src/code.ts</c>, and <c>text</c> first.</summary>
+    public static IReadOnlyList<string> Languages { get; } = ["text", "powershell", "bash", "python", "java", "json", "xml", "yaml", "sql"];
+
     /// <summary>
     /// The templates of a Kiler whose top level is <paramref name="top"/>: a level of the design above it is the top level,
     /// so a Kiler of fewer levels can write every field.
@@ -47,6 +51,13 @@ public static class InitialTemplates
             new("note", "Note", "note",
             [
                 new("text", "Text", FieldType.Markdown, level: 1),
+            ]),
+
+            // The record picks the language of its code from the languages that the page highlights; text shows as plain text.
+            new("snippet", "Snippet", "snippet",
+            [
+                new("code", "Code", FieldType.Code, level: 1, required: true, languages: Languages),
+                new("notes", "Notes", FieldType.Markdown, level: 1),
             ]),
         ];
     }

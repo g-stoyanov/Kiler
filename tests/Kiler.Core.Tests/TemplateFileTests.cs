@@ -180,8 +180,8 @@ public class TemplateFileTests
     {
         var templates = InitialTemplates.For(top);
 
-        Assert.Equal(["db", "sql", "link", "note"], templates.Select(template => template.Id));
-        Assert.Equal(["Server / database", "SQL query", "Link", "Note"], templates.Select(template => template.Name));
+        Assert.Equal(["db", "sql", "link", "note", "snippet"], templates.Select(template => template.Id));
+        Assert.Equal(["Server / database", "SQL query", "Link", "Note", "Snippet"], templates.Select(template => template.Name));
         foreach (var template in templates)
         {
             Assert.True(TemplateFile.TryRead(template.Key, template.ToContent(), out _, out var invalid), invalid);
@@ -192,6 +192,11 @@ public class TemplateFileTests
         Assert.Equal(FieldType.Secret, password.Type);
         Assert.Equal((Math.Min(3, top), Math.Min(2, top), 1), (password.LevelByEnv?["prod"], password.LevelByEnv?["test"], password.LevelByEnv?["dev"]));
         Assert.Equal("db", Assert.Single(templates[1].Fields, field => field.Type == FieldType.Ref).RefTemplate);
+
+        // A snippet picks the language of its code from those that the page highlights, with text first.
+        var code = Assert.Single(templates[4].Fields, field => field.Type == FieldType.Code);
+        Assert.Equal(("code", true, 1, null), (code.Key, code.Required, code.Level, code.Language));
+        Assert.Equal(["text", "powershell", "bash", "python", "java", "json", "xml", "yaml", "sql"], code.Languages);
     }
 
     [Theory]

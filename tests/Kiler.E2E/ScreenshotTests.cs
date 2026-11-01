@@ -5,15 +5,16 @@ using static Microsoft.Playwright.Assertions;
 namespace Kiler.E2E;
 
 /// <summary>
-/// The ten screenshots for the write-up and the README (M6.13, M6.24, PLAN M8 step 5), on one demo Kiler in a window of
-/// 1280 × 800, each of the whole page with its header: the main view with a search and the tree, the padlocks of a guest
-/// and a shown password, the form of a "+" with the stash picker open, a query with its "Parameters", the history of a
-/// record that two users changed, the conflict with its two versions, the trash, the audit of the shown and copied
-/// passwords, and the users in the dark theme. They go to <see cref="FolderVariable"/> (<c>artifacts\screenshots</c> from
-/// <c>e2e.ps1</c>, which CI uploads), else <c>screenshots\</c> beside the test DLL. The data folder at the foot is
-/// blurred, as its path holds the Windows account of the machine (<see cref="SaveAsync"/>). A write of the run does not
-/// hide the shown password, as only a change of its record does (M6.16); the audit comes after the "Show" and "Copy" that
-/// write its rows, and the conflict, which leaves the form in its panel, comes last.
+/// The eleven screenshots for the write-up and the README (M6.13, M6.24, PLAN M8 step 5 and "Before the exam", item 4), on
+/// one demo Kiler in a window of 1280 × 800, each of the whole page with its header: the main view with a search and the
+/// tree, the padlocks of a guest and a shown password, the form of a "+" with the stash picker open, a query with its
+/// "Parameters", the history of a record that two users changed, the conflict with its two versions, the trash, the audit
+/// of the shown and copied passwords, the users in the dark theme, and a snippet highlighted in Python. They go to
+/// <see cref="FolderVariable"/> (<c>artifacts\screenshots</c> from <c>e2e.ps1</c>, which CI uploads), else
+/// <c>screenshots\</c> beside the test DLL. The data folder at the foot is blurred, as its path holds the Windows account
+/// of the machine (<see cref="SaveAsync"/>). A write of the run does not hide the shown password, as only a change of its
+/// record does (M6.16); the audit comes after the "Show" and "Copy" that write its rows, and the conflict, which leaves the
+/// form in its panel, comes last.
 /// </summary>
 [Trait("Category", "E2E")]
 public class ScreenshotTests(KilerBrowser browser)
@@ -35,6 +36,7 @@ public class ScreenshotTests(KilerBrowser browser)
         const string Database = "Library database";
         const string OtherDatabase = "Fitness database";
         const string Query = "Overdue loans by branch";
+        const string Snippet = "Resize the photos for the blog";
         const string EditorsNote = "Access requests";
         const string Note = "Welcome to the team";
         string[] deleted = ["Central logs", "Photo blog uptime check"];
@@ -109,6 +111,13 @@ public class ScreenshotTests(KilerBrowser browser)
         await branch.FillAsync("3");
         await branch.BlurAsync();
         await SaveAsync(p, folder, "05-code-parameters");
+
+        // A snippet, highlighted in its language.
+        await Demo.ToMainViewAsync(p);
+        await Demo.OpenRecordAsync(p, Snippet);
+        await Expect(Demo.Field(p, "Code").Locator(".cm-content")).ToHaveAttributeAsync("data-language", "python");
+        await Expect(p.Locator(".cm-content")).ToContainTextAsync("image.thumbnail((1600, 1600))");
+        await SaveAsync(p, folder, "11-snippet");
 
         // A note of the editor that the admin changes twice has three versions by two users.
         await Demo.ToMainViewAsync(p);

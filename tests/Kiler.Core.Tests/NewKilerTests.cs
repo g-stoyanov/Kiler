@@ -55,9 +55,9 @@ public sealed class NewKilerTests : IDisposable
         var admin = Valid(files.Users[Account]);
         Assert.Equal(("Demo Admin", 2, true, true, false), (admin.DisplayName, admin.Level, admin.CanEdit, admin.IsAdmin, admin.MustChangePassword));
 
-        // The four initial templates (M5.2), with no level above the top level, 2.
+        // The five initial templates (M5.2), with no level above the top level, 2.
         var initial = InitialTemplates.For(2).ToDictionary(template => template.Id, template => template.ToContent().ToJsonString());
-        Assert.Equal(["db", "link", "note", "sql"], files.Templates.Keys);
+        Assert.Equal(["db", "link", "note", "snippet", "sql"], files.Templates.Keys);
         Assert.All(files.Templates, pair => Assert.Equal(initial[pair.Key], Valid(pair.Value).ToContent().ToJsonString()));
         Assert.Equal(2, Assert.Single(Valid(files.Templates["db"]).Fields, field => field.Key == "password").LevelByEnv?["prod"]);
 

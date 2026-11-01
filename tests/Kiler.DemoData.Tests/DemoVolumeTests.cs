@@ -27,7 +27,7 @@ public sealed class DemoVolumeTests(DemoVolumeTests.Made made) : IClassFixture<D
             view.Template is not null && view.Fields.All(field => field.Kind is FieldKind.Value or FieldKind.Empty or FieldKind.Secret),
             view.File.Model?.Name));
         var files = set.Records.Values.Select(view => view.File.Model!).ToList();
-        Assert.Equal(["db", "link", "note", "sql"], files.Select(file => file.Template).Distinct().Order(StringComparer.Ordinal));
+        Assert.Equal(["db", "link", "note", "snippet", "sql"], files.Select(file => file.Template).Distinct().Order(StringComparer.Ordinal));
         Assert.Equal([1, 2, 3], files.SelectMany(file => file.Protected.Keys).Distinct().Order());
     }
 

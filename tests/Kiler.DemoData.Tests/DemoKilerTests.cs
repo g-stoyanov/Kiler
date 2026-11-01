@@ -28,7 +28,7 @@ public sealed class DemoKilerTests(DemoKilerTests.Made made) : IClassFixture<Dem
         Assert.All(files.Users.Values, file => Assert.True(file.IsValid, file.Invalid));
 
         // The initial templates come with the wizard (M5.2), at the levels of the demo, 0 to 3.
-        Assert.Equal(["db", "link", "note", "sql"], files.Templates.Keys);
+        Assert.Equal(["db", "link", "note", "snippet", "sql"], files.Templates.Keys);
         Assert.All(files.Templates.Values, file => Assert.True(file.IsValid, file.Invalid));
         var password = Assert.Single(Assert.IsType<TemplateFile>(files.Templates["db"].Model).Fields, field => field.Key == "password");
         Assert.Equal(3, password.LevelByEnv?["prod"]);
@@ -77,7 +77,7 @@ public sealed class DemoKilerTests(DemoKilerTests.Made made) : IClassFixture<Dem
         }
 
         // What the demo is for: each template, paths of 1 to 4 stashes, groups of the levels 1 to 3, and records of the editor.
-        Assert.Equal(["db", "link", "note", "sql"], files.Select(file => file.Template).Distinct().Order(StringComparer.Ordinal));
+        Assert.Equal(["db", "link", "note", "snippet", "sql"], files.Select(file => file.Template).Distinct().Order(StringComparer.Ordinal));
         Assert.Equal([1, 2, 3, 4], files.Select(file => file.Stash.Count).Distinct().Order());
         Assert.Equal([1, 2, 3], files.SelectMany(file => file.Protected.Keys).Distinct().Order());
         Assert.Contains(files, file => file.Authorship.CreatedBy == DemoKiler.Editor.Account);

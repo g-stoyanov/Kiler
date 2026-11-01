@@ -9,7 +9,7 @@ namespace Kiler.Core;
 /// The documents of a new Kiler, which the wizard makes (M4.3, design 13, decided at the start of M4): <c>levels.json</c>, with
 /// a new key and its check for each level from 1 and the recovery set, the keys locked with a new recovery key;
 /// <c>settings.json</c>; the user file of the first admin, the current account, with the keys locked with their password; and
-/// the four initial templates (M5.2, <see cref="InitialTemplates"/>). The level keys and the recovery key live only while it
+/// the five initial templates (M5.2, <see cref="InitialTemplates"/>). The level keys and the recovery key live only while it
 /// is made (kiler-crypto, "Rules"): it keeps the locked documents, and the recovery key as it is shown, once, in the answer of
 /// the wizard.
 /// </summary>

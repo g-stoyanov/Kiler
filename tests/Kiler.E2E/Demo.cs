@@ -87,7 +87,7 @@ internal static class Demo
         await Expect(p.GetByRole(AriaRole.Banner).GetByText(user.DisplayName)).ToBeVisibleAsync();
     }
 
-    /// <summary>The count of the main view, such as "31 records".</summary>
+    /// <summary>The count of the main view, such as "36 records".</summary>
     public static ILocator Count(IPage p) => p.GetByRole(AriaRole.Main).GetByRole(AriaRole.Status);
 
     /// <summary>The count of the main view for <paramref name="count"/> records.</summary>
