@@ -204,6 +204,14 @@ export interface Stash {
   name: string;
 }
 
+/** A live stash of the admin's screen (docs/api.md, `GET /api/admin/stashes`). */
+export interface AdminStash extends Stash {
+  /** The version of the stash file, which a rename, a merge and a delete send back. */
+  version: number;
+  /** The shared records whose path, read through the merged and deleted stashes, has the stash. */
+  records: number;
+}
+
 /** A stash that the form offers at a position of the path (`GET /api/stashes`). */
 export interface StashChoice extends Stash {
   /** A record has it at that position under that path; these come first. */
@@ -631,8 +639,32 @@ export function getAudit(from: string, to: string, signal?: AbortSignal): Promis
   return getJson(`/api/admin/audit?${query}`, readAudit, signal);
 }
 
+/** The live stashes by name, with the shared records of each (M6.22). */
+export function getAdminStashes(signal?: AbortSignal): Promise<AdminStash[]> {
+  return getJson('/api/admin/stashes', readAdminStashes, signal);
+}
+
+/** Renames a stash over the version that the admin read, and answers with the stashes after the rename. */
+export function renameStash(id: string, name: string, version: number): Promise<AdminStash[]> {
+  return requestJson('PUT', adminStashPath(id), { name, version }, readAdminStashes);
+}
+
+/** Merges a stash into the live stash `into` over the version that the admin read, and answers with the stashes after it. */
+export function mergeStash(id: string, into: string, version: number): Promise<AdminStash[]> {
+  return requestJson('POST', `${adminStashPath(id)}/merge`, { into, version }, readAdminStashes);
+}
+
+/** Deletes a stash that no shared record has, over the version that the admin read, and answers with the stashes after it. */
+export function deleteStash(id: string, version: number): Promise<AdminStash[]> {
+  return requestJson('DELETE', `${adminStashPath(id)}?version=${String(version)}`, undefined, readAdminStashes);
+}
+
 function userPath(account: string): string {
   return `/api/admin/users/${encodeURIComponent(account)}`;
+}
+
+function adminStashPath(id: string): string {
+  return `/api/admin/stashes/${encodeURIComponent(id)}`;
 }
 
 export function getTemplates(signal?: AbortSignal): Promise<Templates> {
@@ -1226,6 +1258,21 @@ function readStashChoices(body: unknown): StashChoice[] {
   }
 
   throw new TypeError('Not an answer of /api/stashes.');
+}
+
+/** The stashes of `GET /api/admin/stashes`, which its actions give too. */
+function readAdminStashes(body: unknown): AdminStash[] {
+  if (isObject(body)) {
+    return readList(body.stashes, (entry) => {
+      if (isObject(entry) && isWholeNumber(entry.version) && isWholeNumber(entry.records)) {
+        return { ...readStash(entry), version: entry.version, records: entry.records };
+      }
+
+      throw new TypeError('Not a stash of /api/admin/stashes.');
+    });
+  }
+
+  throw new TypeError('Not an answer of /api/admin/stashes.');
 }
 
 function readTags(body: unknown): string[] {

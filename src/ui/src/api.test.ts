@@ -8,8 +8,10 @@ import {
   createRecord,
   createStash,
   deleteRecord,
+  deleteStash,
   editRecord,
   getAdminLevels,
+  getAdminStashes,
   getAdminUsers,
   getAudit,
   getData,
@@ -25,10 +27,12 @@ import {
   getTemplates,
   getTrash,
   lockSession,
+  mergeStash,
   messageOf,
   noActivity,
   recordsSearch,
   renameLevel,
+  renameStash,
   requestSecret,
   restoreFromTrash,
   restoreVersion,
@@ -434,6 +438,63 @@ describe('the admin actions', () => {
     stubFetch(() => json(body));
 
     expect((await failure(getAudit('2026-10-30T22:00:00.000Z', '2026-10-31T22:00:00.000Z'))).kind).toBe('invalid');
+  });
+
+  const payments = { id: 'a1b2c3d4', name: 'Payments', version: 3, records: 30 };
+  const reports = { id: 'j9k0m1n2', name: 'Reports', version: 1, records: 0 };
+
+  it('reads the stashes with their versions and records', async () => {
+    const fetch = stubFetch(() => json({ stashes: [payments, reports] }));
+
+    expect(await getAdminStashes()).toEqual([payments, reports]);
+    expect(fetch.mock.calls[0]?.[0]).toBe('/api/admin/stashes');
+  });
+
+  it('renames, merges and deletes a stash over its version, and gives the stashes of each answer', async () => {
+    const fetch = stubFetch(() => json({ stashes: [reports] }));
+
+    expect(await renameStash('a1b2c3d4', 'Payments 2026', 3)).toEqual([reports]);
+    expect(await mergeStash('a1b2c3d4', 'j9k0m1n2', 3)).toEqual([reports]);
+    expect(await deleteStash('a1b2c3d4', 3)).toEqual([reports]);
+
+    const [renamePath, renameInit] = fetch.mock.calls[0] ?? [];
+    expect(renamePath).toBe('/api/admin/stashes/a1b2c3d4');
+    expect(renameInit).toMatchObject({ method: 'PUT', body: '{"name":"Payments 2026","version":3}' });
+    const [mergePath, mergeInit] = fetch.mock.calls[1] ?? [];
+    expect(mergePath).toBe('/api/admin/stashes/a1b2c3d4/merge');
+    expect(mergeInit).toMatchObject({ method: 'POST', body: '{"into":"j9k0m1n2","version":3}' });
+    const [deletePath, deleteInit] = fetch.mock.calls[2] ?? [];
+    expect(deletePath).toBe('/api/admin/stashes/a1b2c3d4?version=3');
+    expect(deleteInit).toMatchObject({ method: 'DELETE', body: undefined });
+  });
+
+  it('puts the id of a stash into the path as one segment', async () => {
+    const fetch = stubFetch(() => json({ stashes: [] }));
+
+    await mergeStash('../levels?x', 'j9k0m1n2', 1);
+
+    expect(fetch.mock.calls[0]?.[0]).toBe('/api/admin/stashes/..%2Flevels%3Fx/merge');
+  });
+
+  it('keeps the status of a stash that has gone and the field of a name that does not fit', async () => {
+    stubFetch(() => json({ error: 'The stash is not there. It may have been merged or deleted.' }, 404));
+    const gone = await failure(deleteStash('a1b2c3d4', 3));
+    expect(gone).toMatchObject({ kind: 'refused', status: 404, field: null });
+
+    stubFetch(() => json({ error: 'The name of the stash is blank.', field: 'name' }, 400));
+    const blank = await failure(renameStash('a1b2c3d4', ' ', 3));
+    expect(blank).toMatchObject({ kind: 'refused', status: 400, field: 'name' });
+  });
+
+  it.each([
+    ['stashes without their list', {}],
+    ['a stash without its version', { stashes: [{ ...payments, version: undefined }] }],
+    ['a stash whose records are not a whole number', { stashes: [{ ...payments, records: '30' }] }],
+    ['a stash without its name', { stashes: [{ ...payments, name: null }] }],
+  ])('turns %s into "invalid"', async (_, body) => {
+    stubFetch(() => json(body));
+
+    expect((await failure(getAdminStashes())).kind).toBe('invalid');
   });
 
   it.each([

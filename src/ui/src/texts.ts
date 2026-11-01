@@ -4,6 +4,7 @@ import { code } from './texts/code.ts';
 import { form } from './texts/form.ts';
 import { history } from './texts/history.ts';
 import { record } from './texts/record.ts';
+import { stashes } from './texts/stashes.ts';
 
 /**
  * All the texts of the UI, in one place (decided in M1.7). The app is in English only (PLAN section 8), so there is no
@@ -154,6 +155,7 @@ export const texts = {
     users: 'Users',
     levels: 'Levels',
     audit: 'Audit',
+    stashes: 'Stashes',
     reading: 'Reading the files of the team…',
     tryAgain: 'Try again',
     signInAgain: 'Sign in again',
@@ -237,6 +239,7 @@ export const texts = {
   code,
   history,
   audit,
+  stashes,
   errors: {
     unauthorized: 'This page is not signed in to Kiler. Start Kiler again, and it opens a page that is.',
     stopping: 'Kiler is stopping.',

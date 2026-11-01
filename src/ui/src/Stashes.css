@@ -1,0 +1,15 @@
+/* The stash screen (Stashes.tsx). The buttons are taller than a line, so the name and the count sit in the middle. */
+.stashes-table td {
+  vertical-align: middle;
+}
+
+.stashes-table th:nth-child(2),
+.stashes-table td:nth-child(2) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* In a narrow window the buttons wrap as a whole, and the frame scrolls rather than break a name inside a word. */
+.stashes-table button {
+  white-space: nowrap;
+}
