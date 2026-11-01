@@ -601,8 +601,46 @@ Throughout the project.
 4. `tools/Kiler.DemoData`. It uses the Kiler libraries, so it encrypts correctly. It grows with M4–M7. It has two modes:
    - a made-up set of about 30 records: stash paths of several systems, all templates, tags, levels 0–3, an admin and two users with demo passwords, and a few private records of one of the users;
    - a "volume" mode with 2000 records.
+
+   **A neutral theme** (decided by the user on 2026-11-01, before the README and the final screenshots). The demo set looks like the IT of a company: Billing, Payments, Orders, Warehouse, a customer portal, Prod, Test and Dev, and the top level is Prod. That is close to the author's real work, and it hides that Kiler keeps any kind of note: text, code, credentials, links to the web and to databases. Its names and texts change 1:1 to a neutral, varied theme:
+   - the structure stays: the count of records and stashes, the paths, the templates, the levels of the records and their fields, the authors, the tags in kind and number. So the tests change only the names they use, not their logic;
+   - the content shows the range: notes and how-tos, code snippets in more than SQL, credentials of services, links, and only one or two servers or databases, with neutral names;
+   - the demo levels get neutral names too, without Test and Prod;
+   - everything stays made up, the hosts under `example.com`.
+
+   The theme and the names go to the user as a question with variants before the code. A change of the names reaches `DemoRecords`, `DemoKiler`, `Kiler.DemoData.Tests`, the E2E tests that name the demo (the list is in kiler-dotnet, demodata.md, "Tests"), demodata.md and host.md. Then `e2e.ps1`.
 5. Screenshots for the exam write-up from the E2E tests, with the demo data. Done in M6.13, with the audit and stash screens of M6.24: `ScreenshotTests` saves nine PNGs into `artifacts\screenshots`, also the CI artifact `screenshots`, with the data folder at the foot blurred, as its path holds the Windows account (kiler-dotnet, host.md, "E2E tests").
+
+   **The final screenshots** (decided by the user on 2026-11-01). On the neutral theme of step 4, `ScreenshotTests` saves 10 screenshots in place of the nine. Each shows the whole app, with the header and its links, and together they show as much of the functionality as they can. For example:
+   - the main view with a search, the filters and the tree;
+   - creating a record with the stash picker;
+   - the history of a record's changes;
+   - a record with its padlocks or a shown password;
+   - code with "Parameters";
+   - the conflict side by side;
+   - the trash;
+   - the audit;
+   - the stash screen;
+   - the users or levels screen;
+   - the dark theme.
+
+   The user picks the best 3–4 for the README (step 6) and the write-up, so each PNG is looked at before it is offered.
 6. README for the public repo: what Kiler is, screenshots, how to build it and how to run the demo. How users start it: once from the shared folder, then from the Start menu (M1.5a).
+
+   **Decided by the user on 2026-11-01.** It is a standard README of a GitHub project, in English:
+   - what Kiler is and what it keeps;
+   - the main features;
+   - how it works (a local server and the browser, the shared folder, the encryption by level);
+   - the technologies;
+   - how to build, test and run the demo;
+   - its status as a course project.
+
+   It has at most 3–4 screenshots, the ones the user picked from step 5, kept in the repo.
+
+**Before the exam** (decided by the user on 2026-11-01), in this order:
+1. the neutral theme of step 4 and the ten screenshots of step 5, in one session;
+2. the user picks the screenshots;
+3. step 6 and the version v1.0 in a next session.
 
 ---
 
