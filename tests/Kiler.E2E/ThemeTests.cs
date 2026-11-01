@@ -16,7 +16,7 @@ public class ThemeTests(KilerBrowser browser)
     [Fact(Skip = KilerBrowser.NoExe, SkipUnless = nameof(KilerBrowser.HasExe), SkipType = typeof(KilerBrowser))]
     public async Task TheTheme_ChangesTheCodeInTheViewAndTheForm_AndStaysForTheNextPage()
     {
-        const string RecordName = "Unpaid invoices by month";
+        const string RecordName = "Overdue loans by branch";
         const string Typed = "FETCH FIRST 12 ROWS ONLY";
         var admin = DemoKiler.Admin;
         using var exe = Demo.NewExe();
@@ -28,7 +28,7 @@ public class ThemeTests(KilerBrowser browser)
         await ChooseAsync(p, theme, "Dark", "dark");
         await Demo.OpenRecordAsync(p, RecordName);
         var code = p.Locator(".cm-content");
-        await Expect(code).ToContainTextAsync("FROM invoices i");
+        await Expect(code).ToContainTextAsync("FROM loans l");
 
         // The colours of the editor follow the theme while it is open.
         await p.GetByRole(AriaRole.Link, new() { Name = "Edit", Exact = true }).ClickAsync();

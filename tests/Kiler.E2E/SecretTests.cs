@@ -14,7 +14,7 @@ namespace Kiler.E2E;
 [Trait("Category", "E2E")]
 public class SecretTests(KilerBrowser browser)
 {
-    private const string RecordName = "Billing prod database";
+    private const string RecordName = "Library database";
 
     [Fact(Skip = KilerBrowser.NoExe, SkipUnless = nameof(KilerBrowser.HasExe), SkipType = typeof(KilerBrowser))]
     public async Task AGuestSeesThePadlock_AndTheAdminShows_Hides_AndCopiesThePassword()
@@ -30,7 +30,7 @@ public class SecretTests(KilerBrowser browser)
         // The password of prod is at the top level, so a guest gets its padlock, with "Sign in" beside it.
         await Demo.OpenRecordAsync(p, RecordName);
         var field = Demo.Field(p, "Password");
-        await Expect(field).ToContainTextAsync("requires level Prod");
+        await Expect(field).ToContainTextAsync("requires level Secret");
         await Demo.SignInAsync(p, admin, field.GetByRole(AriaRole.Link, new() { Name = "Sign in", Exact = true }));
         await Expect(Demo.Title(p, RecordName)).ToBeVisibleAsync();
 
@@ -63,7 +63,7 @@ public class SecretTests(KilerBrowser browser)
     {
         const string OtherName = "Welcome to the team";
         const string OtherSaved = "Welcome to the team, saved by the second page";
-        const string Saved = "Billing prod database, saved by the second page";
+        const string Saved = "Library database, saved by the second page";
         var admin = DemoKiler.Admin;
         var password = Password();
         using var exe = Demo.NewExe();

@@ -3,11 +3,12 @@ using Kiler.Core;
 namespace Kiler.DemoData;
 
 /// <summary>
-/// The stashes and the records of the demo (M5.5, PLAN M8 step 4): a few made-up systems with their environments, and about
-/// 30 records of the four initial templates, with tags, at the levels 0 to 3, some by the demo editor; and a volume mode of
-/// <see cref="VolumeCount"/> records in all, for the timing of the search (M5.6). They are written through the code of an
-/// editor (<see cref="RecordActions"/>), so each field takes the level of its template and each group is encrypted as Kiler
-/// does it. Every host is under <c>example.com</c>, and every password is made up (CLAUDE.md, "Data and the public repo").
+/// The stashes and the records of the demo (M5.5, PLAN M8 step 4): the notes of a programmer, two projects of work with
+/// their environments, the home, a photo blog of their own and the team's handbook, in about 30 records of the four initial
+/// templates, with tags, at the levels 0 to 3, some by the demo editor; and a volume mode of <see cref="VolumeCount"/>
+/// records in all, for the timing of the search (M5.6). They are written through the code of an editor
+/// (<see cref="RecordActions"/>), so each field takes the level of its template and each group is encrypted as Kiler does
+/// it. Every host is under <c>example.com</c>, and every password is made up (CLAUDE.md, "Data and the public repo").
 /// </summary>
 internal static class DemoRecords
 {
@@ -17,15 +18,15 @@ internal static class DemoRecords
     /// <summary>The systems of the volume mode, each a stash with the environments of the demo under it.</summary>
     public const int VolumeSystems = 40;
 
-    private const string Prod = "Prod";
-    private const string Test = "Test";
-    private const string Dev = "Dev";
+    private const string Live = "Live";
+    private const string Sandbox = "Sandbox";
+    private const string Local = "Local";
 
     private static readonly string Admin = DemoKiler.Admin.Account;
     private static readonly string Editor = DemoKiler.Editor.Account;
 
     /// <summary>The words of the names of the volume mode, so the search meets each in many records.</summary>
-    private static readonly string[] Words = ["Invoice", "Customer", "Stock", "Payment", "Shipment", "Ledger", "Contract", "Account", "Catalog", "Tariff"];
+    private static readonly string[] Words = ["Book", "Workout", "Photo", "Recipe", "Trip", "Garden", "Concert", "Course", "Budget", "Router"];
 
     private static readonly string[] Kinds = ["documentation", "logs", "monitoring", "other"];
 
@@ -36,14 +37,14 @@ internal static class DemoRecords
     /// <summary>The stashes of the demo, each with the account that makes it.</summary>
     public static IReadOnlyList<DemoStash> Stashes { get; } =
     [
-        new("Billing", Admin),
-        new("Orders", Admin),
-        new("Warehouse", Admin),
-        new("Customer portal", Admin),
+        new("Library app", Admin),
+        new("Fitness app", Admin),
+        new("Home", Admin),
+        new("Photo blog", Admin),
         new("Handbook", Admin),
-        new(Prod, Admin),
-        new(Test, Admin),
-        new(Dev, Admin),
+        new(Live, Admin),
+        new(Sandbox, Admin),
+        new(Local, Admin),
         new("Reports", Admin),
         new("Payments", Admin),
         new("Integrations", Editor),
@@ -55,112 +56,119 @@ internal static class DemoRecords
     /// </summary>
     public static IReadOnlyList<DemoRecord> Set { get; } =
     [
-        // Billing: an Oracle database in each environment, its reports, its documentation and its logs.
-        Db(Admin, ["Billing", Prod], "Billing prod database", "prod", "billing-db-prod.example.com", 1521, "billing_app", "Demo-Billing-Prod-7Q",
-            ["oracle", "billing"], tns: Tns("billing-db-prod.example.com", "BILLPRD"), description: "The main database of billing, read and write."),
-        Db(Editor, ["Billing", Test], "Billing test database", "test", "billing-db-test.example.com", 1521, "billing_app", "Demo-Billing-Test-3K",
-            ["oracle", "billing"], tns: Tns("billing-db-test.example.com", "BILLTST")),
-        Db(Editor, ["Billing", Dev], "Billing dev database", "dev", "billing-db-dev.example.com", 1521, "billing_dev", "Demo-Billing-Dev-5M",
-            ["oracle", "billing"], description: "Refreshed from test every Monday."),
-        Sql(Admin, ["Billing", "Reports"], "Unpaid invoices by month", "Billing prod database",
+        // Library app, a project of work: its PostgreSQL in each environment, its reports, its documentation and its logs.
+        Db(Admin, ["Library app", Live], "Library database", "prod", "library-db.example.com", 5432, "library_app", "Demo-Library-Live-7Q",
+            ["postgresql", "library"], description: "The lending system of the city library, read and write."),
+        Db(Editor, ["Library app", Sandbox], "Library sandbox database", "test", "library-db-sandbox.example.com", 5432, "library_app", "Demo-Library-Sandbox-3K",
+            ["postgresql", "library"]),
+        Db(Editor, ["Library app", Local], "Library local database", "dev", "library-db-local.example.com", 5432, "library_dev", "Demo-Library-Local-5M",
+            ["postgresql", "library"], description: "Refreshed from the sandbox every Monday."),
+        Sql(Admin, ["Library app", "Reports"], "Overdue loans by branch", "Library database",
             """
-            SELECT TRUNC(i.issued_on, 'MM') AS month, COUNT(*) AS invoices, SUM(i.amount) AS amount
-              FROM invoices i
-             WHERE i.paid_on IS NULL
-             GROUP BY TRUNC(i.issued_on, 'MM')
-             ORDER BY month DESC
+            SELECT b.title, m.card_no, l.due_on, CURRENT_DATE - l.due_on AS days_late
+              FROM loans l
+              JOIN books b ON b.id = l.book_id
+              JOIN members m ON m.id = l.member_id
+             WHERE l.returned_on IS NULL
+               AND l.due_on < CURRENT_DATE
+               AND l.branch_id = :branch
+             ORDER BY days_late DESC
             """,
-            ["reporting", "monthly"], notes: "Run it on the **first working day** of the month, before the close."),
-        Sql(Editor, ["Billing", "Reports"], "Invoices stuck in export", "Billing test database",
+            ["reporting", "monthly"], notes: "Run it on the first working day of the month, once for each branch."),
+        Sql(Editor, ["Library app", "Reports"], "Reservations waiting over a week", "Library sandbox database",
             """
-            SELECT i.invoice_no, i.export_status, i.updated_on
-              FROM invoices i
-             WHERE i.export_status = 'PENDING'
-               AND i.updated_on < SYSDATE - 1 / 24
+            SELECT r.id, b.title, r.reserved_on
+              FROM reservations r
+              JOIN books b ON b.id = r.book_id
+             WHERE r.status = 'WAITING'
+               AND r.reserved_on < CURRENT_DATE - 7
             """,
-            ["reporting", "export"], description: "Invoices that waited for the export for more than an hour."),
-        Link(Admin, ["Billing"], "Billing documentation", "https://docs.example.com/billing", "documentation", ["docs", "billing"]),
-        Link(Admin, ["Billing", Prod], "Billing logs", "https://logs.example.com/app/billing-prod", "logs", ["logs", "billing"],
-            notes: "Filter by the invoice number; the logs are kept for 14 days."),
-        Note(Admin, ["Billing"], "Billing month-end close",
+            ["reporting", "reservations"], description: "Reservations that waited for a free copy for more than a week."),
+        Link(Admin, ["Library app"], "Library app documentation", "https://docs.example.com/library", "documentation", ["docs", "library"]),
+        Link(Admin, ["Library app", Live], "Library app logs", "https://logs.example.com/app/library", "logs", ["logs", "library"],
+            notes: "Filter by the card number; the logs are kept for 14 days."),
+        Note(Admin, ["Library app"], "Monthly report to the library",
             """
-            1. Stop the export job at 18:00.
-            2. Run *Unpaid invoices by month* and send it to finance.
-            3. Start the export job again once finance confirms.
+            1. Run "Overdue loans by branch" for each branch.
+            2. Put the results into the report and send it to the library.
+            3. Close the ticket of the month once the library confirms.
             """,
             ["runbook", "monthly"]),
 
-        // Orders: a PostgreSQL database, its monitoring, its API and the runbook of an outage, kept at the top level.
-        Db(Admin, ["Orders", Prod], "Orders prod database", "prod", "orders-db-prod.example.com", 5432, "orders_app", "Demo-Orders-Prod-9W",
-            ["postgresql", "orders"]),
-        Db(Editor, ["Orders", Test], "Orders test database", "test", "orders-db-test.example.com", 5432, "orders_app", "Demo-Orders-Test-2H",
-            ["postgresql", "orders"]),
-        Sql(Admin, ["Orders", "Reports"], "Orders by status today", "Orders prod database",
+        // Fitness app, another project of work: a MySQL, its monitoring, its API and the steps of an outage, kept at the top level.
+        Db(Admin, ["Fitness app", Live], "Fitness database", "prod", "fitness-db.example.com", 3306, "fitness_app", "Demo-Fitness-Live-9W",
+            ["mysql", "fitness"]),
+        Db(Editor, ["Fitness app", Sandbox], "Fitness sandbox database", "test", "fitness-db-sandbox.example.com", 3306, "fitness_app", "Demo-Fitness-Sandbox-2H",
+            ["mysql", "fitness"]),
+        Sql(Admin, ["Fitness app", "Reports"], "Workouts logged today", "Fitness database",
             """
-            SELECT status, COUNT(*) AS orders
-              FROM orders
-             WHERE created_at >= CURRENT_DATE
-             GROUP BY status
+            SELECT w.kind, COUNT(*) AS workouts, ROUND(AVG(w.minutes)) AS avg_minutes
+              FROM workouts w
+             WHERE w.logged_at >= CURRENT_DATE
+             GROUP BY w.kind
             """,
             ["reporting", "daily"]),
-        Sql(Admin, ["Orders", Prod], "Long-running sessions", "Orders prod database",
+        Sql(Admin, ["Fitness app", Live], "Long-running sessions", "Fitness database",
             """
-            SELECT pid, usename, state, NOW() - query_start AS running_for
-              FROM pg_stat_activity
-             WHERE state <> 'idle' AND NOW() - query_start > INTERVAL '5 minutes'
+            SELECT id, user, host, time AS seconds, info
+              FROM information_schema.processlist
+             WHERE command <> 'Sleep' AND time > 300
             """,
-            ["postgresql", "performance"], notes: "Ask on the on-call channel before you end a session."),
-        Link(Admin, ["Orders", Prod], "Orders monitoring", "https://monitoring.example.com/d/orders-prod", "monitoring", ["monitoring", "orders"]),
-        Link(Editor, ["Orders"], "Orders API reference", "https://docs.example.com/orders/api", "documentation", ["docs", "api"]),
-        Note(Admin, ["Orders", Prod], "Orders incident runbook",
+            ["mysql", "performance"], notes: "Ask in the team chat before you end a session."),
+        Link(Admin, ["Fitness app", Live], "Fitness app monitoring", "https://monitoring.example.com/d/fitness", "monitoring", ["monitoring", "fitness"]),
+        Link(Editor, ["Fitness app"], "Fitness app API reference", "https://docs.example.com/fitness/api", "documentation", ["docs", "api"]),
+        Note(Admin, ["Fitness app", Live], "Fitness app outage steps",
             """
-            ## When the orders service is down
+            ## When the app cannot sync the workouts
 
-            1. Check *Orders monitoring* for the failing step.
-            2. Restart the order workers from the operations console.
+            1. Check "Fitness app monitoring" for the failing step.
+            2. Restart the sync workers from the cloud console.
             3. If the database is the cause, call the database team on call.
             """,
-            ["runbook", "on-call"], description: "Steps for an outage of the orders service.", levels: new() { ["text"] = 3 }),
+            ["runbook", "on-call"], description: "Steps for an outage of the fitness app.", levels: new() { ["text"] = 3 }),
 
-        // Warehouse: a database, the logs of an integration three stashes deep, a report and the setup of the scanners.
-        Db(Admin, ["Warehouse", Prod], "Warehouse prod database", "prod", "wms-db-prod.example.com", 1521, "wms_app", "Demo-Warehouse-Prod-4T",
-            ["oracle", "warehouse"], tns: Tns("wms-db-prod.example.com", "WMSPRD")),
-        Db(Editor, ["Warehouse", Dev], "Warehouse dev database", "dev", "wms-db-dev.example.com", 1521, "wms_dev", "Demo-Warehouse-Dev-8P",
-            ["oracle", "warehouse"]),
-        Sql(Admin, ["Warehouse", "Reports"], "Stock below minimum", "Warehouse prod database",
+        // Home: the home server with the database of the budget, the router, the logs of the smart home three stashes deep,
+        // and the printer.
+        Db(Admin, ["Home", Live], "Home server", "prod", "home.example.com", 5432, "budget", "Demo-Home-Live-4T",
+            ["postgresql", "home"]),
+        Db(Editor, ["Home", Local], "Wi-Fi router", "dev", "router.example.com", 443, "admin", "Demo-Router-Local-8P",
+            ["network", "home"]),
+        Sql(Admin, ["Home", "Reports"], "Spending by category this month", "Home server",
             """
-            SELECT s.sku, s.on_hand, s.minimum
-              FROM stock s
-             WHERE s.on_hand < s.minimum
-             ORDER BY s.minimum - s.on_hand DESC
+            SELECT c.name AS category, SUM(e.amount) AS spent
+              FROM expenses e
+              JOIN categories c ON c.id = e.category_id
+             WHERE e.spent_on >= DATE_TRUNC('month', CURRENT_DATE)
+             GROUP BY c.name
+             ORDER BY spent DESC
             """,
-            ["reporting", "stock"]),
-        Link(Editor, ["Warehouse", "Integrations", Test], "Warehouse integration logs", "https://logs.example.com/app/wms-integration-test", "logs",
-            ["logs", "integration"]),
-        Note(Editor, ["Warehouse"], "Barcode scanner setup",
+            ["reporting", "budget"]),
+        Link(Editor, ["Home", "Integrations", Sandbox], "Smart home logs", "https://logs.example.com/app/smart-home-sandbox", "logs",
+            ["logs", "smart-home"]),
+        Note(Editor, ["Home"], "Printer setup",
             """
-            Pair a new scanner with the base station, then scan the **Reset** and **Warehouse profile** codes from the manual.
+            Add the printer from Settings › Printers, then print the test page. The spare ink is in the hall cupboard.
             """,
             ["hardware"]),
 
-        // Customer portal: a database without TNS, and a payment provider four stashes deep, its notes raised.
-        Db(Admin, ["Customer portal", Prod], "Portal sessions database", "prod", "portal-db-prod.example.com", 5432, "portal_app", "Demo-Portal-Prod-6V",
-            ["postgresql", "portal"]),
-        Link(Admin, ["Customer portal", "Integrations", "Payments", Test], "Payment provider sandbox", "https://sandbox.payments.example.com", "documentation",
+        // Photo blog: its hosting, and a payment provider four stashes deep for the prints, its notes raised.
+        Db(Admin, ["Photo blog", Live], "Photo blog hosting", "prod", "sftp.example.com", 22, "photoblog", "Demo-Blog-Live-6V",
+            ["sftp", "blog"]),
+        Link(Admin, ["Photo blog", "Integrations", "Payments", Sandbox], "Payment provider sandbox", "https://sandbox.payments.example.com", "documentation",
             ["payments", "sandbox"], notes: "The sandbox takes the test cards of the provider's documentation only.", levels: new() { ["notes"] = 2 }),
-        Link(Admin, ["Customer portal", "Integrations", "Payments", Prod], "Payment provider dashboard", "https://dashboard.payments.example.com", "monitoring",
-            ["payments", "monitoring"], notes: "The account of the dashboard is in the safe of the team lead.", levels: new() { ["notes"] = 3 }),
-        Link(Editor, ["Customer portal"], "Portal status page", "https://status.example.com", "monitoring", ["monitoring", "portal"]),
-        Note(Editor, ["Customer portal"], "Portal release checklist",
+        Link(Admin, ["Photo blog", "Integrations", "Payments", Live], "Payment provider dashboard", "https://dashboard.payments.example.com", "monitoring",
+            ["payments", "monitoring"], notes: "The prints sold and the payouts; the second factor is on my phone.", levels: new() { ["notes"] = 3 }),
+        Link(Editor, ["Photo blog"], "Photo blog uptime check", "https://status.example.com/photo-blog", "monitoring", ["monitoring", "blog"]),
+        Note(Editor, ["Photo blog"], "New gallery checklist",
             """
-            - [ ] Release notes are approved.
-            - [ ] The test database is migrated.
-            - [ ] The status page announces the window.
+            - [ ] The photos are resized, and their location is removed.
+            - [ ] Each photo has a title and a text for screen readers.
+            - [ ] The prints of the gallery are in the shop.
             """,
-            ["release"]),
+            ["publishing"]),
 
         // Handbook: what the whole team needs.
-        Note(Admin, ["Handbook"], "On-call rota",
+        Note(Admin, ["Handbook"], "Support rota",
             """
             | Week | Primary | Secondary |
             |---|---|---|
@@ -170,17 +178,17 @@ internal static class DemoRecords
             ["on-call"]),
         Note(Admin, ["Handbook"], "Welcome to the team",
             """
-            Start with the *Team wiki*, then ask for your Kiler account and level.
+            Start with the Team wiki, then ask for your Kiler account and level.
             """,
             ["onboarding"], description: "Read this first."),
         Link(Admin, ["Handbook"], "Team wiki", "https://wiki.example.com/team", "documentation", ["docs", "onboarding"]),
         Link(Admin, ["Handbook"], "Central logs", "https://logs.example.com", "logs", ["logs"]),
         Link(Admin, ["Handbook"], "Holiday calendar", "https://calendar.example.com/team", "other", ["calendar"]),
-        Note(Editor, ["Handbook"], "Database access requests",
+        Note(Editor, ["Handbook"], "Access requests",
             """
-            Ask for access to a test database in the service desk, with the name of the record in Kiler.
+            Ask for access to a sandbox database in the service desk, with the name of the record in Kiler.
             """,
-            ["access"], description: "Who grants access to the databases of test.", levels: new() { ["description"] = 2 }),
+            ["access"], description: "Who grants access to the sandbox databases.", levels: new() { ["description"] = 2 }),
     ];
 
     /// <summary>How many records <see cref="Write"/> makes.</summary>
@@ -231,7 +239,7 @@ internal static class DemoRecords
     private static IEnumerable<DemoRecord> Volume(int count)
     {
         string[] envs = ["prod", "test", "dev"];
-        string[] envStashes = [Prod, Test, Dev];
+        string[] envStashes = [Live, Sandbox, Local];
         for (var i = 0; i < count; i++)
         {
             var group = i / 4;
@@ -243,7 +251,7 @@ internal static class DemoRecords
             var db = $"{word} database {group:0000}";
             yield return (i % 4) switch
             {
-                0 => Db(Admin, path, db, envs[env], $"{word.ToLowerInvariant()}-{group:0000}-{envs[env]}.example.com", env == 0 ? 1521 : 5432,
+                0 => Db(Admin, path, db, envs[env], $"{word.ToLowerInvariant()}-{group:0000}-{envs[env]}.example.com", 5432,
                     $"{word.ToLowerInvariant()}_app", $"Demo-Volume-{group:0000}", tags),
                 1 => Sql(Admin, path, $"{word} query {group:0000}", db, $"SELECT * FROM {word.ToLowerInvariant()}s WHERE id = :id", tags),
                 2 => Link(Admin, path, $"{word} link {group:0000}", $"https://docs.example.com/system-{system:00}/{group:0000}", Kinds[group % Kinds.Length], tags),
@@ -271,15 +279,11 @@ internal static class DemoRecords
     private static RecordResult Made(RecordResult result, string name) =>
         result.Outcome == RecordOutcome.Done ? result : throw new InvalidOperationException($"{name} was not made ({result.Outcome}): {result.Invalid}");
 
-    /// <summary>A TNS entry of an Oracle database, made up.</summary>
-    private static string Tns(string host, string service) =>
-        $"(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST={host})(PORT=1521))(CONNECT_DATA=(SERVICE_NAME={service})))";
-
     /// <summary>A record of the template <c>db</c> ("Server / database").</summary>
     private static DemoRecord Db(
         string author, string[] path, string name, string env, string host, int port, string user, string password, string[] tags,
-        string? tns = null, string? description = null) =>
-        new(author, "db", path, name, tags, Values(("env", env), ("host", host), ("port", FieldValue.OfNumber(port)), ("tns", tns), ("user", user), ("password", password)),
+        string? description = null) =>
+        new(author, "db", path, name, tags, Values(("env", env), ("host", host), ("port", FieldValue.OfNumber(port)), ("user", user), ("password", password)),
             description, NoLevels, NoRefs);
 
     /// <summary>A record of the template <c>sql</c> ("SQL query"), which runs in the record named <paramref name="runsIn"/>.</summary>

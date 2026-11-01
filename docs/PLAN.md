@@ -609,7 +609,9 @@ Throughout the project.
    - everything stays made up, the hosts under `example.com`.
 
    The theme and the names go to the user as a question with variants before the code. A change of the names reaches `DemoRecords`, `DemoKiler`, `Kiler.DemoData.Tests`, the E2E tests that name the demo (the list is in kiler-dotnet, demodata.md, "Tests"), demodata.md and host.md. Then `e2e.ps1`.
-5. Screenshots for the exam write-up from the E2E tests, with the demo data. Done in M6.13, with the audit and stash screens of M6.24: `ScreenshotTests` saves nine PNGs into `artifacts\screenshots`, also the CI artifact `screenshots`, with the data folder at the foot blurred, as its path holds the Windows account (kiler-dotnet, host.md, "E2E tests").
+
+   **Done on 2026-11-01.** The user chose the notes of a programmer, work and personal: the projects `Library app` and `Fitness app` with their databases, `Home`, a `Photo blog` and the `Handbook`, the environments `Live`, `Sandbox` and `Local`, and the levels Public, Internal, Confidential and Secret. The field `env` keeps the options of its template, the only code is SQL, and no record has a TNS (kiler-dotnet, demodata.md, "The stashes and records"). Two points of the frame above gave way to the 1:1 structure and to the user: there is no code beyond SQL, and the eight records of the template `db` stay, as the servers and databases of the projects and the home, since only that template holds a password.
+5. Screenshots for the exam write-up from the E2E tests, with the demo data. Done in M6.13, with the audit and stash screens of M6.24: `ScreenshotTests` saves the PNGs into `artifacts\screenshots`, also the CI artifact `screenshots`, with the data folder at the foot blurred, as its path holds the Windows account (kiler-dotnet, host.md, "E2E tests").
 
    **The final screenshots** (decided by the user on 2026-11-01). On the neutral theme of step 4, `ScreenshotTests` saves 10 screenshots in place of the nine. Each shows the whole app, with the header and its links, and together they show as much of the functionality as they can. For example:
    - the main view with a search, the filters and the tree;
@@ -625,6 +627,8 @@ Throughout the project.
    - the dark theme.
 
    The user picks the best 3–4 for the README (step 6) and the write-up, so each PNG is looked at before it is offered.
+
+   **Done on 2026-11-01**, with the ten that the user chose: `01-main-view` (a search and the tree), `02-record-padlocks` (a guest), `03-record-password`, `04-form-stash-picker`, `05-code-parameters`, `06-history` (a note of the editor that the admin changed twice), `07-conflict`, `08-trash`, `09-audit` (a show and a copy) and `10-users-dark`. The stash screen is no longer among them.
 6. README for the public repo: what Kiler is, screenshots, how to build it and how to run the demo. How users start it: once from the shared folder, then from the Start menu (M1.5a).
 
    **Decided by the user on 2026-11-01.** It is a standard README of a GitHub project, in English:
@@ -635,11 +639,11 @@ Throughout the project.
    - how to build, test and run the demo;
    - its status as a course project.
 
-   It has at most 3–4 screenshots, the ones the user picked from step 5, kept in the repo.
+   ~~It has at most 3–4 screenshots, the ones the user picked from step 5, kept in the repo.~~ Changed by the user on 2026-11-01, after step 5: the README takes all ten screenshots of step 5, kept in the repo with it, and the user picks the ones for the write-up later, in phase 5. The session of the README first gives the user its sections in rough, and writes it only after the user approves them.
 
 **Before the exam** (decided by the user on 2026-11-01), in this order:
-1. the neutral theme of step 4 and the ten screenshots of step 5, in one session;
-2. the user picks the screenshots;
+1. the neutral theme of step 4 and the ten screenshots of step 5, in one session. Done on 2026-11-01;
+2. ~~the user picks the screenshots~~ dropped: the README takes all ten (step 6), and the pick for the write-up waits for phase 5;
 3. step 6 and the version v1.0 in a next session.
 
 ---

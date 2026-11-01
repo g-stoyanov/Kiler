@@ -6,14 +6,14 @@ using static Microsoft.Playwright.Assertions;
 namespace Kiler.E2E;
 
 /// <summary>
-/// The audit screen (M6.19) on the demo data: a password of Prod that the admin shows is a row of the day, whose link
+/// The audit screen (M6.19) on the demo data: a password of prod that the admin shows is a row of the day, whose link
 /// opens the record, and the day before has none; a user who is not an admin has no link, and <c>/audit</c> takes them to
 /// the main view. A view just before local midnight and the screen just after it would put the row on the day before.
 /// </summary>
 [Trait("Category", "E2E")]
 public class AuditTests(KilerBrowser browser)
 {
-    private const string RecordName = "Billing prod database";
+    private const string RecordName = "Library database";
 
     [Fact(Skip = KilerBrowser.NoExe, SkipUnless = nameof(KilerBrowser.HasExe), SkipType = typeof(KilerBrowser))]
     public async Task TheAdminShowsAProdPassword_AndSeesItsRowInTheAudit()

@@ -5,10 +5,10 @@ using Microsoft.Win32.SafeHandles;
 namespace Kiler.DemoData;
 
 /// <summary>
-/// The made-up Kiler of the demo data (PLAN M8 step 4, M4.10): the levels Guest, Team, Test and Prod, settings with guest
-/// mode, an admin and two users with demo passwords, and the stashes and records of <see cref="DemoRecords"/> (M5.5). It is
-/// made through the code of the wizard, of the admin screens and of an editor, so it opens and decrypts as a Kiler that a team
-/// made. Nothing in it is real (CLAUDE.md, "Data and the public repo").
+/// The made-up Kiler of the demo data (PLAN M8 step 4, M4.10): the levels Public, Internal, Confidential and Secret,
+/// settings with guest mode, an admin and two users with demo passwords, and the stashes and records of
+/// <see cref="DemoRecords"/> (M5.5). It is made through the code of the wizard, of the admin screens and of an editor, so it
+/// opens and decrypts as a Kiler that a team made. Nothing in it is real (CLAUDE.md, "Data and the public repo").
 /// </summary>
 internal static class DemoKiler
 {
@@ -17,7 +17,7 @@ internal static class DemoKiler
     public const int AutoLockMinutes = 30;
 
     /// <summary>The names of the levels 0 to the top level.</summary>
-    public static IReadOnlyList<string> LevelNames { get; } = ["Guest", "Team", "Test", "Prod"];
+    public static IReadOnlyList<string> LevelNames { get; } = ["Public", "Internal", "Confidential", "Secret"];
 
     /// <summary>The first admin, whom the wizard's code makes, at the top level.</summary>
     public static DemoUser Admin { get; } = new("demo.admin", "Demo Admin", Level: 3, CanEdit: true, IsAdmin: true, "admin-demo");

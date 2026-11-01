@@ -76,8 +76,8 @@ public class RecordFormTests(KilerBrowser browser)
         var tree = Demo.Tree(p);
 
         // The path of the node is kept until "Change", and the focus starts at the position after it.
-        await tree.GetByRole(AriaRole.Button, new() { Name = "Open Billing", Exact = true }).ClickAsync();
-        await tree.GetByRole(AriaRole.Link, new() { Name = "New record in Billing › Reports", Exact = true }).ClickAsync();
+        await tree.GetByRole(AriaRole.Button, new() { Name = "Open Library app", Exact = true }).ClickAsync();
+        await tree.GetByRole(AriaRole.Link, new() { Name = "New record in Library app › Reports", Exact = true }).ClickAsync();
         await Expect(p.GetByRole(AriaRole.Heading, new() { Name = "New record", Level = 1 })).ToBeVisibleAsync();
         await Expect(p.GetByText("The path of the node is kept")).ToBeVisibleAsync();
         await Expect(p.GetByRole(AriaRole.Button, new() { Name = "Change", Exact = true })).ToBeVisibleAsync();
@@ -86,17 +86,17 @@ public class RecordFormTests(KilerBrowser browser)
         await Demo.NameInput(p).FillAsync(AtTheNode);
         await p.GetByLabel("Text", new() { Exact = true }).FillAsync("Made with the + of a node.");
         await Demo.SaveAsync(p, AtTheNode);
-        await Expect(Demo.PathLinks(p)).ToHaveTextAsync(["Billing", "Reports"]);
+        await Expect(Demo.PathLinks(p)).ToHaveTextAsync(["Library app", "Reports"]);
 
         // One level deeper: a new stash at the position after the node.
         await Demo.ToMainViewAsync(p);
-        await tree.GetByRole(AriaRole.Link, new() { Name = "New record in Orders", Exact = true }).ClickAsync();
+        await tree.GetByRole(AriaRole.Link, new() { Name = "New record in Fitness app", Exact = true }).ClickAsync();
         await Expect(Demo.StashInput(p, 2)).ToBeFocusedAsync();
         await Demo.CreateStashAsync(p, 2, Stash);
         await Demo.ChooseTemplateAsync(p, "Note");
         await Demo.NameInput(p).FillAsync(Deeper);
         await Demo.SaveAsync(p, Deeper);
-        await Expect(Demo.PathLinks(p)).ToHaveTextAsync(["Orders", Stash]);
+        await Expect(Demo.PathLinks(p)).ToHaveTextAsync(["Fitness app", Stash]);
 
         await Demo.PathLinks(p).Filter(new() { HasText = Stash }).ClickAsync();
         await Expect(Demo.RecordLink(p, Deeper)).ToBeVisibleAsync();
