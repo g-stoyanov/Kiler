@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { BrowserRouter, Link, Navigate, Outlet, Route, Routes, useLocation, useParams } from 'react-router';
 import { getHealth, lockSession, type Session } from './api.ts';
+import { Audit } from './Audit.tsx';
 import { Browse } from './Browse.tsx';
 import { ChangePassword } from './ChangePassword.tsx';
 import { changes } from './changes.ts';
@@ -191,6 +192,7 @@ function HeaderLinks({ view }: { view: SessionView }) {
         <>
           <Link to="/users">{texts.admin.users}</Link>
           <Link to="/levels">{texts.admin.levels}</Link>
+          <Link to="/audit">{texts.admin.audit}</Link>
         </>
       )}
     </nav>
@@ -324,6 +326,14 @@ function AppRoutes({ session, locked }: { session: Session; locked: boolean }) {
           element={
             <AdminOnly session={session}>
               <Levels />
+            </AdminOnly>
+          }
+        />
+        <Route
+          path="audit"
+          element={
+            <AdminOnly session={session}>
+              <Audit />
             </AdminOnly>
           }
         />

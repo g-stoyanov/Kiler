@@ -1,3 +1,4 @@
+import { audit } from './texts/audit.ts';
 import { browse } from './texts/browse.ts';
 import { code } from './texts/code.ts';
 import { form } from './texts/form.ts';
@@ -152,6 +153,7 @@ export const texts = {
   admin: {
     users: 'Users',
     levels: 'Levels',
+    audit: 'Audit',
     reading: 'Reading the files of the team…',
     tryAgain: 'Try again',
     signInAgain: 'Sign in again',
@@ -234,6 +236,7 @@ export const texts = {
   form,
   code,
   history,
+  audit,
   errors: {
     unauthorized: 'This page is not signed in to Kiler. Start Kiler again, and it opens a page that is.',
     stopping: 'Kiler is stopping.',
