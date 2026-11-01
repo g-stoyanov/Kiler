@@ -16,6 +16,7 @@ import { RecordPage } from './RecordPage.tsx';
 import { SessionContext, SessionStore, useSessionSnapshot, useSessionStore, type SessionView } from './session.ts';
 import { SignIn } from './SignIn.tsx';
 import { signInFrom } from './signIn.ts';
+import { Stashes } from './Stashes.tsx';
 import { texts } from './texts.ts';
 import { applyThemeChoice, readThemeChoice, saveThemeChoice, themeChoices, type ThemeChoice } from './theme.ts';
 import { Trash } from './Trash.tsx';
@@ -193,6 +194,7 @@ function HeaderLinks({ view }: { view: SessionView }) {
           <Link to="/users">{texts.admin.users}</Link>
           <Link to="/levels">{texts.admin.levels}</Link>
           <Link to="/audit">{texts.admin.audit}</Link>
+          <Link to="/stashes">{texts.admin.stashes}</Link>
         </>
       )}
     </nav>
@@ -334,6 +336,14 @@ function AppRoutes({ session, locked }: { session: Session; locked: boolean }) {
           element={
             <AdminOnly session={session}>
               <Audit />
+            </AdminOnly>
+          }
+        />
+        <Route
+          path="stashes"
+          element={
+            <AdminOnly session={session}>
+              <Stashes />
             </AdminOnly>
           }
         />
