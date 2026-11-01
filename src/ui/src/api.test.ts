@@ -11,6 +11,7 @@ import {
   editRecord,
   getAdminLevels,
   getAdminUsers,
+  getAudit,
   getData,
   getHealth,
   getHistory,
@@ -398,6 +399,41 @@ describe('the admin actions', () => {
     const [path, init] = fetch.mock.calls[0] ?? [];
     expect(path).toBe('/api/admin/levels/1');
     expect(init).toMatchObject({ method: 'PUT', body: '{"name":"Team"}' });
+  });
+
+  const entry = {
+    at: '2026-10-31T10:00:00Z',
+    account: 'demo.admin',
+    record: 'k3x9q2mf',
+    name: 'Payments production database',
+    field: 'password',
+    use: 'show',
+    level: 3,
+  };
+
+  it('reads the audit of a span in UTC, with the count of the lines that do not fit', async () => {
+    const fetch = stubFetch(() => json({ entries: [entry, { ...entry, use: 'copy' }], skipped: 2 }));
+
+    expect(await getAudit('2026-10-30T22:00:00.000Z', '2026-10-31T22:00:00.000Z')).toEqual({
+      entries: [entry, { ...entry, use: 'copy' }],
+      skipped: 2,
+    });
+    expect(fetch.mock.calls[0]?.[0]).toBe(
+      '/api/admin/audit?from=2026-10-30T22%3A00%3A00.000Z&to=2026-10-31T22%3A00%3A00.000Z',
+    );
+  });
+
+  it.each([
+    ['an audit without skipped', { entries: [entry] }],
+    ['an audit without entries', { skipped: 0 }],
+    ['an entry with a use other than show and copy', { entries: [{ ...entry, use: 'edit' }], skipped: 0 }],
+    ['an entry without its name', { entries: [{ ...entry, name: undefined }], skipped: 0 }],
+    ['an entry whose time is not a date', { entries: [{ ...entry, at: 'yesterday' }], skipped: 0 }],
+    ['an entry whose level is not a whole number', { entries: [{ ...entry, level: '3' }], skipped: 0 }],
+  ])('turns %s into "invalid"', async (_, body) => {
+    stubFetch(() => json(body));
+
+    expect((await failure(getAudit('2026-10-30T22:00:00.000Z', '2026-10-31T22:00:00.000Z'))).kind).toBe('invalid');
   });
 
   it.each([

@@ -426,8 +426,33 @@ export interface RecordsAnswer {
   facets: Facets;
 }
 
-/** What the value of a `secret` is asked for, which the audit of Prod records after the exam (docs/api.md). */
-export type SecretUse = 'show' | 'copy';
+const secretUses = ['show', 'copy'] as const;
+
+/** What the value of a `secret` is asked for, which the audit records for a `secret` of the top level (docs/api.md). */
+export type SecretUse = (typeof secretUses)[number];
+
+/** A view of a `secret` of the top level, as the audit recorded it (docs/api.md, `GET /api/admin/audit`). */
+export interface AuditEntry {
+  /** When, in UTC. */
+  at: string;
+  account: string;
+  /** The id of the record. */
+  record: string;
+  /** The name of the record at that moment, so a record deleted since has one too. */
+  name: string;
+  /** The key of the field. */
+  field: string;
+  use: SecretUse;
+  level: number;
+}
+
+/** The answer of `GET /api/admin/audit`. */
+export interface AuditAnswer {
+  /** The newest first. */
+  entries: AuditEntry[];
+  /** The lines that do not fit, and each file or folder of the audit that could not be read whole. */
+  skipped: number;
+}
 
 /** A value of a field in a write (docs/api.md, "Values by type"): a `ref` is the id of its record; `null` and `""` are no value. */
 export type RequestValue = string | number | CodeValue | null;
@@ -595,6 +620,15 @@ export function setRights(account: string, rights: RightsRequest): Promise<Admin
 /** Renames a level, and answers with the levels. */
 export function renameLevel(level: number, name: string): Promise<AdminLevel[]> {
   return requestJson('PUT', `/api/admin/levels/${String(level)}`, { name }, readLevels);
+}
+
+/**
+ * The views of the secrets of the top level with `from` <= `at` < `to`, the newest first (M6.18): both times in UTC, as
+ * `toISOString()` gives them. It reads the shared folder, so it is refused offline.
+ */
+export function getAudit(from: string, to: string, signal?: AbortSignal): Promise<AuditAnswer> {
+  const query = `from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+  return getJson(`/api/admin/audit?${query}`, readAudit, signal);
 }
 
 function userPath(account: string): string {
@@ -913,6 +947,34 @@ function readLevels(body: unknown): LevelName[] {
   }
 
   throw new TypeError('Not an answer of the levels.');
+}
+
+function readAuditEntry(body: unknown): AuditEntry {
+  if (isObject(body)) {
+    const { at, account, record, name, field, use, level } = body;
+    const known = secretUses.find((value) => value === use);
+    if (
+      isDate(at) &&
+      typeof account === 'string' &&
+      typeof record === 'string' &&
+      typeof name === 'string' &&
+      typeof field === 'string' &&
+      known !== undefined &&
+      isWholeNumber(level)
+    ) {
+      return { at, account, record, name, field, use: known, level };
+    }
+  }
+
+  throw new TypeError('Not an entry of the audit.');
+}
+
+function readAudit(body: unknown): AuditAnswer {
+  if (isObject(body) && isWholeNumber(body.skipped)) {
+    return { entries: readList(body.entries, readAuditEntry), skipped: body.skipped };
+  }
+
+  throw new TypeError('Not an answer of /api/admin/audit.');
 }
 
 function readTemplates(body: unknown): Templates {

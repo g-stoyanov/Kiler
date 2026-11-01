@@ -1,0 +1,16 @@
+/* The audit screen (Audit.tsx). */
+.audit-day {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.audit-day label {
+  font-weight: 600;
+}
+
+.audit-table td:first-child {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
