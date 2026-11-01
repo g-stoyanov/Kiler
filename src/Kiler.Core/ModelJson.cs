@@ -139,7 +139,10 @@ internal sealed class SettingsJson
     public int? AutoLockMinutes { get; init; }
 }
 
-/// <summary>A stash of <c>stashes\</c> (design 6.6, M5.3); its dates and authors are those of <see cref="Authorship"/>.</summary>
+/// <summary>
+/// A stash of <c>stashes\</c> (design 6.6, M5.3); its dates and authors are those of <see cref="Authorship"/>. A merged stash
+/// has <c>redirect</c> and a deleted one <c>deleted</c>, each left out otherwise (M6.21).
+/// </summary>
 internal sealed class StashJson
 {
     public string? Name { get; init; }
@@ -151,6 +154,10 @@ internal sealed class StashJson
     public string? UpdatedBy { get; init; }
 
     public string? UpdatedAt { get; init; }
+
+    public string? Redirect { get; init; }
+
+    public bool? Deleted { get; init; }
 }
 
 internal sealed class TemplateJson

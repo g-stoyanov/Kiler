@@ -9,7 +9,10 @@ public sealed class RecordQuery
     /// <summary>The search text: a record matches when its search text has every word of it, without regard to case.</summary>
     public string? Text { get; init; }
 
-    /// <summary>The path of the chosen node, 0 to <see cref="RecordFile.MaxStashes"/> ids: a record matches when its path starts with it.</summary>
+    /// <summary>
+    /// The path of the chosen node, 0 to <see cref="RecordFile.MaxStashes"/> ids: a record matches when its path starts with it,
+    /// both read through the merged and deleted stashes (<see cref="RecordSet.PathOf"/>).
+    /// </summary>
     public IReadOnlyList<string> Stash { get; init; } = [];
 
     /// <summary>The id of a template.</summary>
@@ -116,6 +119,7 @@ public static class RecordSearch
         ArgumentNullException.ThrowIfNull(set);
         ArgumentNullException.ThrowIfNull(query);
         var words = (query.Text ?? "").Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Select(word => word.ToUpperInvariant()).ToArray();
+        var stash = set.PathOf(query.Stash);
         var records = new List<RecordView>();
         var tree = new Node();
         var templates = new Counts(StringComparer.Ordinal);
@@ -145,7 +149,7 @@ public static class RecordSearch
 
             // What the record misses of the rest: the facet of the one part that it alone misses counts it (docs/api.md). A
             // record that misses only the tags counts nowhere, as the tags count with the tags chosen.
-            var missesStash = !StartsWith(entry.File.Stash, query.Stash);
+            var missesStash = !StartsWith(entry.Path, stash);
             var missesTemplate = query.Template is { } template && !string.Equals(entry.File.Template, template, StringComparison.Ordinal);
             var missesTags = !query.Tags.All(tag => entry.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase));
             var missedFields = 0;
@@ -163,7 +167,7 @@ public static class RecordSearch
             {
                 case 0:
                     records.Add(entry.View);
-                    tree.Add(entry.File.Stash);
+                    tree.Add(entry.Path);
                     templates.Add(entry.File.Template);
                     foreach (var tag in entry.Tags)
                     {
@@ -177,7 +181,7 @@ public static class RecordSearch
 
                     break;
                 case 1 when missesStash:
-                    tree.Add(entry.File.Stash);
+                    tree.Add(entry.Path);
                     break;
                 case 1 when missesTemplate:
                     templates.Add(entry.File.Template);
@@ -287,6 +291,7 @@ internal sealed class SearchEntry
     {
         View = view;
         File = file;
+        Path = set.PathOf(file.Stash);
 
         // The parts on lines of their own, so a word, which has no white space, never spans two of them.
         var text = new StringBuilder(file.Name);
@@ -308,7 +313,7 @@ internal sealed class SearchEntry
             Add(tag);
         }
 
-        foreach (var id in file.Stash)
+        foreach (var id in Path)
         {
             Add(set.StashName(id));
         }
@@ -341,6 +346,9 @@ internal sealed class SearchEntry
     public RecordView View { get; }
 
     public RecordFile File { get; }
+
+    /// <summary>The path read through the merged and deleted stashes (<see cref="RecordSet.PathOf"/>), for the tree and the <c>stash</c> of a query.</summary>
+    public IReadOnlyList<string> Path { get; }
 
     /// <summary>The search text in upper case, which a word in upper case is looked for in, ordinal.</summary>
     public string Text { get; }

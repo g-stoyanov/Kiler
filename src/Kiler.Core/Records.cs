@@ -476,8 +476,65 @@ public sealed class RecordSet
     /// <summary>What the search reads of the records, made at the first search of this set (M5.6, <see cref="RecordSearch"/>).</summary>
     internal SearchIndex Index => LazyInitializer.EnsureInitialized(ref _index, () => new SearchIndex(this));
 
-    /// <summary>The name of the stash <paramref name="id"/>; null when it is missing or does not fit.</summary>
-    public string? StashName(string id) => Stashes.GetValueOrDefault(id)?.Model?.Name;
+    /// <summary>
+    /// The name of the live stash <paramref name="id"/>; null when it is missing, does not fit, or is merged or deleted, as a
+    /// path read through (<see cref="PathOf"/>) keeps a merged one only when its way cannot be followed.
+    /// </summary>
+    public string? StashName(string id) => Stashes.GetValueOrDefault(id)?.Model is { IsLive: true } stash ? stash.Name : null;
+
+    /// <summary>
+    /// The path <paramref name="stash"/> read through the merged and deleted stashes (M6.21, design 6.6, docs/api.md), for the
+    /// record, the list, the search text, the tree and the <c>stash</c> of a query alike: each id follows
+    /// <see cref="StashFile.Redirect"/> to a stash without one (<see cref="Lead"/>); one whose way cannot be followed stays, and
+    /// reads as a stash that cannot be read, as a missing one does. A stash that the path then has twice stays only at its first
+    /// position, and the path is cut before a deleted stash, so it can be empty. The record is not written again.
+    /// </summary>
+    public IReadOnlyList<string> PathOf(IReadOnlyList<string> stash)
+    {
+        ArgumentNullException.ThrowIfNull(stash);
+        var path = new List<string>(stash.Count);
+        foreach (var id in stash)
+        {
+            var (target, deleted) = Lead(id);
+            if (deleted)
+            {
+                break;
+            }
+
+            if (!path.Contains(target ?? id, StringComparer.Ordinal))
+            {
+                path.Add(target ?? id);
+            }
+        }
+
+        return path;
+    }
+
+    /// <summary>
+    /// The stash that <paramref name="id"/> leads to through <see cref="StashFile.Redirect"/>, in at most
+    /// <see cref="StashFile.MaxRedirects"/> steps, and whether it is deleted; a null target when the way cannot be followed: a
+    /// stash on it that is missing or does not fit, a loop, or a longer way.
+    /// </summary>
+    internal (string? Target, bool Deleted) Lead(string id)
+    {
+        var current = id;
+        for (var step = 0; step <= StashFile.MaxRedirects; step++)
+        {
+            if (Stashes.GetValueOrDefault(current)?.Model is not { } stash)
+            {
+                return (null, false);
+            }
+
+            if (stash.Redirect is not { } next)
+            {
+                return (current, stash.Deleted);
+            }
+
+            current = next;
+        }
+
+        return (null, false);
+    }
 
     /// <summary>The name of the record <paramref name="id"/>, at level 0 for every reader, as of a <c>ref</c>; null when it has gone or does not fit.</summary>
     public string? RecordName(string id) => Records.GetValueOrDefault(id)?.File.Model?.Name;

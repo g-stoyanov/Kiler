@@ -239,6 +239,42 @@ public sealed partial class RecordsApiTests
         Assert.Equal(stashes, answer["stashes"]!.ToJsonString());
     }
 
+    [Fact]
+    public async Task AMergedOrDeletedStash_IsNotOffered_APathIsReadThroughIt_AndANewRecordTakesItsTarget()
+    {
+        // Payments is merged into Prod, so the paths of Payments and Prod read as Prod, and a stash that no record names is
+        // deleted (M6.21).
+        const string Gone = "t9t9t9t9";
+        var at = new DateTime(2026, 10, 30, 8, 0, 0, DateTimeKind.Utc);
+        var authors = new Authorship(MadeUpKiler.Admin, at, MadeUpKiler.Admin, at);
+        using var data = NewData(guestMode: false, made =>
+        {
+            made.Replace(StashFile.KeyOf(MadeUpKiler.Payments), 1, new StashFile(MadeUpKiler.Payments, "Payments", authors, redirect: MadeUpKiler.Prod).ToContent());
+            made.Create(StashFile.KeyOf(Gone), new StashFile(Gone, "Gone", authors, deleted: true).ToContent());
+        });
+        await using var server = await StartAsync(data, MadeUpKiler.Editor, NewClock());
+        using var client = await SignedInAsync(server);
+        static string Note(params string[] stash) =>
+            $$$"""{"template":"note","stash":[{{{string.Join(",", stash.Select(id => $"\"{id}\""))}}}],"name":"A made-up note","fields":{"text":"Made up"},"levels":{}}""";
+
+        Assert.Equal("""[{"id":"e5f6g7h8","name":"Prod","used":true}]""", (await GetAsync(client, "/api/stashes")).Answer["stashes"]!.ToJsonString());
+        Assert.Equal("""[{"id":"e5f6g7h8","name":"Prod"}]""", (await GetAsync(client, $"/api/records/{MadeUpKiler.Database}")).Answer["stash"]!.ToJsonString());
+
+        // A new stash under the merged one: the path of the request is read through too.
+        using var reports = await SendAsync(client, HttpMethod.Post, "/api/stashes", """{"name":"Reports"}""");
+        var id = (string)(await ReadAsync(reports))["id"]!;
+        using var merged = await SendAsync(client, HttpMethod.Post, "/api/records", Note(MadeUpKiler.Payments, id));
+        Assert.Equal(HttpStatusCode.Created, merged.StatusCode);
+        Assert.Equal($$"""[{"id":"e5f6g7h8","name":"Prod"},{"id":"{{id}}","name":"Reports"}]""", (await ReadAsync(merged))["stash"]!.ToJsonString());
+        Assert.Equal(
+            $$"""[{"id":"{{id}}","name":"Reports","used":true},{"id":"e5f6g7h8","name":"Prod","used":false}]""",
+            (await GetAsync(client, $"/api/stashes?path={MadeUpKiler.Payments}")).Answer["stashes"]!.ToJsonString());
+
+        using var deleted = await SendAsync(client, HttpMethod.Post, "/api/records", Note(Gone));
+        Assert.Equal(HttpStatusCode.BadRequest, deleted.StatusCode);
+        Assert.Equal($$"""{"error":"{{RecordActions.DeletedStash}}","field":"stash"}""", (await ReadAsync(deleted)).ToJsonString());
+    }
+
     [Theory]
     [InlineData("path=a1b2c3d4,e5f6g7h8,j9k0m1n2,p3q4r5s6")]
     [InlineData("path=A1B2C3D4")]

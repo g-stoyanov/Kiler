@@ -35,8 +35,9 @@ internal static class StashesApi
     }
 
     /// <summary>
-    /// The stashes for the position after <c>path</c>, 0 to 3 ids, or the first position without it: every stash that can be
-    /// read, those that a record has at that position under that path marked as used and first.
+    /// The stashes for the position after <c>path</c>, 0 to 3 ids, or the first position without it: every live stash that can
+    /// be read, those that a record has at that position under that path marked as used and first. The path and those of the
+    /// records are read through the merged and deleted stashes (<see cref="RecordSet.PathOf"/>, M6.21).
     /// </summary>
     private static Results<Ok<StashesResponse>, BadRequest<ErrorResponse>, Conflict<ErrorResponse>> List(HttpContext context, KilerData data)
     {
@@ -58,15 +59,18 @@ internal static class StashesApi
         }
 
         var set = records.Read(AccessRules.SessionOf(context));
+        var start = set.PathOf(path);
         var used = set.Records.Values
             .Select(view => view.File.Model)
             .OfType<RecordFile>()
-            .Where(record => record.Stash.Count > path.Length && record.Stash.Take(path.Length).SequenceEqual(path, StringComparer.Ordinal))
-            .Select(record => record.Stash[path.Length])
+            .Select(record => set.PathOf(record.Stash))
+            .Where(stash => stash.Count > start.Count && stash.Take(start.Count).SequenceEqual(start, StringComparer.Ordinal))
+            .Select(stash => stash[start.Count])
             .ToHashSet(StringComparer.Ordinal);
         var stashes = set.Stashes.Values
             .Select(entry => entry.Model)
             .OfType<StashFile>()
+            .Where(stash => stash.IsLive)
             .Select(stash => new StashChoiceResponse(stash.Id, stash.Name, used.Contains(stash.Id)))
             .OrderByDescending(stash => stash.Used)
             .ThenBy(stash => stash.Name, StringComparer.OrdinalIgnoreCase)

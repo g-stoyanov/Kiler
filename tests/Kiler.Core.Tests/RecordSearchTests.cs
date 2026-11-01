@@ -243,6 +243,24 @@ public class RecordSearchTests : IDisposable
         Assert.Equal([Monitoring], Find(records, session, new RecordQuery { Fields = new Dictionary<string, string> { ["kind"] = "logs" } }).Records.Select(view => view.File.Model!.Id));
     }
 
+    [Fact]
+    public void AMerge_MovesTheRecordsInTheTree_TheQuery_AndTheSearchText()
+    {
+        // Reports is merged into Плащания (M6.21): Notes and Tool, whose paths name Reports, are read at Плащания.
+        Assert.Equal(WriteOutcome.Written, _kiler.Data.Copy.Replace(StashFile.KeyOf(Reports), 1, new StashFile(Reports, "Reports", TestRecords.Authors, redirect: Payments).ToContent()).Outcome);
+        using var records = _kiler.Open();
+        var session = _kiler.Reader(3);
+
+        var all = Find(records, session, new RecordQuery());
+        var merged = Find(records, session, new RecordQuery { Stash = [Reports] });
+
+        Assert.Equal(["Плащания 5 [Prod 2 []]", "- 1 []"], all.Tree.Select(Describe));
+        Assert.Equal([Tool, Monitoring, ProdDb, TestDb, Notes], merged.Records.Select(view => view.File.Model!.Id));
+        Assert.Equal(["Плащания 5 [Prod 2 []]", "- 1 []"], merged.Tree.Select(Describe));
+        Assert.Empty(Find(records, session, new RecordQuery { Text = "reports" }).Records);
+        Assert.Equal([Notes], Find(records, session, new RecordQuery { Text = "плащания отчетите" }).Records.Select(view => view.File.Model!.Id));
+    }
+
     private static SearchResult Find(Records records, Session? session, RecordQuery query) => RecordSearch.Find(records.Read(session), query);
 
     private static string Describe(StashNode node) => $"{node.Name ?? "-"} {node.Count} [{string.Join(", ", node.Children.Select(Describe))}]";

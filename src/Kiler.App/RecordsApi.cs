@@ -778,7 +778,8 @@ internal static class RecordsApi
         _ => "unreadable",
     };
 
-    private static PathStashResponse[] Stash(RecordFile record, RecordSet set) => [.. record.Stash.Select(id => new PathStashResponse(id, set.StashName(id)))];
+    /// <summary>The path of <paramref name="record"/> read through the merged and deleted stashes (<see cref="RecordSet.PathOf"/>, M6.21).</summary>
+    private static PathStashResponse[] Stash(RecordFile record, RecordSet set) => [.. set.PathOf(record.Stash).Select(id => new PathStashResponse(id, set.StashName(id)))];
 
     private static VersionResponse Version(RecordFile record, int version, TeamFiles files) =>
         new(version, Author(record.Authorship.UpdatedBy, files), record.Authorship.UpdatedAt, [.. record.Protected.Keys]);

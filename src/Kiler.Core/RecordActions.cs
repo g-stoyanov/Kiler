@@ -30,6 +30,9 @@ public static class RecordActions
 
     private const string TooLarge = "The record is too large to be written.";
 
+    /// <summary>The 400 of a path with a deleted stash, with <c>field</c> <c>stash</c> (M6.21).</summary>
+    public const string DeletedStash = "A stash of the path has been deleted. Choose another.";
+
     /// <summary>
     /// The encoder of the shared documents (<see cref="DocumentFormat"/>): a group is never put into a page as it is, so only
     /// what JSON itself needs is escaped, and a Cyrillic value takes no more room in its group than in <c>public</c>.
@@ -47,8 +50,9 @@ public static class RecordActions
 
     /// <summary>
     /// A new stash of <paramref name="author"/> (design 6.6): its name trimmed and not blank, and unique without regard to case
-    /// among the stashes of the copy, else <see cref="RecordOutcome.Exists"/>. Two of one name made at the same moment by two
-    /// Kilers are both kept; an admin merges them after the exam (<see cref="StashFile"/>).
+    /// among the live stashes of the copy (<see cref="StashFile.IsLive"/>), else <see cref="RecordOutcome.Exists"/>, so the name
+    /// of a merged or deleted stash is taken again. Two of one name made at the same moment by two Kilers are both kept; an
+    /// admin merges them (M6.22, <see cref="StashFile"/>).
     /// </summary>
     /// <exception cref="SessionLockedException">The session is locked.</exception>
     public static RecordResult NewStash(Session author, Records records, string? name, TimeProvider time) =>
@@ -301,7 +305,7 @@ public static class RecordActions
             return Refused("name", "The name of the stash is blank.");
         }
 
-        if (set.Stashes.Values.Any(stash => string.Equals(stash.Model?.Name.Trim(), trimmed, StringComparison.OrdinalIgnoreCase)))
+        if (set.Stashes.Values.Any(stash => stash.Model is { IsLive: true } live && string.Equals(live.Name.Trim(), trimmed, StringComparison.OrdinalIgnoreCase)))
         {
             return new(RecordOutcome.Exists);
         }
@@ -525,7 +529,12 @@ public static class RecordActions
         return null;
     }
 
-    /// <summary>Why the stash path does not fit, or <c>null</c>, with its ids in <paramref name="stash"/>: 1 to 4 stashes that are there and can be read, without gaps or repeats (design 6.6).</summary>
+    /// <summary>
+    /// Why the stash path does not fit, or <c>null</c>, with its ids in <paramref name="stash"/>: 1 to 4 stashes that are there
+    /// and can be read, without gaps or repeats (design 6.6). A merged stash gives the stash that it leads to, as the path is
+    /// read (<see cref="RecordSet.PathOf"/>), which is then there once, at its first position; a deleted one, or one whose way
+    /// cannot be followed, is refused (M6.21).
+    /// </summary>
     private static string? Path(IReadOnlyList<string?> path, RecordSet set, List<string> stash)
     {
         if (path.Count == 0)
@@ -538,6 +547,7 @@ public static class RecordActions
             return $"The path has more than {RecordFile.MaxStashes} stashes.";
         }
 
+        var given = new List<string>(path.Count);
         foreach (var id in path)
         {
             if (string.IsNullOrWhiteSpace(id))
@@ -545,17 +555,27 @@ public static class RecordActions
                 return "The path has a gap.";
             }
 
-            if (set.Stashes.GetValueOrDefault(id) is not { IsValid: true })
+            var (target, deleted) = set.Lead(id);
+            if (target is null)
             {
                 return "A stash of the path is not there.";
             }
 
-            if (stash.Contains(id, StringComparer.Ordinal))
+            if (deleted)
+            {
+                return DeletedStash;
+            }
+
+            if (given.Contains(id, StringComparer.Ordinal))
             {
                 return "The path has a stash twice.";
             }
 
-            stash.Add(id);
+            given.Add(id);
+            if (!stash.Contains(target, StringComparer.Ordinal))
+            {
+                stash.Add(target);
+            }
         }
 
         return null;

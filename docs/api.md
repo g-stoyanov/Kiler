@@ -48,6 +48,13 @@ The examples are made up.
 
 `name` is `null` when the stash cannot be read: it is missing, or it does not fit. The record still shows at its place.
 
+**Merged and deleted stashes** (M6.21, design 6.6; decided by the user, `tasks/M6.md`, "Merged and deleted stashes"). An admin merges a stash into another and deletes one that no shared record uses (M6.22). The file of the stash stays, with `"redirect": "<id>"`, the stash it was merged into, or `"deleted": true`, and the records that name it are not written again. Every path that Kiler gives is read through them: the record, the list, the search text with the names, the tree and its counts, the `stash` of a query, and `used` of `GET /api/stashes`.
+
+- Each id follows `redirect` to a stash without one, in at most 8 steps. A way that cannot be followed (a loop, a longer way, or a stash on it that is missing or does not fit) keeps the id, with `name` `null`, as a missing stash.
+- A stash that the path then has twice stays only at its first position.
+- The path is cut before a deleted stash, so a record in the trash, restored, shows at the position before it; a path whose first stash is deleted is empty. The form then asks for a stash at the next save.
+- `name` is that of a live stash, neither merged nor deleted.
+
 ### Field
 
 Every field of a record, and its description, comes as a field:
@@ -307,7 +314,7 @@ A new record:
 ```
 
 - `template`: a template that fits.
-- `stash`: 1 to 4 ids of stashes that are there, without gaps or repeats (design 6.6).
+- `stash`: 1 to 4 ids of stashes that are there, without gaps or repeats (design 6.6). A merged stash gives the stash that it leads to, which is then kept once, at its first position, so a form opened before a merge still saves (M6.21). A deleted stash is 400 with `field` `stash`: "A stash of the path has been deleted. Choose another." (`RecordActions.DeletedStash`), and so is one whose way cannot be followed, as one that is not there.
 - `name`: not blank. The name and each tag are trimmed; a blank tag is left out, and the tags are kept once each, without regard to case.
 - `fields`: the fields of the template by key, each a value of its type ("Values by type"). A field left out has no value. A field with `required` needs a value (design 6.5). A key that the template does not have is 400.
 - `levels`: the levels asked, by key ("Levels of a field"). A field left out has its default. A key that is neither `description` nor a field of the template is 400 with `field` `null`, and a level that is not from 0 to 9 is 400 with that key (M5.4).
@@ -348,7 +355,7 @@ The stashes for the drop-down of a position of the path (design 6.6, "The form")
 { "stashes": [ { "id": "e5f6g7h8", "name": "Prod", "used": true }, { "id": "j9k0m1n2", "name": "Test", "used": false } ] }
 ```
 
-- Every stash that can be read. `used` are those that a record has at that position under that path. They come first, then the rest, each part by name. The page filters them as the user types.
+- Every live stash that can be read, never a merged or deleted one. `used` are those that a record has at that position under that path, both paths read through the merged and deleted stashes ("A stash of a path"). They come first, then the rest, each part by name. The page filters them as the user types.
 - 400: a `path` that is not 0 to 3 ids.
 
 ### `POST /api/stashes`
@@ -362,7 +369,7 @@ A new stash, from the form of a record (design 6.6):
 - The name is trimmed and must not be blank.
 - The answer is 201 with `{ "id": "p3q4r5s6", "name": "Reports" }`, the shape of "A stash of a path".
 - 400, with `field` `name`: a blank name.
-- 409: a stash of that name is there, without regard to case: "There is a stash of that name already." (decided in M5.9); the page reads the stashes again and offers it. Also offline, and the other outcomes of a write, whose sentence names the stash instead of the record.
+- 409: a live stash of that name is there, without regard to case: "There is a stash of that name already." (decided in M5.9); the page reads the stashes again and offers it. The name of a merged or deleted stash is taken again (M6.21). Also offline, and the other outcomes of a write, whose sentence names the stash instead of the record.
 
 ### `GET /api/tags`
 

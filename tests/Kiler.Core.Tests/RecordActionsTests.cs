@@ -20,6 +20,12 @@ public class RecordActionsTests : IDisposable
 
     private static readonly string[] MoreStashes = ["j9k0m1n2", "p3q4r5s6", "t7v8w9x0"];
 
+    /// <summary>A stash merged into <see cref="Prod"/> (M6.21).</summary>
+    private const string Merged = "h2h2h2h2";
+
+    /// <summary>A deleted stash (M6.21).</summary>
+    private const string Deleted = "k3k3k3k3";
+
     private static readonly Dictionary<string, FieldValue?> NoFields = [];
 
     private readonly TestRecords _kiler = new();
@@ -57,6 +63,8 @@ public class RecordActionsTests : IDisposable
         }
 
         Assert.Equal(WriteOutcome.Written, _kiler.Data.Copy.Create(StashFile.KeyOf("c6d7e8f9"), new JsonObject { ["name"] = "Broken" }).Outcome);
+        Assert.Equal(WriteOutcome.Written, _kiler.Data.Copy.Create(StashFile.KeyOf(Merged), new StashFile(Merged, "Old prod", TestRecords.Authors, redirect: Prod).ToContent()).Outcome);
+        Assert.Equal(WriteOutcome.Written, _kiler.Data.Copy.Create(StashFile.KeyOf(Deleted), new StashFile(Deleted, "Old", TestRecords.Authors, deleted: true).ToContent()).Outcome);
         _kiler.Write(_kiler.Database());
         _kiler.Write(_kiler.Record(NoteId, template: "note", groups: [(1, """{"text":"A note"}""")]));
         _records = _kiler.Open();
@@ -229,6 +237,8 @@ public class RecordActionsTests : IDisposable
     [InlineData("a1b2c3d4,y2z3a4b5", "A stash of the path is not there.")]
     [InlineData("Payments", "A stash of the path is not there.")]
     [InlineData("c6d7e8f9", "A stash of the path is not there.")]
+    [InlineData("a1b2c3d4,k3k3k3k3", RecordActions.DeletedStash)]
+    [InlineData("h2h2h2h2,h2h2h2h2", "The path has a stash twice.")]
     public void APath_ThatDoesNotFit_IsRefused(string path, string invalid)
     {
         IReadOnlyList<string?> stash = path.Length == 0 ? [] : [.. path.Split(',').Select(id => id.Length == 0 ? null : id)];
@@ -246,6 +256,26 @@ public class RecordActionsTests : IDisposable
         var file = Written(RecordActions.NewRecord(_kiler.Reader(3), _records, _kiler.Team.Files, Draft("note", NoFields, stash: path), _time));
 
         Assert.Equal(path, file.Stash);
+    }
+
+    [Theory]
+    [InlineData(new[] { TestRecords.StashId, Merged }, new[] { TestRecords.StashId, Prod })]
+    [InlineData(new[] { Prod, Merged, TestRecords.StashId }, new[] { Prod, TestRecords.StashId })]
+    public void AMergedStashOfThePath_GivesTheStashItLeadsTo_OnceAtItsFirstPosition(string[] path, string[] written)
+    {
+        var file = Written(RecordActions.NewRecord(_kiler.Reader(3), _records, _kiler.Team.Files, Draft("note", NoFields, stash: path), _time));
+
+        Assert.Equal(written, file.Stash);
+    }
+
+    [Theory]
+    [InlineData("Old")]
+    [InlineData("old prod")]
+    public void ANewStash_TakesTheNameOfAMergedOrDeletedStash(string name)
+    {
+        var result = RecordActions.NewStash(_kiler.Reader(1), _records, name, _time);
+
+        Assert.Equal((RecordOutcome.Done, name), (result.Outcome, result.Stash?.Name));
     }
 
     [Theory]
@@ -391,7 +421,7 @@ public class RecordActionsTests : IDisposable
         var result = RecordActions.NewStash(author, _records, name, _time);
 
         Assert.Equal((outcome, field, null), (result.Outcome, result.Field, result.Stash));
-        Assert.Equal(7, _records.Read(author).Stashes.Count);
+        Assert.Equal(9, _records.Read(author).Stashes.Count);
     }
 
     /// <summary>A draft of <paramref name="template"/> with a name and the stash <see cref="TestRecords.StashId"/>, unless given others.</summary>
