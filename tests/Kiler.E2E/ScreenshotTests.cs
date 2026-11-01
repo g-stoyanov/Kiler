@@ -6,12 +6,14 @@ using static Microsoft.Playwright.Assertions;
 namespace Kiler.E2E;
 
 /// <summary>
-/// The screenshots for the write-up (M6.13, PLAN M8 step 5), on one demo Kiler in a window of 1280 × 800: the main view
-/// with a search and a filter, the padlocks of a guest and a shown password, the form of a "+" with the stash picker open,
-/// the code in light and dark, and the conflict. They go to <see cref="FolderVariable"/> (<c>artifacts\screenshots</c>
-/// from <c>e2e.ps1</c>, which CI uploads), else <c>screenshots\</c> beside the test DLL. The data folder at the foot is
-/// blurred, as its path holds the Windows account of the machine (<see cref="SaveAsync"/>). The password is shown before any write of the run, as a
-/// <c>changed</c> hides it (the M6.11 entry under "Left for after the exam"), and the conflict, which writes, comes last.
+/// The screenshots for the write-up (M6.13, M6.24, PLAN M8 step 5), on one demo Kiler in a window of 1280 × 800: the main
+/// view with a search and a filter, the padlocks of a guest and a shown password, the form of a "+" with the stash picker
+/// open, the code in light and dark, the conflict with its two versions, the audit of the shown password, and the stash
+/// screen with a merge open. They go to <see cref="FolderVariable"/> (<c>artifacts\screenshots</c> from <c>e2e.ps1</c>,
+/// which CI uploads), else <c>screenshots\</c> beside the test DLL. The data folder at the foot is blurred, as its path
+/// holds the Windows account of the machine (<see cref="SaveAsync"/>). A write of the run does not hide the shown password,
+/// as only a change of its record does (M6.16); the audit comes right after the password, whose "Show" writes its row, and
+/// the conflict, which leaves the form in its panel, comes last.
 /// </summary>
 [Trait("Category", "E2E")]
 public class ScreenshotTests(KilerBrowser browser)
@@ -33,6 +35,7 @@ public class ScreenshotTests(KilerBrowser browser)
         const string Database = "Billing prod database";
         const string Query = "Unpaid invoices by month";
         const string Note = "Welcome to the team";
+        const string Archive = "Billing archive";
         var admin = DemoKiler.Admin;
         var folder = Folder();
         using var exe = Demo.NewExe();
@@ -52,6 +55,12 @@ public class ScreenshotTests(KilerBrowser browser)
         await Expect(password.Locator(".secret-shown")).ToBeVisibleAsync();
         await SaveAsync(p, folder, "03-record-password");
         await password.GetByRole(AriaRole.Button, new() { Name = "Hide Password", Exact = true }).ClickAsync();
+
+        // That "Show" wrote a line of the audit, so the audit screen of today has its row.
+        await HeaderLink(p, "Audit").ClickAsync();
+        await Expect(p.GetByRole(AriaRole.Heading, new() { Name = "Audit", Level = 1 })).ToBeVisibleAsync();
+        await Expect(p.GetByRole(AriaRole.Main).GetByRole(AriaRole.Row).Filter(new() { HasText = Database })).ToHaveCountAsync(1);
+        await SaveAsync(p, folder, "08-audit");
 
         // The main view: a node of the tree open, a search, and a type among its results.
         await Demo.ToMainViewAsync(p);
@@ -77,6 +86,16 @@ public class ScreenshotTests(KilerBrowser browser)
         await Demo.StashInput(p, 2).ClickAsync();
         await Expect(p.GetByRole(AriaRole.Listbox, new() { Name = "Stash 2", Exact = true })).ToBeVisibleAsync();
         await SaveAsync(p, folder, "04-form-stash-picker");
+
+        // "Create …" makes the stash at once, so the form left unsaved leaves a stash without records, the one row of the
+        // stash screen with "Delete"; its merge, open, shows the choice of another stash below the table.
+        await Demo.CreateStashAsync(p, 2, Archive);
+        await HeaderLink(p, "Stashes").ClickAsync();
+        await Expect(p.GetByRole(AriaRole.Heading, new() { Name = "Stashes", Level = 1 })).ToBeVisibleAsync();
+        await Expect(p.GetByRole(AriaRole.Button, new() { Name = $"Delete {Archive}", Exact = true })).ToBeVisibleAsync();
+        await p.GetByRole(AriaRole.Button, new() { Name = $"Merge {Archive} into…", Exact = true }).ClickAsync();
+        await Expect(p.GetByLabel("Merge into", new() { Exact = true })).ToBeFocusedAsync();
+        await SaveAsync(p, folder, "09-stashes");
 
         // The code of a query in the record view, in light, then in dark once the editor has taken its colours.
         await Demo.ToMainViewAsync(p);
@@ -121,6 +140,10 @@ public class ScreenshotTests(KilerBrowser browser)
         Directory.CreateDirectory(folder);
         return folder;
     }
+
+    /// <summary>A link of the header, by its whole name.</summary>
+    private static ILocator HeaderLink(IPage p, string name) =>
+        p.GetByRole(AriaRole.Banner).GetByRole(AriaRole.Link, new() { Name = name, Exact = true });
 
     /// <summary>The line of the data folder at the foot of the frame.</summary>
     private static ILocator DataFolderLine(IPage p) => p.Locator(".frame-foot > span").Filter(new() { HasText = DataFolder });
