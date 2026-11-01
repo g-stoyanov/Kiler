@@ -39,9 +39,12 @@ public sealed class KilerBrowser : IAsyncLifetime
     /// <summary>
     /// The first wait of a run (M1.6): the time to open the page after the start. The frame asks <c>/api/health</c> once
     /// its stream connects, which puts the stop off by this wait, so it is also how long a run can go on after its last
-    /// page closes; short, as a test that starts Kiler again on the same data folder waits for the stop first (M4.1).
+    /// page closes, which a test that starts Kiler again on the same data folder waits out first (M4.1), so each
+    /// <see cref="WaitForStopAsync"/> of <c>TeamFlowTests</c> pays for it. 10 s was too short for 15 tests that start at
+    /// once: in M6.24 a few of them failed in every full run on the developer machine, and in one CI run, as Kiler
+    /// stopped before the page had connected.
     /// </summary>
-    private static readonly TimeSpan FirstWait = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan FirstWait = TimeSpan.FromSeconds(30);
 
     private static readonly TimeSpan IdleWait = TimeSpan.FromSeconds(2);
 
@@ -50,7 +53,7 @@ public sealed class KilerBrowser : IAsyncLifetime
 
     public static bool HasExe => KilerExe.Published is not null;
 
-    /// <summary>Starts a run of <paramref name="exe"/> with short waits and then <paramref name="arguments"/>.</summary>
+    /// <summary>Starts a run of <paramref name="exe"/> with the waits of the tests and then <paramref name="arguments"/>.</summary>
     internal static KilerRun Start(KilerExe exe, params string[] arguments) =>
         exe.Start(["--first-wait", Seconds(FirstWait), "--idle-wait", Seconds(IdleWait), .. arguments]);
 
