@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { dataStates, missingFile, type DataInfo, type DataState } from './api.ts';
-import { isEmptyCopy, nextRead, showsRoutes } from './data.ts';
+import { dataStates, missingFile, type DataInfo, type DataState, type Session } from './api.ts';
+import { isEmptyCopy, mayPrecedeOpen, nextRead, showsRoutes } from './data.ts';
 
 function data(state: DataState, levels: string | null = null, settings: string | null = null): DataInfo {
   return { state, folder: 'D:\\Demo\\data', levels, settings };
@@ -35,6 +35,44 @@ describe('showsRoutes', () => {
 
   it.each(dataStates.filter((state) => state !== 'open' && state !== 'offline'))('shows none in %s', (state) => {
     expect(showsRoutes(data(state))).toBe(false);
+  });
+});
+
+describe('mayPrecedeOpen', () => {
+  const guest: Session = {
+    account: 'demo.reader',
+    signedIn: false,
+    displayName: null,
+    levels: [0],
+    canEdit: false,
+    isAdmin: false,
+    mustChangePassword: false,
+    guestMode: true,
+  };
+  const noGuestMode: Session = { ...guest, levels: [], guestMode: false };
+  const reader: Session = { ...noGuestMode, signedIn: true, displayName: 'Demo Reader', levels: [0, 1] };
+
+  it.each([
+    ['a read still under way', { state: 'reading' } as const],
+    [
+      'a session without a sign-in and without guest mode',
+      { state: 'ready', session: noGuestMode, locked: false } as const,
+    ],
+    ['the lock screen without guest mode', { state: 'ready', session: noGuestMode, locked: true } as const],
+  ])('may be of a copy still opening: %s', (_, view) => {
+    expect(mayPrecedeOpen(view)).toBe(true);
+  });
+
+  it.each([
+    ['a guest of guest mode', { state: 'ready', session: guest, locked: false } as const],
+    ['a signed-in user', { state: 'ready', session: reader, locked: false } as const],
+    [
+      'a read that failed, which "Try again" reads again',
+      { state: 'failed', message: 'Kiler did not answer.' } as const,
+    ],
+    ['no stream', { state: 'waiting' } as const],
+  ])('is of an open copy, or nothing to read again: %s', (_, view) => {
+    expect(mayPrecedeOpen(view)).toBe(false);
   });
 });
 

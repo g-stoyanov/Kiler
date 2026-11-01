@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { getData, messageOf, missingFile, type DataInfo } from './api.ts';
-import { isEmptyCopy, nextRead, showsRoutes } from './data.ts';
+import { isEmptyCopy, mayPrecedeOpen, nextRead, showsRoutes } from './data.ts';
 import { useSessionStore } from './session.ts';
 import { texts } from './texts.ts';
 import { Wizard } from './Wizard.tsx';
@@ -16,6 +16,8 @@ type DataResult = { state: 'reading' } | { state: 'read'; data: DataInfo } | { s
  *
  * The session that the store read at the connect may be of a copy that was still opening, without its guest mode, so
  * once the routes show after a state that did not show them, the session is read again; that covers the wizard too.
+ * The copy can also open between that read and the first state, which then shows the routes at once: the session is
+ * read again then if it may be of the copy before (`mayPrecedeOpen`).
  *
  * Each state read gives its data folder to `onFolder`, for the foot line of the frame (decided at the start of M6).
  */
@@ -26,8 +28,8 @@ export function DataGate({ children, onFolder }: { children: ReactNode; onFolder
   // A new value reads the state again, at once; the last state shows meanwhile, so the wizard keeps its form.
   const [round, setRound] = useState(0);
   const again = () => setRound((value) => value + 1);
-  // Whether the last state showed the routes; at first as the read of the session at the connect assumes.
-  const showedRoutes = useRef(true);
+  // Whether the last state showed the routes; undefined until the first state is read.
+  const showedRoutes = useRef<boolean | undefined>(undefined);
 
   useEffect(() => {
     const abort = new AbortController();
@@ -42,7 +44,8 @@ export function DataGate({ children, onFolder }: { children: ReactNode; onFolder
           setResult({ state: 'read', data });
           onFolder(data.folder);
           const routes = showsRoutes(data);
-          if (routes && !showedRoutes.current) {
+          const showed = showedRoutes.current;
+          if (routes && (showed === false || (showed === undefined && mayPrecedeOpen(store.getSnapshot().view)))) {
             store.reload();
           }
 
