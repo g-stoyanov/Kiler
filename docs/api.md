@@ -223,6 +223,10 @@ These rules are for M5.4 and M5.8; the page follows them in its form.
 | `GET /api/records/{id}/history` | `Reader` | the versions of a record | M5.11 |
 | `POST /api/records/{id}/history/{version}/restore` | `Editor` | a restore of an old version | M5.11 |
 | `GET /api/admin/audit?from=<UTC>&to=<UTC>` | `Admin` | the views of the secrets of the top level | M6.18 |
+| `GET /api/admin/stashes` | `Admin` | the live stashes with the records of each | M6.22 |
+| `PUT /api/admin/stashes/{id}` | `Admin` | a rename of a stash | M6.22 |
+| `POST /api/admin/stashes/{id}/merge` | `Admin` | a merge of a stash into another | M6.22 |
+| `DELETE /api/admin/stashes/{id}?version=<n>` | `Admin` | a delete of a stash | M6.22 |
 
 Each endpoint can also give the 403s of "Rights" and the 409 without data; they are not repeated below.
 
@@ -447,6 +451,56 @@ The views of the secrets of the top level (M6.18; the screen is M6.19), read fro
 - 400: a `from` or `to` that is missing, given more than once or not such a time ("from and to are times in UTC, such as 2026-10-31T00:00:00Z."), a `to` that is not after `from` ("to is not after from.") or is more than 31 days after it ("to is more than 31 days after from."), and a `to` after `9999-12-31T00:00:00Z` ("to is after the last date that Kiler reads.").
 - 409: no data (`SessionApi.NoData`), and offline or a shared folder that refuses the read: "The audit cannot be read from the shared folder now. Try again once it can be reached." (`AuditApi.NotRead`).
 
+### `GET /api/admin/stashes`
+
+The stashes of the admin's screen (M6.22; the screen is M6.23; decided by the user, [tasks/M6.md](tasks/M6.md), "Rename, merge and delete"):
+
+```json
+{ "stashes": [ { "id": "a1b2c3d4", "name": "Payments", "version": 3, "records": 30 }, { "id": "j9k0m1n2", "name": "Reports", "version": 1, "records": 0 } ] }
+```
+
+- Every live stash whose file fits, by name without regard to case, never a merged or deleted one.
+- `version` is the version of the stash file, which a rename, a merge and a delete send back.
+- `records` is the number of the shared records of `records\` whose path, read through the merged and deleted stashes ("A stash of a path"), has the stash, at any level, also those whose fields the admin cannot read. A record in the trash does not count, nor one whose file does not fit.
+
+### `PUT /api/admin/stashes/{id}`
+
+Renames a stash over the version that the admin read:
+
+```json
+{ "name": "Reports 2026", "version": 1 }
+```
+
+- The name is trimmed and must not be blank. It is unique without regard to case among the live stashes, the stash itself left out, so a change of case of its own name is a rename; the name of a merged or deleted stash is taken, as for a new stash. The records are not written again: every path shows the new name at once.
+- The answer is 200 with the list of `GET /api/admin/stashes` after the rename. Each action here answers so, as the page shows the list again.
+- 400, with `field` `name`: a blank name ("The name of the stash is blank."), or one that makes the stash larger than a document ("The name of the stash is too long."). No `version` is 400 with `field` `null`, as for an edit.
+- 404: the stash is not there, its file does not fit, or it is merged or deleted, also meanwhile: "The stash is not there. It may have been merged or deleted." The page reads the list again.
+- 409: a live stash of that name is there: "There is a stash of that name already."; another version of the stash: "The stash has been changed meanwhile. Read the list again and try once more."; offline; the slot of another write: "The stash is being written now. Try again in a moment."; the other outcomes of a write, as for a new stash.
+
+### `POST /api/admin/stashes/{id}/merge`
+
+Merges a stash into another live stash, over the version of the stash that the admin read:
+
+```json
+{ "into": "e5f6g7h8", "version": 1 }
+```
+
+- The file of the stash keeps its name and gets `"redirect": "<into>"` ("A stash of a path"), so each record whose path has it shows at `into`, at its place, and its `records` count there. The records are not written again.
+- The answer is 200 with the list after the merge, without the stash.
+- 400, with `field` `into`: no `into` ("Choose the stash to merge into."), the stash itself ("A stash cannot be merged into itself."), and a stash that is missing, does not fit, or is merged or deleted ("The stash to merge into is not there, or has been merged or deleted. Choose another."). So no merge makes a loop. No `version` is 400 with `field` `null`.
+- 404 and 409: as for a rename, without the name.
+- A merge writes only the file of the stash, not those of the stashes merged into it before, whose ways to a live stash grow by one step. A stash whose way needs more than 8 steps reads as one that cannot be read, as a missing one does.
+
+### `DELETE /api/admin/stashes/{id}?version=<n>`
+
+Deletes a stash that no shared record has, over the version that the admin read:
+
+- Only when `records` is 0. The file keeps its name and gets `"deleted": true`, so a record of the trash that has it, restored, is cut before it ("A stash of a path").
+- The answer is 200 with the list after the delete, without the stash.
+- 400: no `version`, with `field` `null`. A `version` that is not a whole number is the 400 of ASP.NET Core, without a body, as for the delete of a record.
+- 404: as for a rename.
+- 409: a shared record has it: "2 records are in this stash, so it cannot be deleted. Merge it into another stash instead." ("A record is in this stash, …" for one); and the 409s of a rename, without the name.
+
 ## Decided in M5.1
 
 Settled with the user, as the plan does not say:
@@ -461,7 +515,6 @@ What comes after the exam ([PLAN.md, section 10](PLAN.md#10-deferred-until-after
 
 - the private records, and the "Private only" filter (item 4);
 - creating and changing a template (item 9);
-- renaming, merging and deleting stashes, with the stash screen and its counters (item 10);
 - the general settings (item 11). Until then the page gets guest mode from the session.
 
 Not planned until the exam:
@@ -473,5 +526,5 @@ Not planned until the exam:
 
 M6 step 9, decided in M6.11 (the event with the user, before the code):
 
-- **The event.** The event stream `/api/events` sends `changed`, with no data, as it sends `session`: the page reads again what it shows, from the endpoints, which say only what its session may read. Kiler sends it after a load of the shared folder that gave a document new, changed, gone or changed outside Kiler, or a change of the trash; after a load that failed, and at each change of offline, as Kiler reads its records again then; and after each answer of success of a write of this Kiler, which no load gives (`POST` and `PUT /api/records`, `DELETE /api/records/{id}`, `POST /api/trash/{id}/restore`, `POST /api/records/{id}/history/{version}/restore` and `POST /api/stashes`), so the other pages of this Kiler see it too. A write of this Kiler gives a second `changed` at the next load (within about 10 s), which reads back the owner of the file it wrote; so does an admin action, which has no event of its own. Changes that come before the stream has sent the event of an earlier one give one event, after a `session` that comes with them.
+- **The event.** The event stream `/api/events` sends `changed`, with no data, as it sends `session`: the page reads again what it shows, from the endpoints, which say only what its session may read. Kiler sends it after a load of the shared folder that gave a document new, changed, gone or changed outside Kiler, or a change of the trash; after a load that failed, and at each change of offline, as Kiler reads its records again then; and after each answer of success of a write of this Kiler, which no load gives (`POST` and `PUT /api/records`, `DELETE /api/records/{id}`, `POST /api/trash/{id}/restore`, `POST /api/records/{id}/history/{version}/restore`, `POST /api/stashes`, and the rename, the merge and the delete of a stash under `/api/admin/stashes`), so the other pages of this Kiler see it too. A write of this Kiler gives a second `changed` at the next load (within about 10 s), which reads back the owner of the file it wrote; so does an admin action on the users or the levels, which has no event of its own. Changes that come before the stream has sent the event of an earlier one give one event, after a `session` that comes with them.
 - **The activity** (decided by the user). From a `changed` event until the user's next input in the page (a key, a pointer, a click, a text typed another way, or Back and Forward of the browser), the page sends each `GET` with the header `Kiler-Activity: none`, and Kiler does not count it as activity for the automatic lock; otherwise a page that the changes of others keep reading would never lock. Kiler takes the header only on a `GET`, so a write and the request of a secret are always activity; the header can only make the lock come sooner. A read that a click or a key starts counts as before.

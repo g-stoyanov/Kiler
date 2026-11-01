@@ -191,11 +191,14 @@ public sealed class EventsApiTests : IDisposable
 
         Assert.Equal(
             [
+                "DELETE /api/admin/stashes/{id}",
                 "DELETE /api/records/{id}",
+                "POST /api/admin/stashes/{id}/merge",
                 "POST /api/records",
                 "POST /api/records/{id}/history/{version}/restore",
                 "POST /api/stashes",
                 "POST /api/trash/{id}/restore",
+                "PUT /api/admin/stashes/{id}",
                 "PUT /api/records/{id}",
             ],
             writes);

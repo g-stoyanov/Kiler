@@ -11,8 +11,9 @@ namespace Kiler.Core;
 /// templates it reads, and reads the copy again after <see cref="Team.Reload"/> (<see cref="Reload"/>), both on the thread of
 /// the watch. It follows <see cref="CurrentSession.Changed"/>: a sign-in decrypts for the new session, and a lock drops what
 /// was decrypted. The updates keep a lock of their own. A write of this Kiler goes through it (<see cref="Create(RecordFile)"/>,
-/// M5.4; <see cref="Replace"/>, M5.8, and the restore of an old version, M5.11; <see cref="Delete"/> and
-/// <see cref="RestoreFromTrash"/>, M5.10), as no load gives it. The old versions of a record come from the copy
+/// M5.4; <see cref="Replace(RecordFile, int)"/>, M5.8, and the restore of an old version, M5.11; <see cref="Delete"/> and
+/// <see cref="RestoreFromTrash"/>, M5.10; a stash, <see cref="Create(StashFile)"/>, M5.4, and <see cref="Replace(StashFile, int)"/>,
+/// M6.22), as no load gives it. The old versions of a record come from the copy
 /// (<see cref="History"/>, M5.11). The private records come after the exam, so it skips the private folders.
 /// </summary>
 public sealed class Records : IDisposable
@@ -254,12 +255,22 @@ public sealed class Records : IDisposable
     internal WriteResult Create(StashFile stash)
     {
         ArgumentNullException.ThrowIfNull(stash);
-        return TakeWritten(
-            stash.Key,
-            _copy.Create(stash.Key, stash.ToContent()),
-            (set, version) => set.Stashes.GetValueOrDefault(stash.Id)?.Version > version
-                ? null
-                : new RecordSet(set.Session, set.Stashes.SetItem(stash.Id, TeamFile<StashFile>.Written(version, stash)), set.Records, set.Trash));
+        return TakeWritten(stash.Key, _copy.Create(stash.Key, stash.ToContent()), (set, version) => WithStash(set, stash, version));
+    }
+
+    /// <summary>
+    /// Replaces the version <paramref name="version"/> of a stash through the copy with <paramref name="stash"/>: a rename, a
+    /// merge or a delete of an admin (M6.22, <see cref="StashActions"/>), as the file stays. It takes the write into the set as
+    /// <see cref="Create(StashFile)"/> does, so the paths are read through it at once; a load that ended before the write can
+    /// give the version that it replaced, which <see cref="Follow"/> does not take over it.
+    /// </summary>
+    /// <exception cref="ArgumentException">The stash is larger than a document can be (<see cref="DocumentFormat.MaxSize"/>): only its name can make it so.</exception>
+    /// <exception cref="IOException">The share could not be reached before a load said so (core.md, "Calling the layer").</exception>
+    /// <exception cref="UnauthorizedAccessException">The share refused the write before a load said so.</exception>
+    internal WriteResult Replace(StashFile stash, int version)
+    {
+        ArgumentNullException.ThrowIfNull(stash);
+        return TakeWritten(stash.Key, _copy.Replace(stash.Key, version, stash.ToContent()), (set, written) => WithStash(set, stash, written));
     }
 
     /// <summary>
@@ -351,6 +362,12 @@ public sealed class Records : IDisposable
 
         return written;
     }
+
+    /// <summary>The set with <paramref name="stash"/>, which this Kiler wrote at <paramref name="version"/>; <c>null</c> when a load has brought in a newer version meanwhile.</summary>
+    private static RecordSet? WithStash(RecordSet set, StashFile stash, int version) =>
+        set.Stashes.GetValueOrDefault(stash.Id)?.Version > version
+            ? null
+            : new RecordSet(set.Session, set.Stashes.SetItem(stash.Id, TeamFile<StashFile>.Written(version, stash)), set.Records, set.Trash);
 
     /// <summary><paramref name="record"/>, which this Kiler wrote, deleted or restored at <paramref name="version"/>, read for <paramref name="session"/> with the templates of the last update.</summary>
     private RecordView ViewOf(RecordFile record, int version, Session? session) => RecordView.Read(TeamFile<RecordFile>.Written(version, record), _templates, session);
