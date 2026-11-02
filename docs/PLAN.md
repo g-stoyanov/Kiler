@@ -670,6 +670,8 @@ Throughout the project.
 
    One pass of `code-reviewer` checks the claims of the README. Then the session shows the user the excerpts that concern the profile: the opening, "What Kiler is" with the templates, the code feature and the demo. Only after the user approves them, it commits `README.md`, `docs/screenshots/` and the tick here, pushes, watches CI and runs `/note`, as the user asked for this session.
 
+   **Done on 2026-11-02**, as proposed above, with the eleven PNGs in `docs/screenshots/` (`11-snippet` beside `10-users-dark` in the last row). The review of the claims changed some wording: a "Link" is a web address (the field takes only http and https), the levels and their names are chosen at the setup, guest mode is turned on at the setup (only the wizard sets it), the audit records the passwords of the top level, and level 0 is open to anyone who can open the shared folder. "Use it in a team" became "Start using it": without `--data`, Kiler finds its data only from a network folder (`DataPlace.ChooseFolder`), so the folder may be on the file server at work or on a NAS at home.
+
 ---
 
 ## 6. Open questions
