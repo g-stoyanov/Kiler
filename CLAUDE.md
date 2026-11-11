@@ -23,12 +23,12 @@ The deliverable is a Google Doc of 3–6 pages: idea, modules and for each modul
 - **Phases:**
   1. Rough refinement: `KILER_DESIGN.md`. Done.
   2. Plan: `docs/PLAN.md`, `docs/tasks/`, GitHub repo, development environment. Done.
-  3. **Development (current):** modules M1–M7, while M8 runs the whole time. The checks in the real environment (design section 14) were a checkpoint right after M1, with the instructions in [docs/real-environment-checks.md](docs/real-environment-checks.md); the results are in [docs/tasks/M1.md](docs/tasks/M1.md#checkpoint-in-the-real-environment). Until the exam, the steps in [docs/PLAN.md, section 10](docs/PLAN.md#10-deferred-until-after-the-exam) are deferred, M7 among them, and the tasks follow the [light cycle](docs/tasks/README.md#light-cycle-until-the-exam).
+  3. **Development (current):** modules M1–M7, while M8 runs the whole time. The checks in the real environment (design section 14) were a checkpoint right after M1, with the instructions in [docs/real-environment-checks.md](docs/real-environment-checks.md); the results are in [docs/tasks/M1.md](docs/tasks/M1.md#checkpoint-in-the-real-environment). The steps in [docs/PLAN.md, section 10](docs/PLAN.md#10-deferred-until-after-the-exam), M7 among them, were deferred until the exam; now they are done in the order of that section, with the full [work cycle](docs/tasks/README.md#work-cycle-one-task). The light cycle ended with the exam.
   4. Stabilization and release: full E2E with demo data, README, final screenshots, release `v1.0`, trial use in the real environment with the checks of the data layer in [docs/real-environment-checks.md](docs/real-environment-checks.md#the-trial-use-phase-4). The trial use comes after the exam, after the first three steps of PLAN section 10.
-  5. Exam write-up: Google Doc from `course/NOTES.md` and `course/PROMPTS.md`.
-  6. After the exam: move to the company Bitbucket and delete the GitHub repo. The checklist is in [docs/PLAN.md, section 9](docs/PLAN.md#9-after-the-exam).
+  5. Exam write-up: Google Doc from `course/NOTES.md` and `course/PROMPTS.md`. Done: the exam of 2026-11-03 was graded 100 points, Excellent (6.00).
+  6. Move to the company Bitbucket and delete the GitHub repo. It comes last, once the whole application is done (decided by the user on 2026-11-11). The checklist is in [docs/PLAN.md, section 9](docs/PLAN.md#9-after-the-exam).
 
-  The user tracks the exam deadline. The work follows the plan in this order.
+  The work follows the plan in this order.
 - **Tool:** Claude Code only. The write-up compares the Claude Code features that were used (subagents, hooks, skills, etc.), not AI products.
 
 ## Course notes (`course/`)

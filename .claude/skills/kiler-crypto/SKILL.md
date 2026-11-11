@@ -34,7 +34,7 @@ Only what is built into .NET. No external crypto libraries and no home-made algo
 | Key from a password | `Rfc2898DeriveBytes.Pbkdf2`, SHA-256, 600,000 iterations, a random salt per user |
 | Random values | `RandomNumberGenerator` |
 | Stamp | `HMACSHA256` |
-| Update signature | `ECDsa`, curve P-256, SHA-256; only the public key is in the exe (decided after M1.0b) |
+| Update signature | `ECDsa`, curve P-256, SHA-256; only the public key is in the exe (decided after M1.0b); see "Formats" |
 | "Remember me" | DPAPI (`ProtectedData`, current user), behind an interface; implemented in Kiler.App |
 
 ## Rules
@@ -79,6 +79,7 @@ The decisions are in `docs/tasks/M3.md`, "Decisions for the module".
 - **A password** goes into PBKDF2 as UTF-8, as typed, and those bytes are zeroed after use.
 - **The recovery key:** 20 random bytes as 32 characters of Crockford Base32 (`0123456789ABCDEFGHJKMNPQRSTVWXYZ`), shown in 8 groups of 4 joined by `-`. A typed key is read without regard to case, hyphens and spaces, with O read as 0 and I and L as 1; anything else is refused. The 32 upper-case characters are the secret, used as a password (salt and PBKDF2). The personal recovery code (design 7.10) has the same format.
 - **Kiler.Crypto knows bytes and base64 strings only:** no files, no JSON, no models. Kiler.Core gives it the UTF-8 of a group of fields.
+- **The update signature** (M3 step 11, decided by the user on 2026-11-11; `docs/tasks/M3.md`): it covers the version and the SHA-256 of `Kiler.exe` together, never the exe alone, and a local copy takes only a version higher than its own. The hash is of the local file that will run, never of the file on the share, which can change between the read and the start. The signing key is a file locked with a password through PBKDF2 and AES-GCM (not the encrypted PKCS#8 PEM, whose PBES2 is CBC without a MAC), kept by the maintainer with a copy in the company password manager; it and its password never reach the repo, the share, the exe, a test, CI, a console line or a log. The labels and the file format: M3.4.
 
 ## Tests
 
@@ -103,4 +104,3 @@ Known test vectors come from their source (RFC 7914 for PBKDF2-HMAC-SHA256, the 
 |---|---|
 | Where and how the admin stamp key is kept | the admin seal of PLAN M3 step 6 |
 | What exactly the stamp signs | a canonical form of the user's file, without the `stamp` field itself; `levels.json` too (PLAN section 10, decided after M3.2) |
-| Where the private key for signing updates is kept, and how a release is signed | never in the repo or the shared folder (M3 step 11) |

@@ -17,7 +17,7 @@
   - there is no real data in the code, tests and demo data;
   - the course note is recorded with `/note`.
 - The plan covers the whole application. Only in the exam write-up are modules merged (section 7).
-- Until the exam, the steps in section 10 are deferred, and the tasks follow the [light cycle](tasks/README.md#light-cycle-until-the-exam).
+- The steps in section 10 were deferred until the exam, and the tasks followed the [light cycle](tasks/README.md#light-cycle-until-the-exam). After the exam they are done in the order of section 10, with the full work cycle, and the move of section 9 comes last.
 
 ---
 
@@ -314,7 +314,7 @@ Design sections 4.1, 7.1–7.3, 7.5, 7.7 and 7.10.
 9. Changing a level key (section 7.9): the group is encrypted again with the new key. The whole process is organized in M4 and M5.
 10. Keys are zeroed in memory after use, as far as .NET allows.
 11. Signed updates (decided after M1.0b):
-    - an ECDSA P-256 signature over `Kiler.exe`, checked with the public key built into the exe; the check is in Kiler.Crypto;
+    - an ECDSA P-256 signature over the version and the SHA-256 of `Kiler.exe` together, checked with the public key built into the exe; a local copy takes only a higher version (decided by the user on 2026-11-11, [tasks/M3.md](tasks/M3.md)); the check is in Kiler.Crypto;
     - the key pair is made once by the maintainer; the private key stays outside the repo and the shared folder;
     - `version.json` in the shared folder carries the version, the SHA-256 and the signature;
     - at start, the local copy (M1) reads `version.json`. For a newer version it writes the new exe next to itself as `.new` and checks the signature, renames its own running exe to `.old`, moves the new one into place and restarts. On any failure, the old exe goes back. The leftovers are deleted at the next start, with a few attempts, and a failure there never stops the application. They include a `Kiler.exe.*.tmp` that an interrupted first copy left (M1.5a). This part is in Kiler.App, and the probe in M1.0b checked that the antivirus allows it;
@@ -682,7 +682,7 @@ They are resolved at the start of the relevant module. The decisions are also re
 |---|---|
 | after M1 | The checks from design section 14 with the exe from M1. Decided: a probe exe before the code (M1.0b), and later a `--diag` mode (M1.11). Done in M1.0b: the architecture holds; the decisions are in M1, M2, M3, M4 and M6. The checkpoint with the final exe of M1 was done on 2026-10-26 and changes no decision ([tasks/M1.md](tasks/M1.md#checkpoint-in-the-real-environment)). |
 | M1 | Native AOT or plain single-file. Decided after M1.0b: Native AOT. |
-| M3 | Where the private key for signing updates is kept, and how a release is signed. Deferred with the signed updates (section 10). |
+| M3 | Where the private key for signing updates is kept, and how a release is signed. Deferred with the signed updates (section 10). Decided by the user on 2026-11-11: a file locked with a password, with a copy in the company password manager, and a release tool that signs ([tasks/M3.md](tasks/M3.md)). |
 | M1 | How the heartbeat is sent. Decided: SSE. |
 | M1 | GitHub Actions with Claude (`claude-code-action`, PR review). Decided: no. The local `code-reviewer` is enough. |
 | process | Plan mode at the start of a module. Decided: no. Planning stays in the conversation, with multiple-choice questions. |
@@ -692,7 +692,7 @@ They are resolved at the start of the relevant module. The decisions are also re
 | M5 | Rules for changing a template that has records. Private records are read only by their owner's exe, so the rules must work without the admin rewriting them. Deferred with step 10 at the start of M5 (section 10). |
 | M2 | Whether `share.json` is checked again when it is read: a folder that is no longer a network path is refused (M1.5a security review). A start of the real exe from a folder someone else controls moves the user's data there. Decided at the start of M2: no. Kiler writes only a network folder there, in the protected `%LOCALAPPDATA%\Kiler`, so a check would catch only a mapped drive letter that later became a local drive. A network folder that someone else controls passes such a check; the M6 question below answers it ([tasks/M2.md](tasks/M2.md)). |
 | M2 | How the local copy keeps what it is there to restore (step 10). If it mirrors the share, a file deleted outside Kiler (not through `trash\`), a damaged file or a file edited in place reaches every user's cache within about 10 s, and there is nothing left to restore from. Decided at the start of M2, as proposed: the cache does not delete or overwrite such files; it keeps the last good version apart and reports them for restore ([tasks/M2.md](tasks/M2.md)). |
-| M3 | Whether the first copy checks the copied exe against the signed `version.json` before it starts it. The bytes are copied by path some seconds after the start, and a DLL planted next to the exe in the shared folder runs in it (M1.5a security review). The checkpoint after M1 confirmed it: planted copies of `NTASN1.dll` and `SSPICLI.DLL` replaced the system ones in every start from the shared folder, and more in some ([tasks/M1.md](tasks/M1.md#checkpoint-in-the-real-environment)). Deferred with the signed updates (section 10). |
+| M3 | Whether the first copy checks the copied exe against the signed `version.json` before it starts it. The bytes are copied by path some seconds after the start, and a DLL planted next to the exe in the shared folder runs in it (M1.5a security review). The checkpoint after M1 confirmed it: planted copies of `NTASN1.dll` and `SSPICLI.DLL` replaced the system ones in every start from the shared folder, and more in some ([tasks/M1.md](tasks/M1.md#checkpoint-in-the-real-environment)). Deferred with the signed updates (section 10). Decided by the user on 2026-11-11: yes, with `NoRemoteImages` ([tasks/M3.md](tasks/M3.md)). |
 | M6 | Whether the UI shows the shared folder that Kiler uses (M1.5a security review). Decided at the start of M6: yes, every page shows the data folder in its foot line ([tasks/M6.md](tasks/M6.md)). |
 | M4 | UI component library, routing, data loading. Planned for M6; decided at the start of M4, whose screens come first: no component library (own CSS), React Router, the data through `api.ts` and React state ([tasks/M4.md](tasks/M4.md)). |
 | M6 | Whether the redirect of the token exchange sends `Clear-Site-Data: "cache"`, against a browser cache poisoned from another port of 127.0.0.1 (the M1.8 residual risk in [tasks/log/M1.md](tasks/log/M1.md); to be checked in Edge with a test listener first). Deferred at the start of M6, to before the trial use (section 10). |
@@ -774,6 +774,8 @@ MCP: the desktop app already provides MCP tools, for example the built-in browse
 
 After the exam is graded, the public GitHub repo is deleted and the project continues in the company Bitbucket, which is private. The details are decided then.
 
+The exam of 2026-11-03 was graded 100 points. Decided by the user on 2026-11-11: the move comes last, once the whole application is done, all of section 10 with it. Until then the repo stays on GitHub, public, with its data rules, `data-guard` and CI.
+
 | # | What | Note |
 |---|---|---|
 | 1 | Push the whole history to the company Bitbucket | a new remote |
@@ -792,10 +794,12 @@ Decided by the user on 2026-10-29, after M2 took three days: until the exam, the
 
 **Brought forward before the exam** (decided by the user on 2026-10-31, once M6 was done): item 1, the audit of the Prod passwords, whole; item 12, the conflict with the two versions side by side; item 10, renaming, merging and deleting stashes, only if there is time; and the fix of the M6.11 finding that a shown password hid at every `changed` event (in [tasks/M6.md](tasks/M6.md)). They are the tasks M6.16 to M6.24 of [tasks/M6.md](tasks/M6.md), with their decisions there, in the light cycle, all done by 2026-11-01, item 10 too. The other items stay after the exam, in the order below.
 
+**After the exam** (decided by the user on 2026-11-11): the items below are done in their order, with the full work cycle, before the move of section 9. The tasks of an item go into the task file of the module its steps come from, numbered after its last task (for example M3.4), as "Start of a module" says for a module that comes back ([tasks/README.md](tasks/README.md#start-of-a-module)). An item that spans modules, such as 3, has tasks in each of them, done in the order of the item.
+
 **First, before the trial use in the real environment (phase 4):**
 
 1. The audit of the Prod passwords: M4 step 10, the audit of M5 step 6, and the audit screen of M6 step 7. A view of a Prod password before it is in place is recorded nowhere, so it comes before the first real Prod data. It needs a new mechanism in Kiler.Storage, appending to a file in `audit\`. Done before the exam: M6.17 to M6.19.
-2. Signed updates: M3 step 11, with the open questions on the signing key and on the check of the first copy. A local copy is never overwritten (M1), so every user who started a version without updates installs the first version with them by hand.
+2. Signed updates: M3 step 11, with the open questions on the signing key and on the check of the first copy. A local copy is never overwritten (M1), so every user who started a version without updates installs the first version with them by hand. Its tasks are M3.4 to M3.8 in [tasks/M3.md](tasks/M3.md).
 3. The admin seal and the marks of design section 7.8: M3 step 6 and M4 step 8, with the open question on the seal key. The user files made before it get their seal once, from an admin's exe. The seal covers `levels.json` too, not only the user files, as anyone who can write it can replace the check of a level with one of a key of their own (decided by the user after M3.2, [tasks/M3.md](tasks/M3.md), "The accepted limits").
 
 Also before the trial use, without a number of its own: the open question of section 6 on `Clear-Site-Data: "cache"` in the redirect of the token exchange, checked in Edge with a test listener first (deferred at the start of M6).

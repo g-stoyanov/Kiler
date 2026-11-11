@@ -8,7 +8,7 @@ Here [the plan](../PLAN.md) is broken into small tasks with ticks. The work foll
 |---|---|---|
 | M1 Host and skeleton | [M1.md](M1.md) | done, with the checkpoint in the real environment |
 | M2 Data layer | [M2.md](M2.md) | done; its checks that need the user's hands go to the [trial use](../real-environment-checks.md#the-trial-use-phase-4) |
-| M3 Cryptography | [M3.md](M3.md) | done; part of it deferred until after the exam ([PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam)) |
+| M3 Cryptography | [M3.md](M3.md) | in progress: the signed updates, M3.4 to M3.8 ([PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam), item 2); the other deferred steps after their items |
 | M4 Users and permissions | [M4.md](M4.md) | done; part of it deferred until after the exam ([PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam)) |
 | M5 Templates, records and search | [M5.md](M5.md) | done; part of it deferred until after the exam ([PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam)) |
 | M6 User interface | [M6.md](M6.md) | done; M6.16 to M6.24 brought forward part of [PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam), and the rest of it is deferred until after the exam |
@@ -97,6 +97,8 @@ A dropped task stays in the list so the numbers stay stable. It is ticked and st
 
 ## Light cycle (until the exam)
 
+It ended with the exam: the tasks after it follow the full cycle above, and the findings that it left are item 15 of [PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam). The section stays for the tasks done under it.
+
 Decided by the user on 2026-10-29, with the steps deferred until after the exam ([PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam)). Until the exam, the reviews of step 5 go so; the rest of the cycle stays.
 
 - `code-reviewer` makes one pass of each task. `security-reviewer` makes one pass, and only of a task of cryptography, sign-in, permissions or the secret values (the code that unlocks, shows or copies them).
@@ -106,7 +108,7 @@ Decided by the user on 2026-10-29, with the steps deferred until after the exam 
 
 ## Parallel sessions
 
-A piece of work that needs nothing of a task under way can run in a session of its own, at the same time as the main one. Until the exam these are the areas of the UI that [M6.md](M6.md) marks as parallel, once M6.2 has made the base of the screens. The rules:
+A piece of work that needs nothing of a task under way can run in a session of its own, at the same time as the main one. Before the exam these were the areas of the UI that [M6.md](M6.md) marked as parallel; after it, a task can run so when its file lists what it owns. The rules:
 
 - The session works in a git worktree of its own, on a branch of its own, never in the main working tree: two builds in one folder fight over `bin\` and `obj\`, and the `git add -A` of step 7 would take the files of the other session.
 - It changes only the files that its task lists under "Owns", and no other session changes them while it runs, the main one included. Two tasks that run at the same time never own the same file; the tasks of one area go one after another in its session. A change of a file that the task does not own, such as `api.ts`, `App.tsx` or `package.json` of `src/ui`, is asked of the main session, not made.
@@ -119,10 +121,12 @@ A piece of work that needs nothing of a task under way can run in a session of i
 ## Start of a module
 
 1. The module's open questions from [PLAN.md, section 6](../PLAN.md#6-open-questions) are resolved.
-2. The notes for the module are collected from "For later modules" at the end of the earlier module files: search them for the module number, for example `M4`. Each goes under the module's decisions or under its task. Until the exam, a note that serves only a step deferred in [PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam) stays where it is.
+2. The notes for the module are collected from "For later modules" at the end of the earlier module files: search them for the module number, for example `M4`. Each goes under the module's decisions or under its task. Before the exam, a note that served only a step deferred in [PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam) stayed where it was.
 3. The skills and agents for the module are reviewed. The decisions that were deferred until now go into them. A project that gets its first code gets its area file in `kiler-dotnet`.
-4. From the module's steps in PLAN.md, `M<n>.md` is written with ordered tasks, each small enough for one session with its reviews (step 2 of the cycle, "Size"). Until the exam, the deferred steps get no tasks. Its log, `log/M<n>.md`, starts empty.
+4. From the module's steps in PLAN.md, `M<n>.md` is written with ordered tasks, each small enough for one session with its reviews (step 2 of the cycle, "Size"). Before the exam, the deferred steps got no tasks. Its log, `log/M<n>.md`, starts empty.
 5. The status in the table above becomes "in progress".
+
+**A module that comes back** for its steps deferred in [PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam), one item of that section at a time: the same steps 1 to 5 for that item only. Its open questions are resolved; its notes are collected from the whole `docs/tasks/`, the module's own file and "Left for after the exam" included (search for the PLAN steps of the item, for example "step 11" or "the seal"); the skills and agents get its decisions; its tasks go into `M<n>.md` after the last one, and its "Until the exam" lines are updated. When the item's tasks are done, the status goes back to "done", with what is still deferred.
 
 ## End of a module
 
