@@ -22,6 +22,7 @@ namespace Kiler.Core;
 [JsonSerializable(typeof(StashJson))]
 [JsonSerializable(typeof(TemplateJson))]
 [JsonSerializable(typeof(UserJson))]
+[JsonSerializable(typeof(VersionJson))]
 internal sealed partial class CoreJsonContext : JsonSerializerContext;
 
 internal static class ModelJson
@@ -197,6 +198,16 @@ internal sealed class TemplateFieldJson
     public bool? Filter { get; init; }
 
     public bool? List { get; init; }
+}
+
+/// <summary><c>version.json</c> of a release (<see cref="VersionFile"/>), its members in the order of the file.</summary>
+internal sealed class VersionJson
+{
+    public string? Version { get; init; }
+
+    public string? Sha256 { get; init; }
+
+    public string? Signature { get; init; }
 }
 
 internal sealed class UserJson

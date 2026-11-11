@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The release tool (M3 step 11, M3.5): keygen makes the signing key of the releases, and sign writes the signed version.json
+    next to a published Kiler.exe. It runs on the maintainer's machine through dotnet run and is not published;
+    docs/release.md says how a release is made. The rules are in the kiler-dotnet skill (release.md).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <!-- Kiler.Core for VersionFile, the format of version.json, which the local copies read too (M3.6); Kiler.Crypto with it. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Kiler.Core\Kiler.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Kiler.Release.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -16,6 +16,7 @@ The rules of one area are in a file of their own beside this one. Read the file 
 - [crypto.md](crypto.md): Kiler.Crypto and its tests (M3). The cryptographic rules are in the `kiler-crypto` skill.
 - [core.md](core.md): Kiler.Core and its tests: the models, the calls to the data layer, the team in memory, the session and the permissions (M4); the templates, stashes and records (M5).
 - [demodata.md](demodata.md): `tools/Kiler.DemoData` and its tests: the demo data (M4.10).
+- [release.md](release.md): `tools/Kiler.Release` and its tests, and `VersionFile` of Kiler.Core: the release tool, the signing key and `version.json` (M3.5).
 
 A rule for all the code stays here. A rule of one area goes into the file of that area; a new area gets a file of its own when its first task needs one. Each rule is written once: a task note points to the rule instead of repeating it.
 

@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The output holds Kiler.Release.exe too, which ToolProcessTests starts with its input redirected. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\tools\Kiler.Release\Kiler.Release.csproj" />
+  </ItemGroup>
+
+</Project>

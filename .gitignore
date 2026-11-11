@@ -15,6 +15,9 @@ course/
 # The reports of --diag (M1.11): an error message can still hold an internal name
 Kiler-diag-*.txt
 
+# The signing key of the releases (M3.5, docs/release.md): it never goes into the repo
+*.kilerkey
+
 # The UI build and the Vitest output (node_modules is ignored further down)
 src/ui/dist/
 src/ui/.vitest/

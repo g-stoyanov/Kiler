@@ -67,6 +67,7 @@ src/
   ui/                      React + Vite; the build is embedded in Kiler.App
 tools/
   Kiler.DemoData/          generator of made-up demo data
+  Kiler.Release/           release tool: the signing key and the signed version.json (M3.5, docs/release.md)
 tests/
   Directory.Build.props    test settings: xUnit v3, no AOT analyzers
   Kiler.Crypto.Tests/
@@ -74,8 +75,11 @@ tests/
   Kiler.Core.Tests/
   Kiler.App.Tests/         API tests and smoke tests of the exe
   Kiler.E2E/               Playwright
+  Kiler.DemoData.Tests/
+  Kiler.Release.Tests/
 docs/
   PLAN.md
+  release.md               how a release is made and signed
 .github/workflows/
   ci.yml
 ```
@@ -730,7 +734,7 @@ The split is as follows:
 
 | Name | Kind | When it is used | Role |
 |---|---|---|---|
-| `kiler-dotnet` | skill | C# and .NET code | project structure, Native AOT, xUnit v3 and TDD, Windows parts behind interfaces; the rules of one area in a file of its own (`host.md` for Kiler.App, `storage.md` for Kiler.Storage, `crypto.md` for Kiler.Crypto, `core.md` for Kiler.Core, `demodata.md` for `tools/Kiler.DemoData`) |
+| `kiler-dotnet` | skill | C# and .NET code | project structure, Native AOT, xUnit v3 and TDD, Windows parts behind interfaces; the rules of one area in a file of its own (`host.md` for Kiler.App, `storage.md` for Kiler.Storage, `crypto.md` for Kiler.Crypto, `core.md` for Kiler.Core, `demodata.md` for `tools/Kiler.DemoData`, `release.md` for `tools/Kiler.Release`) |
 | `kiler-crypto` | skill | encryption, keys, passwords, tokens | the algorithms and rules from design sections 7 and 12 |
 | `kiler-ui` | skill | `src/ui` | React, TypeScript, Vite, API, secret values in the browser, Vitest |
 | `code-reviewer` | subagent, read-only | every task, before the tick | scope, the tests from "Tests", bugs, the rules, real data |
