@@ -25,7 +25,7 @@
 
 | Area | Choice |
 |---|---|
-| Platform | .NET 10, C#. The exe is published with Native AOT, `win-x64` only. Each user runs a local copy in the profile (M1). |
+| Platform | .NET 10 (`net10.0`), C#. The exe is published with Native AOT, `win-x64` only. Each user runs a local copy in the profile (M1). Built with the .NET 11 SDK since 2026-11-11 (`global.json`): Visual Studio 18.12 replaced SDK 10.0.400 with 11.0.100, whose ILCompiler and runtime packs for `net10.0` (10.0.15) have the fix for GHSA-p3jp-9v83-76w9. `AnalysisLevel` stays 10.0. |
 | Server | ASP.NET Core minimal API (Kestrel) on `127.0.0.1` |
 | UI | React 19, TypeScript, Vite. The finished build is embedded in the exe. |
 | Code in the UI | CodeMirror 6, sql-formatter (with PL/SQL) |

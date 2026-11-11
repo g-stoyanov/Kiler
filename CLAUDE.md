@@ -87,7 +87,7 @@ They are described in [docs/PLAN.md, section 8](docs/PLAN.md#8-agents-skills-and
 
 The details are in [docs/PLAN.md](docs/PLAN.md), sections 2 and 3.
 
-- **Stack:** .NET 10, ASP.NET Core minimal API, React 19 with TypeScript and Vite. `win-x64` only.
+- **Stack:** .NET 10, built with the .NET 11 SDK (`global.json`), ASP.NET Core minimal API, React 19 with TypeScript and Vite. `win-x64` only.
 - **Solution:** `Kiler.slnx`.
   - `src/`: Kiler.Crypto, Kiler.Storage, Kiler.Core, Kiler.App (produces `Kiler.exe`) and `ui/` with React.
   - `tools/Kiler.DemoData`.

@@ -15,7 +15,7 @@
       The vulnerability warnings themselves (NU1901-NU1904) stay errors.
     -->
     <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1507;NU1900</WarningsNotAsErrors>
-    <!-- A newer SDK feature band must not turn on new analyzer rules by itself. -->
+    <!-- A newer SDK (feature band or major version, global.json) must not turn on new analyzer rules by itself. -->
     <AnalysisLevel>10.0</AnalysisLevel>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <!-- IDE0005 (unnecessary using) is reported in the build only with a documentation file. -->

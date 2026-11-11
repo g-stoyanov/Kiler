@@ -77,7 +77,7 @@ The screenshots come from the E2E tests (`ScreenshotTests`), on the made-up demo
 ### Requirements
 
 - Windows x64.
-- The .NET 10 SDK (10.0.400 or a newer feature band, see `global.json`).
+- The .NET 11 SDK (11.0.100 or a newer feature band, see `global.json`). Kiler itself runs on .NET 10.
 - Node.js 24.15 or newer.
 - For the publish (Native AOT): the Visual Studio C++ build tools, the workload "Desktop development with C++".
 
