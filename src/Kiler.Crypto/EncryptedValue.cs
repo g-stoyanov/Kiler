@@ -4,7 +4,10 @@ using System.Text;
 
 namespace Kiler.Crypto;
 
-/// <summary>What an encrypted value is for. Its label goes into the associated data, so a value is never read as another.</summary>
+/// <summary>
+/// What an encrypted value or a signed text is for. Its label goes into the associated data or the signed text, so a value
+/// is never read as another. The labels are part of the format, and one enum keeps them apart.
+/// </summary>
 internal enum Purpose
 {
     /// <summary>A group of fields of a shared record; the context is the record id and the level.</summary>
@@ -15,6 +18,15 @@ internal enum Purpose
 
     /// <summary>A level key locked with a password or the recovery key; the context is the level.</summary>
     LevelKey,
+
+    /// <summary>
+    /// The signed text of a release (M3.4); the context is the version and the hash. Only <see cref="UpdateSignature"/> takes
+    /// it: Kiler encrypts no value with it, and a tag of AES-GCM would be no signature.
+    /// </summary>
+    Update,
+
+    /// <summary>The signing key of the releases locked with a password (M3.4); the context is its public key.</summary>
+    SigningKey,
 }
 
 /// <summary>
@@ -105,24 +117,14 @@ internal static class EncryptedValue
         return bytes.Length >= MinSize && bytes[0] == Version1 ? bytes : throw Unreadable();
     }
 
-    private static byte[] FromBase64(string value)
-    {
-        byte[] bytes;
-        try
-        {
-            bytes = Convert.FromBase64String(value);
-        }
-        catch (FormatException)
-        {
-            throw Unreadable();
-        }
+    private static byte[] FromBase64(string value) => CanonicalBase64.TryDecode(value, out var bytes) ? bytes : throw Unreadable();
 
-        // Convert takes white space and bits set after the last byte, so the same bytes have more than one text: only the
-        // one that Encrypt writes is read.
-        return string.Equals(Convert.ToBase64String(bytes), value, StringComparison.Ordinal) ? bytes : throw Unreadable();
-    }
-
-    private static byte[] AssociatedData(byte version, Purpose purpose, ReadOnlySpan<string> context)
+    /// <summary>
+    /// The version byte, then the label of <paramref name="purpose"/> and each part of <paramref name="context"/> as strict
+    /// UTF-8 with its length before it. It is also the signed text of a release, with the format of the signature as the
+    /// version (<see cref="UpdateSignature"/>, M3.4).
+    /// </summary>
+    internal static byte[] AssociatedData(byte version, Purpose purpose, ReadOnlySpan<string> context)
     {
         var label = Label(purpose);
         var size = 1 + sizeof(int) + Strict.GetByteCount(label);
@@ -155,6 +157,8 @@ internal static class EncryptedValue
         Purpose.Group => "group",
         Purpose.Check => "check",
         Purpose.LevelKey => "level-key",
+        Purpose.Update => "update",
+        Purpose.SigningKey => "signing-key",
         _ => throw new ArgumentOutOfRangeException(nameof(purpose)),
     };
 
