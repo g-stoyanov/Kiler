@@ -45,17 +45,24 @@ internal sealed class ToolFolder : IDisposable
         return path;
     }
 
-    /// <summary>A key file of <see cref="Password"/>, made by Kiler.Crypto, and its public key.</summary>
-    public (string Path, string PublicKey) KeyFile(string name = "demo.kilerkey")
+    /// <summary>A key file of <paramref name="password"/>, <see cref="Password"/> by default, made by Kiler.Crypto, and its public key.</summary>
+    public (string Path, string PublicKey) KeyFile(string name = "demo.kilerkey", string password = Password)
     {
         using var key = SigningKey.New();
         var path = this[name];
-        File.WriteAllText(path, key.Lock(Password));
+        File.WriteAllText(path, key.Lock(password));
         return (path, key.PublicKey);
     }
 
-    /// <summary>The members of a <c>version.json</c>, as a local copy reads them, with the one signature that the tool writes.</summary>
+    /// <summary>The members of a <c>version.json</c>, as a local copy reads them, with the one signature that the tool writes for one key.</summary>
     public static (string Version, string Sha256, string Signature) ReadVersionJson(string path)
+    {
+        var file = ReadVersionFile(path);
+        return (file.Version.ToString(), file.Sha256, Assert.Single(file.Signatures));
+    }
+
+    /// <summary>A <c>version.json</c> as a local copy reads it, with its members in the order the tool writes them.</summary>
+    public static VersionFile ReadVersionFile(string path)
     {
         var bytes = File.ReadAllBytes(path);
         using (var json = JsonDocument.Parse(bytes))
@@ -64,7 +71,7 @@ internal sealed class ToolFolder : IDisposable
         }
 
         Assert.True(VersionFile.TryRead(bytes, out var file, out var invalid), invalid);
-        return (file.Version.ToString(), file.Sha256, Assert.Single(file.Signatures));
+        return file;
     }
 
     public void Dispose()
@@ -109,6 +116,9 @@ internal sealed class FakeConsole(params string[] passwords) : IToolConsole
         return length;
     }
 
-    /// <summary>The value after <c>Public key: </c> in the output.</summary>
-    public string PrintedPublicKey => Assert.Single(Output, line => line.StartsWith("Public key: ", StringComparison.Ordinal))["Public key: ".Length..];
+    /// <summary>The value after <c>Public key: </c> in the output, which has one such line.</summary>
+    public string PrintedPublicKey => Assert.Single(PrintedPublicKeys);
+
+    /// <summary>The values after <c>Public key: </c> in the output, in their order.</summary>
+    public List<string> PrintedPublicKeys => [.. Output.Where(line => line.StartsWith("Public key: ", StringComparison.Ordinal)).Select(line => line["Public key: ".Length..])];
 }

@@ -5,6 +5,9 @@ namespace Kiler.Release.Tests;
 
 public sealed class ReleaseToolTests : IDisposable
 {
+    /// <summary>The made-up password of a second key file, for a change of key (M3.8a).</summary>
+    private const string SecondPassword = "second demo release password";
+
     private readonly ToolFolder _folder = new();
 
     public void Dispose() => _folder.Dispose();
@@ -29,7 +32,99 @@ public sealed class ReleaseToolTests : IDisposable
         Assert.True(UpdateSignature.Verify(publicKey, ToolFolder.ToolVersion, hash, signature), "The signature does not verify with the printed public key.");
         Assert.Equal(publicKey, sign.PrintedPublicKey);
         Assert.Contains($"SHA-256: {sha256}", sign.Output);
+        Assert.Contains(keyFile, Assert.Single(sign.Prompts), StringComparison.Ordinal);
         Assert.False(keygen.All.Contains(ToolFolder.Password, StringComparison.Ordinal) || sign.All.Contains(ToolFolder.Password, StringComparison.Ordinal), "The tool printed the password.");
+    }
+
+    [Fact]
+    public void Sign_WithTwoKeyFiles_WritesASignatureOfEachInTheirOrder()
+    {
+        var (oldKey, oldPublicKey) = _folder.KeyFile("old.kilerkey");
+        var (newKey, newPublicKey) = _folder.KeyFile("new.kilerkey", SecondPassword);
+        var exe = _folder.Exe();
+
+        var console = new FakeConsole(ToolFolder.Password, SecondPassword);
+        Assert.Equal(ReleaseTool.Done, ReleaseTool.Run(["sign", exe, oldKey, newKey], console));
+
+        var hash = SHA256.HashData(File.ReadAllBytes(exe));
+        var file = ToolFolder.ReadVersionFile(_folder["version.json"]);
+        Assert.Equal(2, file.Signatures.Count);
+        Assert.True(UpdateSignature.Verify(oldPublicKey, ToolFolder.ToolVersion, hash, file.Signatures[0]), "The first signature does not verify with the key of the first file.");
+        Assert.True(UpdateSignature.Verify(newPublicKey, ToolFolder.ToolVersion, hash, file.Signatures[1]), "The second signature does not verify with the key of the second file.");
+        Assert.Equal([oldPublicKey, newPublicKey], console.PrintedPublicKeys);
+        Assert.Collection(
+            console.Prompts,
+            prompt => Assert.Contains(oldKey, prompt, StringComparison.Ordinal),
+            prompt => Assert.Contains(newKey, prompt, StringComparison.Ordinal));
+        Assert.False(console.All.Contains(ToolFolder.Password, StringComparison.Ordinal) || console.All.Contains(SecondPassword, StringComparison.Ordinal), "The tool printed a password.");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Sign_TheSameKeyTwice_RefusesAndWritesNothing(bool lockedAgain)
+    {
+        var (keyFile, _) = _folder.KeyFile();
+        var second = keyFile;
+        var secondPassword = ToolFolder.Password;
+        if (lockedAgain)
+        {
+            // Another file with another password, so only the key itself is the same.
+            Assert.True(SigningKey.TryUnlock(File.ReadAllText(keyFile), ToolFolder.Password, out var key));
+            using (key)
+            {
+                second = _folder["again.kilerkey"];
+                secondPassword = SecondPassword;
+                File.WriteAllText(second, key.Lock(secondPassword));
+            }
+        }
+
+        var exe = _folder.Exe();
+        File.WriteAllText(_folder["version.json"], "earlier");
+
+        var console = new FakeConsole(ToolFolder.Password, secondPassword);
+        Assert.Equal(ReleaseTool.Refused, ReleaseTool.Run(["sign", exe, keyFile, second], console));
+
+        Assert.Equal("earlier", File.ReadAllText(_folder["version.json"]));
+        Assert.Contains("the same key", Assert.Single(console.Errors), StringComparison.Ordinal);
+        Assert.Empty(console.Output);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void Sign_WithTwoKeyFilesAndAWrongPasswordOfEither_RefusesAndWritesNothing(int wrong)
+    {
+        var (oldKey, _) = _folder.KeyFile("old.kilerkey");
+        var (newKey, _) = _folder.KeyFile("new.kilerkey", SecondPassword);
+        var exe = _folder.Exe();
+        File.WriteAllText(_folder["version.json"], "earlier");
+        string[] passwords = [ToolFolder.Password, SecondPassword];
+        passwords[wrong] = "another release password";
+
+        var console = new FakeConsole(passwords);
+        Assert.Equal(ReleaseTool.Refused, ReleaseTool.Run(["sign", exe, oldKey, newKey], console));
+
+        Assert.Equal("earlier", File.ReadAllText(_folder["version.json"]));
+        var error = Assert.Single(console.Errors);
+        Assert.Contains("does not unlock", error, StringComparison.Ordinal);
+        Assert.Contains(wrong == 0 ? oldKey : newKey, error, StringComparison.Ordinal);
+        Assert.Equal(wrong + 1, console.Prompts.Count);
+        Assert.Empty(console.Output);
+    }
+
+    [Fact]
+    public void Sign_WithTwoKeyFilesAndNoSecondPassword_RefusesAndWritesNothing()
+    {
+        var (oldKey, _) = _folder.KeyFile("old.kilerkey");
+        var (newKey, _) = _folder.KeyFile("new.kilerkey", SecondPassword);
+        var exe = _folder.Exe();
+
+        var console = new FakeConsole(ToolFolder.Password);
+        Assert.Equal(ReleaseTool.Refused, ReleaseTool.Run(["sign", exe, oldKey, newKey], console));
+
+        Assert.False(File.Exists(_folder["version.json"]), "A version.json was written.");
+        Assert.Contains(newKey, Assert.Single(console.Errors), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -161,9 +256,12 @@ public sealed class ReleaseToolTests : IDisposable
         Assert.Equal(ReleaseTool.Refused, ReleaseTool.Run(["sign", _folder["Other.exe"], keyFile], noExe));
         var noKey = new FakeConsole(ToolFolder.Password);
         Assert.Equal(ReleaseTool.Refused, ReleaseTool.Run(["sign", exe, _folder["other.kilerkey"]], noKey));
+        var noSecondKey = new FakeConsole(ToolFolder.Password, ToolFolder.Password);
+        Assert.Equal(ReleaseTool.Refused, ReleaseTool.Run(["sign", exe, keyFile, _folder["other.kilerkey"]], noSecondKey));
 
         Assert.Empty(noExe.Prompts);
         Assert.Empty(noKey.Prompts);
+        Assert.Empty(noSecondKey.Prompts);
         Assert.False(File.Exists(_folder["version.json"]), "A version.json was written.");
     }
 
@@ -261,6 +359,7 @@ public sealed class ReleaseToolTests : IDisposable
     [Theory]
     [InlineData("keygen", "release.kilerkey")]
     [InlineData("sign", "Kiler.exe", "demo.kilerkey")]
+    [InlineData("sign", "Kiler.exe", "demo.kilerkey", "new.kilerkey")]
     public void Run_WithARedirectedInputAndNoOption_RefusesBeforeThePassword(string command, params string[] names)
     {
         var (keyFile, _) = _folder.KeyFile();
@@ -288,16 +387,18 @@ public sealed class ReleaseToolTests : IDisposable
     }
 
     [Theory]
-    [InlineData(@"\\server\share\Kiler\Kiler.exe", "local")]
-    [InlineData(@"\\?\UNC\server\share\Kiler\Kiler.exe", "local")]
-    [InlineData("local", @"\\server\share\Kiler\demo.kilerkey")]
-    public void Sign_AFileOnTheNetwork_RefusesBeforeThePassword(string exe, string keyFile)
+    [InlineData(@"\\server\share\Kiler\Kiler.exe", "local", null)]
+    [InlineData(@"\\?\UNC\server\share\Kiler\Kiler.exe", "local", null)]
+    [InlineData("local", @"\\server\share\Kiler\demo.kilerkey", null)]
+    [InlineData("local", "local", @"\\server\share\Kiler\new.kilerkey")]
+    public void Sign_AFileOnTheNetwork_RefusesBeforeThePassword(string exe, string keyFile, string? secondKeyFile)
     {
         var (localKey, _) = _folder.KeyFile();
         var localExe = _folder.Exe();
+        string[] args = ["sign", exe == "local" ? localExe : exe, keyFile == "local" ? localKey : keyFile, .. secondKeyFile is null ? [] : new[] { secondKeyFile }];
 
-        var console = new FakeConsole(ToolFolder.Password);
-        Assert.Equal(ReleaseTool.Refused, ReleaseTool.Run(["sign", exe == "local" ? localExe : exe, keyFile == "local" ? localKey : keyFile], console));
+        var console = new FakeConsole(ToolFolder.Password, ToolFolder.Password);
+        Assert.Equal(ReleaseTool.Refused, ReleaseTool.Run(args, console));
 
         Assert.Empty(console.Prompts);
         Assert.Contains("on the network", Assert.Single(console.Errors), StringComparison.Ordinal);
@@ -330,6 +431,7 @@ public sealed class ReleaseToolTests : IDisposable
     [InlineData("keygen")]
     [InlineData("sign", "Kiler.exe")]
     [InlineData("keygen", "a.kilerkey", "b.kilerkey")]
+    [InlineData("sign", "Kiler.exe", "a.kilerkey", "b.kilerkey", "c.kilerkey")]
     [InlineData("verify", "Kiler.exe")]
     public void Run_OfAnotherForm_ShowsTheUsage(params string[] args)
     {

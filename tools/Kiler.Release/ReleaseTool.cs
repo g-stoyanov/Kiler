@@ -9,7 +9,8 @@ namespace Kiler.Release;
 /// <summary>
 /// The release tool (M3 step 11, M3.5; docs/release.md). <c>keygen</c> makes the signing key into a file locked with a
 /// password (<see cref="SigningKey.Lock"/>) and prints its public key, which goes into Kiler.App. <c>sign</c> signs the
-/// version and the SHA-256 of a published Kiler.exe and writes <c>version.json</c> next to it. A password is typed without
+/// version and the SHA-256 of a published Kiler.exe and writes <c>version.json</c> next to it, with a signature of one key,
+/// or of the old key and the new one during a change of key (M3.8a). A password is typed without
 /// echo into a pinned buffer of <see cref="char"/>, passed as a span and zeroed after use; it never becomes a
 /// <see cref="string"/> and never reaches a line of the tool. The rules are in the kiler-dotnet skill, release.md.
 /// </summary>
@@ -38,7 +39,9 @@ internal static class ReleaseTool
         The release tool of Kiler (docs/release.md):
           keygen <key file>       makes a new signing key into <key file>, which ends with .kilerkey and is not there yet,
                                   and prints its public key
-          sign <exe> <key file>   signs the version and the SHA-256 of <exe> with the key of <key file>,
+          sign <exe> <key file> [<second key file>]
+                                  signs the version and the SHA-256 of <exe> with the key of <key file>, and with
+                                  the key of <second key file> too during a change of key (the old key first),
                                   and writes version.json next to <exe>
         The password of the key is typed in PowerShell or Windows Terminal, and is not shown. The files are on a local disk.
         --password-stdin at the end takes the password from a line of the input instead: for tests, never the real password.
@@ -54,7 +57,7 @@ internal static class ReleaseTool
             args = args[..^1];
         }
 
-        if (args is ["keygen", _] or ["sign", _, _] && console.InputRedirected && !fromInput)
+        if (args is ["keygen", _] or ["sign", _, _] or ["sign", _, _, _] && console.InputRedirected && !fromInput)
         {
             return Refuse(console, $"The input is not a console, so a typed password could be shown: type it in PowerShell or Windows Terminal. A test gives it as a line of the input with {PasswordFromInput}.");
         }
@@ -64,7 +67,9 @@ internal static class ReleaseTool
             case ["keygen", var file]:
                 return KeyGen(file, console);
             case ["sign", var exe, var keyFile]:
-                return Sign(exe, keyFile, console);
+                return Sign(exe, [keyFile], console);
+            case ["sign", var exe, var keyFile, var secondKeyFile]:
+                return Sign(exe, [keyFile, secondKeyFile], console);
             case ["--help"]:
                 console.Out(Usage);
                 return Done;
@@ -131,12 +136,28 @@ internal static class ReleaseTool
         }
     }
 
-    private static int Sign(string exe, string keyFile, IToolConsole console)
+    /// <summary>
+    /// Signs with the key of each key file, in their order: one, or the old key and the new one during a change of key
+    /// (decided by the user in M3.6, M3.8a). Every file is read before the first password, and each password is asked with
+    /// the name of its file and zeroed once its key is unlocked; a refusal of either key writes nothing.
+    /// </summary>
+    private static int Sign(string exe, string[] keyFiles, IToolConsole console)
     {
         // An exe on the shared folder is never signed where it is: anyone who writes the folder may have changed its bytes.
-        if (LocalPath(exe, console) is not { } exePath || LocalPath(keyFile, console) is not { } keyPath)
+        if (LocalPath(exe, console) is not { } exePath)
         {
             return Refused;
+        }
+
+        var keyPaths = new string[keyFiles.Length];
+        for (var i = 0; i < keyFiles.Length; i++)
+        {
+            if (LocalPath(keyFiles[i], console) is not { } keyPath)
+            {
+                return Refused;
+            }
+
+            keyPaths[i] = keyPath;
         }
 
         // One read of the exe gives both the version and the hash (M3.4, security review).
@@ -151,46 +172,97 @@ internal static class ReleaseTool
         }
 
         var sha256 = SHA256.HashData(bytes);
-        if (ReadAll(keyPath, MaxKeyFileSize, out var keyBytes) is { } keyError)
+        var keyTexts = new string[keyPaths.Length];
+        for (var i = 0; i < keyPaths.Length; i++)
         {
-            return Refuse(console, keyError);
+            if (ReadAll(keyPaths[i], MaxKeyFileSize, out var keyBytes) is { } keyError)
+            {
+                return Refuse(console, keyError);
+            }
+
+            keyTexts[i] = KeyFileText(keyBytes);
         }
 
+        var keys = new List<SigningKey>(keyPaths.Length);
+        try
+        {
+            for (var i = 0; i < keyPaths.Length; i++)
+            {
+                if (Unlock(keyPaths[i], keyTexts[i], console) is not { } key)
+                {
+                    return Refused;
+                }
+
+                // Compared once unlocked, so a copy of a key file, or one locked again with another password, is seen too.
+                var same = keys.FindIndex(other => string.Equals(other.PublicKey, key.PublicKey, StringComparison.Ordinal));
+                if (same >= 0)
+                {
+                    key.Dispose();
+                    return Refuse(console, $"{keyPaths[same]} and {keyPaths[i]} hold the same key, and a change of key signs with the old key and the new one; nothing was written.");
+                }
+
+                keys.Add(key);
+            }
+
+            var signatures = new string[keys.Count];
+            for (var i = 0; i < keys.Count; i++)
+            {
+                signatures[i] = keys[i].Sign(version, sha256);
+                if (!UpdateSignature.Verify(keys[i].PublicKey, version, sha256, signatures[i]))
+                {
+                    return Refuse(console, $"The new signature of {keyPaths[i]} does not verify; nothing was written.");
+                }
+            }
+
+            var file = new VersionFile(version, sha256, signatures);
+            var target = Path.Combine(Path.GetDirectoryName(exePath)!, VersionFile.Name);
+            if (Write(target, file.ToJson()) is { } error)
+            {
+                return Refuse(console, error);
+            }
+
+            console.Out($"Kiler {version} is signed: {target}");
+            console.Out($"SHA-256: {file.Sha256}");
+            foreach (var key in keys)
+            {
+                console.Out($"Public key: {key.PublicKey}");
+            }
+
+            return Done;
+        }
+        finally
+        {
+            foreach (var key in keys)
+            {
+                key.Dispose();
+            }
+        }
+    }
+
+    /// <summary>
+    /// The key of a key file, unlocked with the password typed after a prompt that names the file, or null after a line
+    /// that says why. The password is zeroed before the next one is asked.
+    /// </summary>
+    private static SigningKey? Unlock(string keyPath, string keyText, IToolConsole console)
+    {
         var password = NewPasswordBuffer();
         try
         {
-            var length = console.ReadPassword("The password of the signing key: ", password);
+            var length = console.ReadPassword($"The password of the signing key {keyPath}: ", password);
             if (length < 0)
             {
-                return Refuse(console, "No password was given; nothing was written.");
+                console.Error($"No password was given for {keyPath}; nothing was written.");
+                return null;
             }
 
             // A password longer than Password.MaxLength fills the buffer, and TryUnlock gives false for it.
-            if (!SigningKey.TryUnlock(KeyFileText(keyBytes), password.AsSpan(0, length), out var key))
+            if (!SigningKey.TryUnlock(keyText, password.AsSpan(0, length), out var key))
             {
-                return Refuse(console, "The password does not unlock the key file, or it is not a key file of Kiler; nothing was written.");
+                console.Error($"The password does not unlock {keyPath}, or it is not a key file of Kiler; nothing was written.");
+                return null;
             }
 
-            using (key)
-            {
-                var signature = key.Sign(version, sha256);
-                if (!UpdateSignature.Verify(key.PublicKey, version, sha256, signature))
-                {
-                    return Refuse(console, "The new signature does not verify; nothing was written.");
-                }
-
-                var file = new VersionFile(version, sha256, [signature]);
-                var target = Path.Combine(Path.GetDirectoryName(exePath)!, VersionFile.Name);
-                if (Write(target, file.ToJson()) is { } error)
-                {
-                    return Refuse(console, error);
-                }
-
-                console.Out($"Kiler {version} is signed: {target}");
-                console.Out($"SHA-256: {file.Sha256}");
-                console.Out($"Public key: {key.PublicKey}");
-                return Done;
-            }
+            return key;
         }
         finally
         {
