@@ -8,8 +8,8 @@ Here [the plan](../PLAN.md) is broken into small tasks with ticks. The work foll
 |---|---|---|
 | M1 Host and skeleton | [M1.md](M1.md) | done, with the checkpoint in the real environment |
 | M2 Data layer | [M2.md](M2.md) | done; its checks that need the user's hands go to the [trial use](../real-environment-checks.md#the-trial-use-phase-4) |
-| M3 Cryptography | [M3.md](M3.md) | done, with the signed updates of [PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam), item 2 (M3.4 to M3.8b); steps 6, 7 (restoring admin access), 8, 9 and 12 deferred until their items |
-| M4 Users and permissions | [M4.md](M4.md) | done; part of it deferred until after the exam ([PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam)) |
+| M3 Cryptography | [M3.md](M3.md) | in progress: the admin seal of [PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam), item 3 (M3.9, then M4.11 to M4.20); done with the signed updates of item 2 (M3.4 to M3.8b); steps 7 (restoring admin access), 8, 9 and 12 deferred until their items |
+| M4 Users and permissions | [M4.md](M4.md) | in progress: the seal and the marks of [PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam), item 3 (M4.11 to M4.20, after M3.9); the other deferred steps wait for their items |
 | M5 Templates, records and search | [M5.md](M5.md) | done; part of it deferred until after the exam ([PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam)) |
 | M6 User interface | [M6.md](M6.md) | done; M6.16 to M6.24 brought forward part of [PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam), and the rest of it is deferred until after the exam |
 | M7 Documents and diagrams | | deferred until after the exam ([PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam)) |

@@ -17,7 +17,10 @@ Decisions come from sections 7 and 12 of the design (`KILER_DESIGN.md`, local, n
 - Each user keeps a copy of the keys up to their level, locked with a key derived from their personal password.
 - **The password is not stored anywhere.** A wrong password simply does not unlock the keys.
 - A level's `check` value is a known text encrypted with the level key. It proves that an unlocked key is genuine.
-- The admin stamp is an HMAC-SHA256 over the user's file, with a key that only admins have.
+- The admin seal (`stamp`) is an ECDSA P-256 signature with the admin key, not the HMAC of the design (decided by the user on 2026-11-12, `docs/tasks/M3.md`), so every Kiler checks it:
+  - the admin key is one key pair that the wizard makes; its private key only admins have, locked with their password and with the recovery key, and its public key every user has, locked with their password with the level keys, so no one puts another public key into the file of someone else;
+  - it covers the rights of a user file (account, display name, level, `canEdit`, `isAdmin`; never `salt`, `keys`, `mustChangePassword` or the version), and `levels.json`, `settings.json` and each template whole, with the version;
+  - a Kiler takes rights only from a sealed user file, the admin right only from the private key, and the checks of the levels only from a sealed `levels.json` (`docs/tasks/M4.md`, "The seal in the session" and "A seal that fails").
 - **Private records** (design section 7.10) use a **personal key** of 32 random bytes:
   - it is created by the user's own exe with their first private record, never by the admin's exe, and the admin never gets it;
   - it is kept in `private\<account>\key.json`, not in the user's file, locked twice: with the password and with a personal recovery code;
@@ -33,7 +36,7 @@ Only what is built into .NET. No external crypto libraries and no home-made algo
 | Encryption | `AesGcm`, 32-byte key, 12-byte nonce, 16-byte tag |
 | Key from a password | `Rfc2898DeriveBytes.Pbkdf2`, SHA-256, 600,000 iterations, a random salt per user |
 | Random values | `RandomNumberGenerator` |
-| Stamp | `HMACSHA256` |
+| Admin seal | `ECDsa`, curve P-256, SHA-256, as the update signature; its formats in M3.9 |
 | Update signature | `ECDsa`, curve P-256, SHA-256; only the public key is in the exe (decided after M1.0b); see "Formats" |
 | "Remember me" | DPAPI (`ProtectedData`, current user), behind an interface; implemented in Kiler.App |
 
@@ -49,7 +52,7 @@ Only what is built into .NET. No external crypto libraries and no home-made algo
 - Nobody encrypts a field above their own level, because they do not have the key. The server checks this too.
 - If the personal key does not unlock, fail. Never create a new personal key in its place: the old private records would become unreadable without anyone noticing.
 - An unlocked level key is kept only after `LevelCheck.Verify(key, check, level)` is true, and the rest are disposed. `levels.json` is on the share, so a missing check (`LevelEntry.Check` is null) counts as not verified and is never passed to `Verify` as null (M3.2); a check that is not a string makes `levels.json` invalid (M4.1).
-- A failed or missing check never makes Kiler write a new check or new level keys: whoever can write `levels.json` could put in a check of a key of their own, and the data of the real key would be lost (M3.2). An admin restores `levels.json`; the wizard runs only in an empty data folder (M4), and writes only into a local copy that has never had a document (`DataCopy.IsEmpty`, M4.3), as one that has may keep the last good bytes of a Kiler whose data folder has gone.
+- A failed or missing check never makes Kiler write a new check or new level keys: whoever can write `levels.json` could put in a check of a key of their own, and the data of the real key would be lost (M3.2). The same for the admin key: a `levels.json` or a user file without it, or whose seal fails, never makes Kiler make a new one or seal the files as they are (no migration, decided by the user in item 3). An admin restores `levels.json`; the wizard runs only in an empty data folder (M4), and writes only into a local copy that has never had a document (`DataCopy.IsEmpty`, M4.3), as one that has may keep the last good bytes of a Kiler whose data folder has gone.
 - A change of password locks again only the keys that unlocked and verified, so it refuses when a level of the user file did not: that level would drop out of the file for good (M3.3).
 - A `RecoveryKey` is made (`New`) or read (`TryParse`), used and disposed in one request, never kept in the session or anywhere the automatic locking or a shutdown could dispose it: it has no lock, and a `Dispose` during `LevelKeys.Lock` would lock the keys under 32 NUL characters with no error (M3.3). `TryParse` skips only hyphens and U+0020, so the UI trims a pasted key whose line break or tab would refuse it.
 
@@ -105,10 +108,3 @@ Tests are written first (TDD) and cover:
 - a private record does not decrypt under another id or another owner.
 
 Known test vectors come from their source (RFC 7914 for PBKDF2-HMAC-SHA256, the test cases of the GCM specification for AES-GCM), through `docs-researcher`, never from memory.
-
-## Deferred until after the exam (PLAN section 10)
-
-| Question | Note |
-|---|---|
-| Where and how the admin stamp key is kept | the admin seal of PLAN M3 step 6 |
-| What exactly the stamp signs | a canonical form of the user's file, without the `stamp` field itself; `levels.json` too (PLAN section 10, decided after M3.2) |

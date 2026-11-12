@@ -303,7 +303,7 @@ Design sections 4.1, 7.1–7.3, 7.5, 7.7 and 7.10.
 
 **Goal:** a clean library with all cryptographic operations, with no files and no UI.
 
-**Until the exam** ([section 10](#10-deferred-until-after-the-exam)): steps 6, 8, 9, 11 and 12 are deferred, and of step 7 only restoring admin access. The recovery key is made and locks the level keys now.
+**Until the exam** ([section 10](#10-deferred-until-after-the-exam)): steps 6, 8, 9, 11 and 12 are deferred, and of step 7 only restoring admin access. The recovery key is made and locks the level keys now. After the exam, step 11 was item 2 of section 10, and step 6 is item 3.
 
 **Steps:**
 
@@ -312,7 +312,7 @@ Design sections 4.1, 7.1–7.3, 7.5, 7.7 and 7.10.
 3. Level keys: generation, `check` control values and their verification.
 4. The user's keys: locking with their password, unlocking and locking again when the password changes.
 5. Encrypting and decrypting a group of fields by level (the `protected` part of the record).
-6. Admin seal (sections 7.3 and 7.8): HMAC-SHA256 over the user's file, with a key that only admins have.
+6. Admin seal (sections 7.3 and 7.8): an ECDSA P-256 signature with the admin key over the rights of a user file, `levels.json`, `settings.json` and the templates. Its private key only admins have; its public key every user has, locked with their password, so every Kiler checks the seal (decided by the user on 2026-11-12, instead of the HMAC of the design, [tasks/M3.md](tasks/M3.md)).
 7. Recovery key (section 7.7): generation, readable format, restoring admin access.
 8. "Remember me": an interface for protecting a key with the Windows account. The DPAPI implementation is in Kiler.App.
 9. Changing a level key (section 7.9): the group is encrypted again with the new key. The whole process is organized in M4 and M5.
@@ -376,7 +376,7 @@ Design sections 7, 8.2 (audit) and 12.
    - users without a valid seal are marked as suspicious;
    - changes by people without `canEdit` are detected by the file owner;
    - files edited in place, outside Kiler (M2), are marked, because their owner is still the old author;
-   - a file in a private folder whose owner is not the folder's owner is marked;
+   - a file in a private folder whose owner is not the folder's owner is marked (with the private records, section 10, item 4);
    - a record whose `updatedBy` is not the owner of its file is marked.
 9. Permission check on the server on every request: read level, `canEdit`, `isAdmin`. Nobody writes a field above their level (section 7.4).
 10. Audit (sections 8.2 and 12): showing and copying Prod passwords is recorded in `audit\<date>\<user>.jsonl`.
@@ -394,7 +394,7 @@ Design sections 7, 8.2 (audit) and 12.
     - sign-in and password change, with the field for the previous password or the recovery code;
     - locked screen and unlocking a level or the personal key;
     - the personal recovery code, shown once;
-    - admin: users (including the suspicious ones) and levels.
+    - admin: users (including the suspicious ones) and levels, and the Alerts screen of the marks (section 10, item 3).
 
 **Tests:**
 
@@ -692,7 +692,7 @@ They are resolved at the start of the relevant module. The decisions are also re
 | process | Plan mode at the start of a module. Decided: no. Planning stays in the conversation, with multiple-choice questions. |
 | M1.7 or M6 | Whether all UI texts live in one file. Decided in M1.7: yes, `src/ui/src/texts.ts`. Amended at the start of M6: `texts.ts` takes the texts of each area of M6 from a file of its own, for the parallel sessions ([tasks/M6.md](tasks/M6.md)). |
 | M3 | Binding the encrypted group to the record id and the level (associated data in AES-GCM), so that a group cannot be moved to another record. This is an addition to the design. Decided for private records: the owner and the record id (design section 7.10). Decided by the user on 2026-10-29, before M3: yes, for the groups of the shared records too, the record id and the level, as adding it later would change every encrypted value. |
-| M3 | Where and how the key for the admin seal is kept. Deferred with the seal (section 10). |
+| M3 | Where and how the key for the admin seal is kept. Deferred with the seal (section 10). Decided by the user on 2026-11-12: an ECDSA key pair, the admin key, whose private key is locked with the password of each admin and with the recovery key, and whose public key is locked with the password of every user ([tasks/M3.md](tasks/M3.md)). |
 | M5 | Rules for changing a template that has records. Private records are read only by their owner's exe, so the rules must work without the admin rewriting them. Deferred with step 10 at the start of M5 (section 10). |
 | M2 | Whether `share.json` is checked again when it is read: a folder that is no longer a network path is refused (M1.5a security review). A start of the real exe from a folder someone else controls moves the user's data there. Decided at the start of M2: no. Kiler writes only a network folder there, in the protected `%LOCALAPPDATA%\Kiler`, so a check would catch only a mapped drive letter that later became a local drive. A network folder that someone else controls passes such a check; the M6 question below answers it ([tasks/M2.md](tasks/M2.md)). |
 | M2 | How the local copy keeps what it is there to restore (step 10). If it mirrors the share, a file deleted outside Kiler (not through `trash\`), a damaged file or a file edited in place reaches every user's cache within about 10 s, and there is nothing left to restore from. Decided at the start of M2, as proposed: the cache does not delete or overwrite such files; it keeps the last good version apart and reports them for restore ([tasks/M2.md](tasks/M2.md)). |
@@ -804,7 +804,7 @@ Decided by the user on 2026-10-29, after M2 took three days: until the exam, the
 
 1. The audit of the Prod passwords: M4 step 10, the audit of M5 step 6, and the audit screen of M6 step 7. A view of a Prod password before it is in place is recorded nowhere, so it comes before the first real Prod data. It needs a new mechanism in Kiler.Storage, appending to a file in `audit\`. Done before the exam: M6.17 to M6.19.
 2. Signed updates: M3 step 11, with the open questions on the signing key and on the check of the first copy. A local copy is never overwritten (M1), so every user who started a version without updates installs the first version with them by hand. Its tasks are M3.4 to M3.8b in [tasks/M3.md](tasks/M3.md). Done after the exam, on 2026-11-12; what needs the company's shared folder and Windows is checked in the trial use ([real-environment-checks.md](real-environment-checks.md#the-updates)).
-3. The admin seal and the marks of design section 7.8: M3 step 6 and M4 step 8, with the open question on the seal key. The user files made before it get their seal once, from an admin's exe. The seal covers `levels.json` too, not only the user files, as anyone who can write it can replace the check of a level with one of a key of their own (decided by the user after M3.2, [tasks/M3.md](tasks/M3.md), "The accepted limits").
+3. The admin seal and the marks of design section 7.8: M3 step 6 and M4 step 8, with the open question on the seal key. The seal covers `levels.json` too, not only the user files, as anyone who can write it can replace the check of a level with one of a key of their own (decided by the user after M3.2, [tasks/M3.md](tasks/M3.md), "The accepted limits"). Decided by the user on 2026-11-12: the seal is an ECDSA signature that every Kiler checks, and it covers `settings.json` and the templates too; there is no migration, as no team uses Kiler before it (the files made before it were to get their seal once, from an admin's exe); the marks are for the admins, on a screen "Alerts"; the mark of the private folders goes with item 4. Its tasks are M3.9 in [tasks/M3.md](tasks/M3.md) and M4.11 to M4.20 in [tasks/M4.md](tasks/M4.md), with the decisions there.
 
 Also before the trial use, without a number of its own: the open question of section 6 on `Clear-Site-Data: "cache"` in the redirect of the token exchange, checked in Edge with a test listener first (deferred at the start of M6).
 
