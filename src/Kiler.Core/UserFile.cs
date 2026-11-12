@@ -11,6 +11,11 @@ namespace Kiler.Core;
 /// <see cref="Level"/>, <see cref="CanEdit"/> and <see cref="IsAdmin"/> say what the screens show; what a user reads is the
 /// keys that unlock and verify, never <see cref="Level"/> (design 7.8). It is on the share, so a content that does not fit
 /// is invalid, with a reason (<see cref="TryRead(Document, out UserFile?, out string?)"/>).
+/// <para>
+/// Its <c>stamp</c> is the admin seal of its rights (M4.11, <see cref="IsSealedBy"/>): the account, the display name, the
+/// level, <c>canEdit</c> and <c>isAdmin</c>, never the keys, <c>mustChangePassword</c> or the version, which the user
+/// changes with their password (<see cref="WithKeys"/>).
+/// </para>
 /// </summary>
 public sealed class UserFile
 {
@@ -18,10 +23,15 @@ public sealed class UserFile
 
     /// <summary>
     /// A user file of <paramref name="account"/>, which must pass <see cref="StorageName"/>, with <paramref name="keys"/> of
-    /// the levels 1 to 9 locked with the user's password (<see cref="LevelKeys"/>).
+    /// the levels 1 to 9 locked with the user's password (<see cref="LevelKeys"/>), not sealed (<see cref="Sealed"/>).
     /// </summary>
     /// <exception cref="ArgumentException">A value does not fit; the message says why.</exception>
     public UserFile(string account, string displayName, int level, bool canEdit, bool isAdmin, bool mustChangePassword, LockedKeys keys)
+        : this(account, displayName, level, canEdit, isAdmin, mustChangePassword, keys, stamp: null)
+    {
+    }
+
+    private UserFile(string account, string displayName, int level, bool canEdit, bool isAdmin, bool mustChangePassword, LockedKeys keys, string? stamp)
     {
         ArgumentNullException.ThrowIfNull(account);
         ArgumentNullException.ThrowIfNull(displayName);
@@ -39,6 +49,7 @@ public sealed class UserFile
         IsAdmin = isAdmin;
         MustChangePassword = mustChangePassword;
         Keys = KeySets.Copy(keys);
+        Stamp = stamp;
     }
 
     public string Account { get; }
@@ -57,11 +68,45 @@ public sealed class UserFile
     /// <summary>Whether the password is a temporary one, which the user changes before anything else (design 7.6).</summary>
     public bool MustChangePassword { get; }
 
-    /// <summary>The <c>salt</c> and the <c>keys</c> of the file, for <see cref="LevelKeys.Unlock(LockedKeys, ReadOnlySpan{char})"/>.</summary>
+    /// <summary>
+    /// The <c>salt</c>, the <c>keys</c> and the locked admin key of the file, for
+    /// <see cref="LevelKeys.UnlockAll(LockedKeys, ReadOnlySpan{char})"/>.
+    /// </summary>
     public LockedKeys Keys { get; }
+
+    /// <summary>The <c>stamp</c> of the file, or <c>null</c>; it may not be a seal at all (<see cref="IsSealedBy"/>).</summary>
+    public string? Stamp { get; }
 
     /// <summary>The user file of <paramref name="account"/>, which must pass <see cref="StorageName"/>.</summary>
     public static DocumentKey KeyOf(string account) => DocumentKey.InFolder(DataFolder.Users, account);
+
+    /// <summary>
+    /// Whether <see cref="Stamp"/> is the seal of the rights of the file by the admin key of <paramref name="publicKey"/>, the
+    /// base64 of its SubjectPublicKeyInfo; a file without one, or with one that is not such a seal, is not sealed.
+    /// </summary>
+    public bool IsSealedBy(string publicKey)
+    {
+        ArgumentNullException.ThrowIfNull(publicKey);
+        return Stamp is { } stamp && AdminSeal.Verify(publicKey, SealPurpose.UserFile, SealText(), stamp);
+    }
+
+    /// <summary>The file with the seal of its rights by <paramref name="adminKey"/> as its <c>stamp</c>.</summary>
+    /// <exception cref="ObjectDisposedException">The admin key is disposed.</exception>
+    public UserFile Sealed(AdminKey adminKey)
+    {
+        ArgumentNullException.ThrowIfNull(adminKey);
+        return new(Account, DisplayName, Level, CanEdit, IsAdmin, MustChangePassword, Keys, adminKey.Seal(SealPurpose.UserFile, SealText()));
+    }
+
+    /// <summary>
+    /// The file with other keys, locked with a new password, and <paramref name="mustChangePassword"/>, its rights and its
+    /// <c>stamp</c> as they are, as the seal does not cover them (a change of password).
+    /// </summary>
+    public UserFile WithKeys(LockedKeys keys, bool mustChangePassword)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        return new(Account, DisplayName, Level, CanEdit, IsAdmin, mustChangePassword, keys, Stamp);
+    }
 
     /// <summary>The model of the document, or why its content does not fit.</summary>
     /// <exception cref="ArgumentException">The document is not in <c>users\</c> of the data folder.</exception>
@@ -85,6 +130,9 @@ public sealed class UserFile
                 MustChangePassword = MustChangePassword,
                 Salt = keys.Salt,
                 Keys = keys.Keys,
+                AdminPublicKey = keys.AdminPublicKey,
+                AdminPrivateKey = keys.AdminPrivateKey,
+                Stamp = Stamp,
             },
             CoreJsonContext.Default.UserJson);
     }
@@ -139,12 +187,12 @@ public sealed class UserFile
             return false;
         }
 
-        if (!KeySets.TryRead(json.Salt, json.Keys, LevelsFile.MaxTop, "", out var keys, out invalid))
+        if (!KeySets.TryRead(json.Salt, json.Keys, json.AdminPublicKey, json.AdminPrivateKey, LevelsFile.MaxTop, "", out var keys, out invalid))
         {
             return false;
         }
 
-        user = new UserFile(key.Id, displayName, level, canEdit, isAdmin, mustChangePassword, keys);
+        user = new UserFile(key.Id, displayName, level, canEdit, isAdmin, mustChangePassword, keys, json.Stamp);
         return true;
     }
 
@@ -158,4 +206,6 @@ public sealed class UserFile
 
         return level is < 0 or > LevelsFile.MaxTop ? $"level is not from 0 to {LevelsFile.MaxTop}." : null;
     }
+
+    private byte[] SealText() => FileSeal.TextOf(Account, DisplayName, Level, CanEdit, IsAdmin);
 }

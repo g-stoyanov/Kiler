@@ -7,7 +7,9 @@ namespace Kiler.Core;
 /// <summary>
 /// A locked set of level keys in a document (M3.3): the <c>salt</c> of a user file or of the recovery set, and its
 /// <c>keys</c>, each under the digit of its level, <c>"1"</c> to <c>"9"</c>. A name that is not the digit of a level makes the
-/// document invalid (decided by the user in M4.1); the values are checked by <see cref="LevelKeys.Unlock(LockedKeys, ReadOnlySpan{char})"/>.
+/// document invalid (decided by the user in M4.1); the values are checked by <see cref="LevelKeys.UnlockAll(LockedKeys, ReadOnlySpan{char})"/>.
+/// Under the same salt, <c>adminPublicKey</c> and <c>adminPrivateKey</c> are the locked admin key (M3.9; the names decided by
+/// the user in M4.11), each left out of a set without it; their values, too, are checked only by the unlock.
 /// </summary>
 internal static class KeySets
 {
@@ -15,6 +17,8 @@ internal static class KeySets
     public static bool TryRead(
         string? salt,
         Dictionary<string, string?>? keys,
+        string? adminPublicKey,
+        string? adminPrivateKey,
         int top,
         string path,
         [NotNullWhen(true)] out LockedKeys? locked,
@@ -51,7 +55,7 @@ internal static class KeySets
             levels.Add(level, value);
         }
 
-        locked = new LockedKeys(salt, levels);
+        locked = new LockedKeys(salt, levels, adminPublicKey, adminPrivateKey);
         invalid = null;
         return true;
     }
@@ -75,14 +79,17 @@ internal static class KeySets
         return null;
     }
 
-    /// <summary>A copy of the set, so a model does not change with the dictionary it was given.</summary>
-    public static LockedKeys Copy(LockedKeys locked) => new(locked.Salt, new Dictionary<int, string>(locked.Keys));
+    /// <summary>A copy of the set with its admin key, so a model does not change with the dictionary it was given.</summary>
+    public static LockedKeys Copy(LockedKeys locked) =>
+        new(locked.Salt, new Dictionary<int, string>(locked.Keys), locked.AdminPublicKey, locked.AdminPrivateKey);
 
-    /// <summary>The JSON of the set, its keys in the order of the levels.</summary>
+    /// <summary>The JSON of the set, its keys in the order of the levels, then its admin key.</summary>
     public static KeysJson Write(LockedKeys locked) => new()
     {
         Salt = locked.Salt,
         Keys = locked.Keys.OrderBy(key => key.Key).ToDictionary(key => key.Key.ToString(CultureInfo.InvariantCulture), key => (string?)key.Value),
+        AdminPublicKey = locked.AdminPublicKey,
+        AdminPrivateKey = locked.AdminPrivateKey,
     };
 
     /// <summary>The level of a name that is its digit, from 1 to <paramref name="top"/>: not <c>"01"</c>, <c>"+1"</c> or <c>" 1"</c>.</summary>

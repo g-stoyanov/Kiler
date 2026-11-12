@@ -16,6 +16,7 @@ public sealed record LevelEntry(int Level, string Name, string? Check);
 /// <c>levels.json</c> (decided at the start of M4): the levels 0 to <see cref="Top"/>, without gaps, and the recovery set,
 /// the level keys locked with the recovery key (M3.3). <c>id</c> and <c>version</c> are the document's. It is on the share,
 /// so a content that does not fit is invalid, with a reason (<see cref="TryRead(Document, out LevelsFile?, out string?)"/>).
+/// Its <c>stamp</c> is the admin seal of the whole file, with its id and version (M4.11, <see cref="IsSealedBy"/>).
 /// </summary>
 public sealed class LevelsFile
 {
@@ -26,10 +27,17 @@ public sealed class LevelsFile
 
     private const string RecoveryPath = "recovery.";
 
+    private readonly FileSeal? _seal;
+
     /// <param name="levels">The levels 0 to the top level, in order.</param>
-    /// <param name="recovery">The keys of the levels 1 to the top level, locked with the recovery key.</param>
+    /// <param name="recovery">The keys of the levels 1 to the top level, and the admin key, locked with the recovery key.</param>
     /// <exception cref="ArgumentException">The levels or the recovery set do not fit; the message says why.</exception>
     public LevelsFile(IReadOnlyList<LevelEntry> levels, LockedKeys recovery)
+        : this(levels, recovery, seal: null)
+    {
+    }
+
+    private LevelsFile(IReadOnlyList<LevelEntry> levels, LockedKeys recovery, FileSeal? seal)
     {
         ArgumentNullException.ThrowIfNull(levels);
         ArgumentNullException.ThrowIfNull(recovery);
@@ -40,6 +48,7 @@ public sealed class LevelsFile
 
         Levels = [.. levels];
         Recovery = KeySets.Copy(recovery);
+        _seal = seal;
     }
 
     public static DocumentKey Key { get; } = DocumentKey.AtRoot("levels");
@@ -51,24 +60,51 @@ public sealed class LevelsFile
 
     public LockedKeys Recovery { get; }
 
+    /// <summary>The <c>stamp</c> of the file, or <c>null</c>; it may not be a seal at all (<see cref="IsSealedBy"/>).</summary>
+    public string? Stamp => _seal?.Stamp;
+
     /// <summary>The model of the document, or why its content does not fit.</summary>
     /// <exception cref="ArgumentException">The document is not <see cref="Key"/>.</exception>
     public static bool TryRead(Document document, [NotNullWhen(true)] out LevelsFile? levels, [NotNullWhen(false)] out string? invalid)
     {
         ArgumentNullException.ThrowIfNull(document);
-        return TryRead(document.Key, document.Content, out levels, out invalid);
+        return TryRead(document.Key, document.Version, document.Content, out levels, out invalid);
     }
 
-    /// <summary>The content of the document, without <c>id</c> and <c>version</c>, which the layer adds.</summary>
-    public JsonObject ToContent() => ModelJson.Write(
-        new LevelsJson
-        {
-            Levels = [.. Levels.Select(entry => new LevelJson { Level = entry.Level, Name = entry.Name, Check = entry.Check })],
-            Recovery = KeySets.Write(Recovery),
-        },
-        CoreJsonContext.Default.LevelsJson);
+    /// <summary>
+    /// Whether <see cref="Stamp"/> is the seal of the file as it was read, every member but <c>stamp</c> with its id and
+    /// version (<see cref="FileSeal"/>), by the admin key of <paramref name="publicKey"/>; a file made in code is sealed only
+    /// by <see cref="Sealed"/>.
+    /// </summary>
+    public bool IsSealedBy(string publicKey)
+    {
+        ArgumentNullException.ThrowIfNull(publicKey);
+        return _seal?.IsBy(publicKey) == true;
+    }
 
-    internal static bool TryRead(DocumentKey key, JsonObject content, [NotNullWhen(true)] out LevelsFile? levels, [NotNullWhen(false)] out string? invalid)
+    /// <summary>
+    /// The file sealed by <paramref name="adminKey"/> for <paramref name="version"/>, the version that its write gives: 1 for
+    /// a create, one more than the version that a replace changes. The seal covers <see cref="ToContent"/>, so a member that
+    /// this Kiler does not know, which the read skipped, is not written or sealed.
+    /// </summary>
+    /// <exception cref="ObjectDisposedException">The admin key is disposed.</exception>
+    public LevelsFile Sealed(AdminKey adminKey, int version)
+    {
+        ArgumentNullException.ThrowIfNull(adminKey);
+        return new(Levels, Recovery, FileSeal.Make(adminKey, SealPurpose.Levels, Key, version, Content(stamp: null)));
+    }
+
+    /// <summary>The content of the document, without <c>id</c> and <c>version</c>, which the layer adds, and with its <c>stamp</c>.</summary>
+    public JsonObject ToContent() => Content(Stamp);
+
+    /// <summary>
+    /// The file as a Kiler reads its <see cref="ToContent"/> at <paramref name="version"/>: what the team takes after its
+    /// write, so a seal made for another version fails in this Kiler too, as in every other (M4.11 security review).
+    /// </summary>
+    internal LevelsFile AsRead(int version) =>
+        new(Levels, Recovery, FileSeal.Read(SealPurpose.Levels, Key, version, Content(stamp: null), Stamp));
+
+    internal static bool TryRead(DocumentKey key, int version, JsonObject content, [NotNullWhen(true)] out LevelsFile? levels, [NotNullWhen(false)] out string? invalid)
     {
         if (key != Key)
         {
@@ -124,12 +160,12 @@ public sealed class LevelsFile
             return false;
         }
 
-        if (!KeySets.TryRead(set.Salt, set.Keys, entries.Count - 1, RecoveryPath, out var recovery, out invalid))
+        if (!KeySets.TryRead(set.Salt, set.Keys, set.AdminPublicKey, set.AdminPrivateKey, entries.Count - 1, RecoveryPath, out var recovery, out invalid))
         {
             return false;
         }
 
-        levels = new LevelsFile(entries, recovery);
+        levels = new LevelsFile(entries, recovery, FileSeal.Read(SealPurpose.Levels, key, version, content, json.Stamp));
         return true;
     }
 
@@ -172,4 +208,13 @@ public sealed class LevelsFile
 
         return null;
     }
+
+    private JsonObject Content(string? stamp) => ModelJson.Write(
+        new LevelsJson
+        {
+            Levels = [.. Levels.Select(entry => new LevelJson { Level = entry.Level, Name = entry.Name, Check = entry.Check })],
+            Recovery = KeySets.Write(Recovery),
+            Stamp = stamp,
+        },
+        CoreJsonContext.Default.LevelsJson);
 }

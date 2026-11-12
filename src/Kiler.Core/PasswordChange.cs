@@ -56,7 +56,8 @@ public static class PasswordChange
             return PasswordChangeOutcome.WrongPassword;
         }
 
-        var changed = new UserFile(user.Account, user.DisplayName, user.Level, user.CanEdit, user.IsAdmin, mustChangePassword: false, session.LockKeys(password));
+        // The seal covers the rights, which stay as they are, so the stamp goes with them (M4.11).
+        var changed = user.WithKeys(session.LockKeys(password), mustChangePassword: false);
         WriteResult written;
         try
         {

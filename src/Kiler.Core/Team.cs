@@ -122,7 +122,7 @@ public sealed class Team
             _copy.Replace(LevelsFile.Key, version, levels.ToContent()),
             (files, written) => files.Levels?.Version > written
                 ? null
-                : new TeamFiles(TeamFile<LevelsFile>.Written(written, levels), files.Settings, files.Users, files.Templates));
+                : new TeamFiles(TeamFile<LevelsFile>.Written(written, levels.AsRead(written)), files.Settings, files.Users, files.Templates));
     }
 
     /// <summary>

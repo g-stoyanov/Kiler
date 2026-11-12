@@ -42,6 +42,21 @@ internal sealed class TestData : IDisposable
     public Document WriteAndRead(DocumentKey key, JsonObject content)
     {
         Assert.Equal(WriteOutcome.Written, _copy.Create(key, content).Outcome);
+        return Read(key);
+    }
+
+    /// <summary>
+    /// Writes <paramref name="content"/> over <paramref name="version"/> of a document, which makes the version after it, and
+    /// gives it as the local copy reads it (M4.11).
+    /// </summary>
+    public Document ReplaceAndRead(DocumentKey key, int version, JsonObject content)
+    {
+        Assert.Equal(WriteOutcome.Written, _copy.Replace(key, version, content).Outcome);
+        return Read(key);
+    }
+
+    private Document Read(DocumentKey key)
+    {
         var loaded = Assert.Single(_copy.Documents(), document => document.Key == key);
         return Assert.IsType<Document>(loaded.Read.Document);
     }

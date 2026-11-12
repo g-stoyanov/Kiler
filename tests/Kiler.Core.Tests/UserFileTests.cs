@@ -43,6 +43,38 @@ public class UserFileTests
     }
 
     [Fact]
+    public void TheAdminKey_AndTheStamp_AreReadAndWrittenBack_AfterTheKeys()
+    {
+        // Made-up values: the model neither unlocks the admin key nor checks the stamp when it reads them (M4.11).
+        const string Json = """{"displayName":"Demo User","level":1,"canEdit":false,"isAdmin":true,"mustChangePassword":false,"salt":"salt","keys":{"1":"locked-1"},"adminPublicKey":"public","adminPrivateKey":"private","stamp":"s"}""";
+
+        var user = Read(DemoUser, JsonNode.Parse(Json)!.AsObject());
+
+        Assert.Equal(("public", "private", "s"), (user.Keys.AdminPublicKey, user.Keys.AdminPrivateKey, user.Stamp));
+        Assert.Equal(Json, user.ToContent().ToJsonString());
+    }
+
+    [Fact]
+    public void TheLockedAdminKey_UnlocksWithThePassword_AfterTheDataLayer()
+    {
+        const string Password = "demo-password-1";
+        using var data = new TestData();
+        using var adminKey = AdminKey.New();
+        using var level1 = SecretKey.New();
+        var user = new UserFile(
+            "demo.user", "Demo User", level: 1, canEdit: true, isAdmin: true, mustChangePassword: false,
+            LevelKeys.Lock(new Dictionary<int, SecretKey> { [1] = level1 }, adminKey.PublicKey, adminKey, Password));
+
+        Assert.True(UserFile.TryRead(data.WriteAndRead(user.Key, user.ToContent()), out var read, out var invalid), invalid);
+
+        var unlocked = LevelKeys.UnlockAll(read.Keys, Password);
+        using var unlockedLevel = Assert.Single(unlocked.Levels).Value;
+        using var unlockedAdmin = unlocked.AdminKey;
+        Assert.Equal(adminKey.PublicKey, unlocked.AdminPublicKey);
+        Assert.Equal(adminKey.PublicKey, unlockedAdmin?.PublicKey);
+    }
+
+    [Fact]
     public void TheAccount_IsTheIdOfTheDocument()
     {
         Assert.Equal(DocumentKey.InFolder("users", "demo.user"), DemoUser);
@@ -74,6 +106,11 @@ public class UserFileTests
     [InlineData("""{"displayName":"Demo User","level":1,"canEdit":"false","isAdmin":false,"mustChangePassword":false,"salt":"salt","keys":{}}""", "type")]
     [InlineData("""{"displayName":"Demo User","level":1,"canEdit":false,"isAdmin":false,"mustChangePassword":false,"salt":"salt","keys":[]}""", "type")]
     [InlineData("""{"displayName":"Demo User","level":1,"canEdit":false,"isAdmin":false,"mustChangePassword":false,"salt":"salt","keys":{"1":5}}""", "type")]
+    [InlineData("""{"displayName":"Demo User","level":1,"canEdit":false,"isAdmin":false,"mustChangePassword":false,"salt":"salt","keys":{},"adminPublicKey":5}""", "type")]
+    [InlineData("""{"displayName":"Demo User","level":1,"canEdit":false,"isAdmin":false,"mustChangePassword":false,"salt":"salt","keys":{},"adminPrivateKey":[]}""", "type")]
+    // A stamp that is not a text, as a member of another type (decided by the user in M4.11).
+    [InlineData("""{"displayName":"Demo User","level":1,"canEdit":false,"isAdmin":false,"mustChangePassword":false,"salt":"salt","keys":{},"stamp":5}""", "type")]
+    [InlineData("""{"displayName":"Demo User","level":1,"canEdit":false,"isAdmin":false,"mustChangePassword":false,"salt":"salt","keys":{},"stamp":true}""", "type")]
     // A missing member, also one in another case.
     [InlineData("""{"level":1,"canEdit":false,"isAdmin":false,"mustChangePassword":false,"salt":"salt","keys":{}}""", "displayName is missing")]
     [InlineData("""{"DisplayName":"Demo User","level":1,"canEdit":false,"isAdmin":false,"mustChangePassword":false,"salt":"salt","keys":{}}""", "displayName is missing")]

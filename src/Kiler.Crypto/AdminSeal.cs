@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Security.Cryptography;
 
 namespace Kiler.Crypto;
 
@@ -44,6 +45,30 @@ public static class AdminSeal
         ArgumentNullException.ThrowIfNull(publicKey);
         ArgumentNullException.ThrowIfNull(seal);
         return EcdsaP256.Verify(publicKey, SignedText(purpose, text), seal);
+    }
+
+    /// <summary>
+    /// The SHA-256 of the sealed text of <paramref name="text"/> for <paramref name="purpose"/> (M4.11), which
+    /// <see cref="VerifyDigest"/> checks: a caller that checks a seal later keeps these 32 bytes, not the text, which can be
+    /// several times the size of its file. An unknown purpose is a bug of the caller and throws.
+    /// </summary>
+    public static byte[] Digest(SealPurpose purpose, ReadOnlySpan<byte> text) => SHA256.HashData(SignedText(purpose, text));
+
+    /// <summary>
+    /// Whether <paramref name="seal"/> is a seal by the admin key of <paramref name="publicKey"/> of the sealed text whose
+    /// <see cref="Digest"/> is <paramref name="digest"/>, as <see cref="Verify"/> of the text and its purpose. A key or a seal
+    /// that is not in its one form gives false; a digest that is not 32 bytes is a bug of the caller and throws.
+    /// </summary>
+    public static bool VerifyDigest(string publicKey, ReadOnlySpan<byte> digest, string seal)
+    {
+        ArgumentNullException.ThrowIfNull(publicKey);
+        ArgumentNullException.ThrowIfNull(seal);
+        if (digest.Length != SHA256.HashSizeInBytes)
+        {
+            throw new ArgumentException($"A digest has {SHA256.HashSizeInBytes} bytes.", nameof(digest));
+        }
+
+        return EcdsaP256.VerifyHash(publicKey, digest, seal);
     }
 
     /// <summary>The text that a seal signs.</summary>

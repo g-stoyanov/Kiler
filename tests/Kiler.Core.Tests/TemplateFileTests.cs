@@ -35,6 +35,7 @@ public class TemplateFileTests
     public static TheoryData<string, string> ContentsThatDoNotFit => new()
     {
         { """{"icon":"demo","fields":[]}""", "name is missing." },
+        { """{"name":"Demo","icon":"demo","fields":[],"stamp":5}""", ModelJson.WrongType },
         { """{"name":" ","icon":"demo","fields":[]}""", "name is blank or longer than 100 characters." },
         { $$"""{"name":"{{new string('n', TemplateFile.MaxNameLength + 1)}}","icon":"demo","fields":[]}""", "name is blank or longer than 100 characters." },
         { """{"name":"Demo","fields":[]}""", "icon is missing." },
@@ -134,7 +135,7 @@ public class TemplateFileTests
     [MemberData(nameof(FieldsThatFit))]
     public void AFieldThatFitsItsRules_IsValid(string field)
     {
-        Assert.True(TemplateFile.TryRead(DemoKey, Content(Template(field)), out var template, out var invalid), invalid);
+        Assert.True(TemplateFile.TryRead(DemoKey, 1, Content(Template(field)), out var template, out var invalid), invalid);
         Assert.Equal(2, template.Fields.Count);
     }
 
@@ -142,7 +143,7 @@ public class TemplateFileTests
     [MemberData(nameof(ContentsThatDoNotFit))]
     public void AContentThatDoesNotFit_IsInvalid_WithAReason(string json, string reason)
     {
-        Assert.False(TemplateFile.TryRead(DemoKey, Content(json), out var template, out var invalid));
+        Assert.False(TemplateFile.TryRead(DemoKey, 1, Content(json), out var template, out var invalid));
         Assert.Null(template);
         Assert.Contains(reason, invalid, StringComparison.Ordinal);
     }
@@ -150,7 +151,7 @@ public class TemplateFileTests
     [Fact]
     public void AReason_NeverRepeatsAValueOfTheShare()
     {
-        Assert.False(TemplateFile.TryRead(DemoKey, Content(Template("""{"key":"secretValue1","label":"made-up-value","type":"text"}""")), out _, out var invalid));
+        Assert.False(TemplateFile.TryRead(DemoKey, 1, Content(Template("""{"key":"secretValue1","label":"made-up-value","type":"text"}""")), out _, out var invalid));
         Assert.DoesNotContain("secretValue1", invalid, StringComparison.Ordinal);
         Assert.DoesNotContain("made-up-value", invalid, StringComparison.Ordinal);
     }
@@ -167,8 +168,8 @@ public class TemplateFileTests
     [Fact]
     public void AnotherDocument_IsRefused()
     {
-        Assert.Throws<ArgumentException>(() => TemplateFile.TryRead(UserFile.KeyOf("demo"), Content(Template()), out _, out _));
-        Assert.Throws<ArgumentException>(() => TemplateFile.TryRead(TemplateFile.KeyOf("demo").InPrivate("demo.user"), Content(Template()), out _, out _));
+        Assert.Throws<ArgumentException>(() => TemplateFile.TryRead(UserFile.KeyOf("demo"), 1, Content(Template()), out _, out _));
+        Assert.Throws<ArgumentException>(() => TemplateFile.TryRead(TemplateFile.KeyOf("demo").InPrivate("demo.user"), 1, Content(Template()), out _, out _));
     }
 
     [Theory]
@@ -184,7 +185,7 @@ public class TemplateFileTests
         Assert.Equal(["Server / database", "SQL query", "Link", "Note", "Snippet"], templates.Select(template => template.Name));
         foreach (var template in templates)
         {
-            Assert.True(TemplateFile.TryRead(template.Key, template.ToContent(), out _, out var invalid), invalid);
+            Assert.True(TemplateFile.TryRead(template.Key, 1, template.ToContent(), out _, out var invalid), invalid);
             Assert.All(template.Fields, field => Assert.True(field.Level <= top || field.LevelByEnv?.Values.All(level => level <= top) == true, field.Key));
         }
 

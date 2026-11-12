@@ -52,10 +52,30 @@ public class LevelsFileTests
     [Fact]
     public void AMemberThatTheModelDoesNotKnow_IsSkipped()
     {
-        var levels = Read("""{"levels":[{"level":0,"name":"Guest","remember":true},{"level":1,"name":"Team","check":"c"},{"level":2,"name":"Prod","check":"c"}],"stamp":"s",""" + Recovery + "}");
+        var levels = Read("""{"levels":[{"level":0,"name":"Guest","remember":true},{"level":1,"name":"Team","check":"c"},{"level":2,"name":"Prod","check":"c"}],"later":"s",""" + Recovery + "}");
 
         Assert.Equal("Guest", levels.Levels[0].Name);
-        Assert.False(levels.ToContent().ContainsKey("stamp"));
+        Assert.Equal(
+            """{"levels":[{"level":0,"name":"Guest"},{"level":1,"name":"Team","check":"c"},{"level":2,"name":"Prod","check":"c"}],""" + Recovery + "}",
+            levels.ToContent().ToJsonString());
+    }
+
+    [Fact]
+    public void TheAdminKeyOfTheRecoverySet_AndTheStamp_AreReadAndWrittenBack_ThroughTheDataLayer()
+    {
+        // Made-up values: the model neither unlocks the admin key nor checks the stamp when it reads them (M4.11).
+        const string Json = """{"levels":[{"level":0,"name":"Guest"},{"level":1,"name":"Team","check":"c"}],"recovery":{"salt":"salt","keys":{"1":"locked-1"},"adminPublicKey":"public","adminPrivateKey":"private"},"stamp":"s"}""";
+        using var data = new TestData();
+
+        var document = data.WriteAndRead(LevelsFile.Key, JsonNode.Parse(Json)!.AsObject());
+
+        Assert.True(LevelsFile.TryRead(document, out var levels, out var invalid), invalid);
+        Assert.Equal(("public", "private", "s"), (levels.Recovery.AdminPublicKey, levels.Recovery.AdminPrivateKey, levels.Stamp));
+        Assert.Equal(Json, levels.ToContent().ToJsonString());
+
+        // A file made from the levels and the recovery set of another, as a rename makes it, keeps the admin key, not the stamp.
+        var renamed = new LevelsFile(levels.Levels, levels.Recovery);
+        Assert.Equal(("public", "private", null), (renamed.Recovery.AdminPublicKey, renamed.Recovery.AdminPrivateKey, renamed.Stamp));
     }
 
     [Theory]
@@ -90,6 +110,11 @@ public class LevelsFileTests
     [InlineData("""{"levels":[{"level":0.5,"name":"Guest"},{"level":1,"name":"Team","check":"c"},{"level":2,"name":"Prod","check":"c"}],""" + Recovery + "}", "type")]
     [InlineData("""{"levels":[{"level":0,"name":"Guest"},{"level":1,"name":"Team","check":5},{"level":2,"name":"Prod","check":"c"}],""" + Recovery + "}", "type")]
     [InlineData("""{"levels":[{"level":0,"name":"Guest"},{"level":1,"name":"Team","check":"c"},{"level":2,"name":"Prod","check":"c"}],"recovery":[]}""", "type")]
+    [InlineData("""{"levels":[{"level":0,"name":"Guest"},{"level":1,"name":"Team","check":"c"},{"level":2,"name":"Prod","check":"c"}],"recovery":{"salt":"salt","keys":{},"adminPublicKey":5}}""", "type")]
+    [InlineData("""{"levels":[{"level":0,"name":"Guest"},{"level":1,"name":"Team","check":"c"},{"level":2,"name":"Prod","check":"c"}],"recovery":{"salt":"salt","keys":{},"adminPrivateKey":{}}}""", "type")]
+    // A stamp that is not a text, as a member of another type (decided by the user in M4.11).
+    [InlineData("""{"levels":[{"level":0,"name":"Guest"},{"level":1,"name":"Team","check":"c"},{"level":2,"name":"Prod","check":"c"}],""" + Recovery + ""","stamp":5}""", "type")]
+    [InlineData("""{"levels":[{"level":0,"name":"Guest"},{"level":1,"name":"Team","check":"c"},{"level":2,"name":"Prod","check":"c"}],""" + Recovery + ""","stamp":{}}""", "type")]
     // A missing member, also one in another case.
     [InlineData("{" + Recovery + "}", "levels is missing")]
     [InlineData("""{"levels":null,""" + Recovery + "}", "levels is missing")]
@@ -154,8 +179,8 @@ public class LevelsFileTests
     [Fact]
     public void AnotherDocument_IsRefused()
     {
-        Assert.Throws<ArgumentException>(() => LevelsFile.TryRead(SettingsFile.Key, JsonNode.Parse(Content(2))!.AsObject(), out _, out _));
-        Assert.Throws<ArgumentException>(() => LevelsFile.TryRead(DocumentKey.InFolder("records", "levels"), JsonNode.Parse(Content(2))!.AsObject(), out _, out _));
+        Assert.Throws<ArgumentException>(() => LevelsFile.TryRead(SettingsFile.Key, 1, JsonNode.Parse(Content(2))!.AsObject(), out _, out _));
+        Assert.Throws<ArgumentException>(() => LevelsFile.TryRead(DocumentKey.InFolder("records", "levels"), 1, JsonNode.Parse(Content(2))!.AsObject(), out _, out _));
     }
 
     /// <summary>The levels 0 to <paramref name="top"/>, each with its recovery key.</summary>
@@ -176,13 +201,13 @@ public class LevelsFileTests
 
     private static LevelsFile Read(string json)
     {
-        Assert.True(LevelsFile.TryRead(LevelsFile.Key, JsonNode.Parse(json)!.AsObject(), out var levels, out var invalid), invalid);
+        Assert.True(LevelsFile.TryRead(LevelsFile.Key, 1, JsonNode.Parse(json)!.AsObject(), out var levels, out var invalid), invalid);
         return levels;
     }
 
     private static string Invalid(string json)
     {
-        Assert.False(LevelsFile.TryRead(LevelsFile.Key, JsonNode.Parse(json)!.AsObject(), out var levels, out var invalid));
+        Assert.False(LevelsFile.TryRead(LevelsFile.Key, 1, JsonNode.Parse(json)!.AsObject(), out var levels, out var invalid));
         Assert.Null(levels);
         return invalid;
     }

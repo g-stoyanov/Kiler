@@ -77,6 +77,9 @@ internal sealed class LevelsJson
     public List<LevelJson?>? Levels { get; init; }
 
     public KeysJson? Recovery { get; init; }
+
+    /// <summary>The admin seal of the file (M4.11, <see cref="FileSeal"/>).</summary>
+    public string? Stamp { get; init; }
 }
 
 internal sealed class LevelJson
@@ -88,12 +91,19 @@ internal sealed class LevelJson
     public string? Check { get; init; }
 }
 
-/// <summary>A locked set of level keys (M3.3): the salt, and the keys under the digits of their levels.</summary>
+/// <summary>
+/// A locked set of level keys (M3.3): the salt, the keys under the digits of their levels and, under the same salt, the
+/// locked admin key (M3.9; the names decided by the user in M4.11).
+/// </summary>
 internal sealed class KeysJson
 {
     public string? Salt { get; init; }
 
     public Dictionary<string, string?>? Keys { get; init; }
+
+    public string? AdminPublicKey { get; init; }
+
+    public string? AdminPrivateKey { get; init; }
 }
 
 /// <summary>A record of <c>records\</c> (design 5.2, M5.3); its dates and authors are those of <see cref="Authorship"/>.</summary>
@@ -138,6 +148,8 @@ internal sealed class SettingsJson
     public bool? GuestMode { get; init; }
 
     public int? AutoLockMinutes { get; init; }
+
+    public string? Stamp { get; init; }
 }
 
 /// <summary>
@@ -168,6 +180,8 @@ internal sealed class TemplateJson
     public string? Icon { get; init; }
 
     public List<TemplateFieldJson?>? Fields { get; init; }
+
+    public string? Stamp { get; init; }
 }
 
 /// <summary>A field of a template (design 6.2 to 6.5), its settings in the order of the examples of the design.</summary>
@@ -225,4 +239,10 @@ internal sealed class UserJson
     public string? Salt { get; init; }
 
     public Dictionary<string, string?>? Keys { get; init; }
+
+    public string? AdminPublicKey { get; init; }
+
+    public string? AdminPrivateKey { get; init; }
+
+    public string? Stamp { get; init; }
 }

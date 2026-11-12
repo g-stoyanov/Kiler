@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 
 namespace Kiler.Crypto;
@@ -28,18 +29,28 @@ internal static class EcdsaP256
     /// </summary>
     public static bool Verify(string publicKey, ReadOnlySpan<byte> data, string signature)
     {
-        ArgumentNullException.ThrowIfNull(publicKey);
-        ArgumentNullException.ThrowIfNull(signature);
-
-        // VerifyData of .NET 10 gives false for a signature of another length too (M3.4, with the length check taken out);
-        // the check keeps the format in the code, not in the platform.
-        if (!CanonicalBase64.TryDecode(signature, out var signatureBytes) || signatureBytes.Length != SignatureSize)
+        if (!TryReadSignature(publicKey, signature, out var signatureBytes))
         {
             return false;
         }
 
         using var key = ImportPublicKey(publicKey);
         return key is not null && key.VerifyData(data, signatureBytes, HashAlgorithmName.SHA256, SignatureFormat);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="signature"/> is a signature, by the key of <paramref name="publicKey"/>, of the data whose
+    /// SHA-256 is <paramref name="hash"/> (M4.11), as <see cref="Verify"/> of the data; the caller checks the length of the hash.
+    /// </summary>
+    public static bool VerifyHash(string publicKey, ReadOnlySpan<byte> hash, string signature)
+    {
+        if (!TryReadSignature(publicKey, signature, out var signatureBytes))
+        {
+            return false;
+        }
+
+        using var key = ImportPublicKey(publicKey);
+        return key is not null && key.VerifyHash(hash, signatureBytes, SignatureFormat);
     }
 
     /// <summary>
@@ -132,6 +143,17 @@ internal static class EcdsaP256
     {
         var curve = key.ExportParameters(includePrivateParameters: false).Curve;
         return curve.IsNamed && string.Equals(curve.Oid.Value, ECCurve.NamedCurves.nistP256.Oid.Value, StringComparison.Ordinal);
+    }
+
+    /// <summary>The bytes of a signature of 64 bytes in its one base64 form; anything else is false.</summary>
+    private static bool TryReadSignature(string publicKey, string signature, [NotNullWhen(true)] out byte[]? signatureBytes)
+    {
+        ArgumentNullException.ThrowIfNull(publicKey);
+        ArgumentNullException.ThrowIfNull(signature);
+
+        // VerifyData of .NET 10 gives false for a signature of another length too (M3.4, with the length check taken out);
+        // the check keeps the format in the code, not in the platform.
+        return CanonicalBase64.TryDecode(signature, out signatureBytes) && signatureBytes.Length == SignatureSize;
     }
 
     /// <summary>The key of a whole PKCS#8 whose public key is <paramref name="publicKey"/>; anything else is null.</summary>

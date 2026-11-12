@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Nodes;
+using Kiler.Crypto;
 using Kiler.Storage;
 
 namespace Kiler.Core;
@@ -10,6 +11,7 @@ namespace Kiler.Core;
 /// wizard writes the initial ones (<see cref="InitialTemplates"/>), and an admin changes them after it (decided at the start
 /// of M5). It is on the share, so a content that does not fit is invalid, with a reason
 /// (<see cref="TryRead(Document, out TemplateFile?, out string?)"/>), and a record of it shows only its header (docs/api.md).
+/// Its <c>stamp</c> is the admin seal of the whole file, with its id and version (M4.11, <see cref="IsSealedBy"/>).
 /// </summary>
 public sealed class TemplateFile
 {
@@ -17,12 +19,19 @@ public sealed class TemplateFile
 
     public const int MaxIconLength = 40;
 
+    private readonly FileSeal? _seal;
+
     /// <param name="id">The id of the document, which must pass <see cref="StorageName"/>.</param>
     /// <param name="name">The name of the kind of record.</param>
     /// <param name="icon">The name of the icon, which the page takes from its own set.</param>
     /// <param name="fields">The fields, in the order of the form and the view.</param>
     /// <exception cref="ArgumentException">A value does not fit; the message says why.</exception>
     public TemplateFile(string id, string name, string icon, IReadOnlyList<TemplateField> fields)
+        : this(id, name, icon, fields, seal: null)
+    {
+    }
+
+    private TemplateFile(string id, string name, string icon, IReadOnlyList<TemplateField> fields, FileSeal? seal)
     {
         ArgumentNullException.ThrowIfNull(id);
         ArgumentNullException.ThrowIfNull(name);
@@ -38,6 +47,7 @@ public sealed class TemplateFile
         Name = name;
         Icon = icon;
         Fields = [.. fields];
+        _seal = seal;
     }
 
     public string Id { get; }
@@ -51,6 +61,9 @@ public sealed class TemplateFile
     /// <summary>The fields, each key once without regard to case, in the order of the file.</summary>
     public IReadOnlyList<TemplateField> Fields { get; }
 
+    /// <summary>The <c>stamp</c> of the file, or <c>null</c>; it may not be a seal at all (<see cref="IsSealedBy"/>).</summary>
+    public string? Stamp => _seal?.Stamp;
+
     /// <summary>The template of <paramref name="id"/>, which must pass <see cref="StorageName"/>.</summary>
     public static DocumentKey KeyOf(string id) => DocumentKey.InFolder(DataFolder.Templates, id);
 
@@ -59,15 +72,31 @@ public sealed class TemplateFile
     public static bool TryRead(Document document, [NotNullWhen(true)] out TemplateFile? template, [NotNullWhen(false)] out string? invalid)
     {
         ArgumentNullException.ThrowIfNull(document);
-        return TryRead(document.Key, document.Content, out template, out invalid);
+        return TryRead(document.Key, document.Version, document.Content, out template, out invalid);
     }
 
-    /// <summary>The content of the document, without <c>id</c> and <c>version</c>, which the layer adds.</summary>
-    public JsonObject ToContent() => ModelJson.Write(
-        new TemplateJson { Name = Name, Icon = Icon, Fields = [.. Fields.Select(field => field.ToJson())] },
-        CoreJsonContext.Default.TemplateJson);
+    /// <summary>
+    /// Whether <see cref="Stamp"/> is the seal of the file as it was read (<see cref="FileSeal"/>) by the admin key of
+    /// <paramref name="publicKey"/>, as <see cref="LevelsFile.IsSealedBy"/>.
+    /// </summary>
+    public bool IsSealedBy(string publicKey)
+    {
+        ArgumentNullException.ThrowIfNull(publicKey);
+        return _seal?.IsBy(publicKey) == true;
+    }
 
-    internal static bool TryRead(DocumentKey key, JsonObject content, [NotNullWhen(true)] out TemplateFile? template, [NotNullWhen(false)] out string? invalid)
+    /// <summary>The file sealed by <paramref name="adminKey"/> for <paramref name="version"/>, as <see cref="LevelsFile.Sealed"/>.</summary>
+    /// <exception cref="ObjectDisposedException">The admin key is disposed.</exception>
+    public TemplateFile Sealed(AdminKey adminKey, int version)
+    {
+        ArgumentNullException.ThrowIfNull(adminKey);
+        return new(Id, Name, Icon, Fields, FileSeal.Make(adminKey, SealPurpose.Template, Key, version, Content(stamp: null)));
+    }
+
+    /// <summary>The content of the document, without <c>id</c> and <c>version</c>, which the layer adds, and with its <c>stamp</c>.</summary>
+    public JsonObject ToContent() => Content(Stamp);
+
+    internal static bool TryRead(DocumentKey key, int version, JsonObject content, [NotNullWhen(true)] out TemplateFile? template, [NotNullWhen(false)] out string? invalid)
     {
         if (key.Account is not null || key.Folder != DataFolder.Templates)
         {
@@ -116,7 +145,7 @@ public sealed class TemplateFile
             return false;
         }
 
-        template = new TemplateFile(key.Id, name, icon, fields);
+        template = new TemplateFile(key.Id, name, icon, fields, FileSeal.Read(SealPurpose.Template, key, version, content, json.Stamp));
         return true;
     }
 
@@ -174,4 +203,8 @@ public sealed class TemplateFile
 
         return null;
     }
+
+    private JsonObject Content(string? stamp) => ModelJson.Write(
+        new TemplateJson { Name = Name, Icon = Icon, Fields = [.. Fields.Select(field => field.ToJson())], Stamp = stamp },
+        CoreJsonContext.Default.TemplateJson);
 }

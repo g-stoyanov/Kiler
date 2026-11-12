@@ -53,6 +53,22 @@ public sealed class PasswordChangeTests : IDisposable
     }
 
     [Fact]
+    public void Run_KeepsTheStampOfTheUserFile_AsItsSealCoversOnlyTheRights()
+    {
+        // M4.11: a forced change too, as mustChangePassword is not sealed either.
+        using var adminKey = AdminKey.New();
+        var team = TeamOf(_kiler.User(Account, level: 2, mustChangePassword: true).Sealed(adminKey));
+        using var session = SignInWith(team, TestKiler.Password);
+
+        Assert.Equal(PasswordChangeOutcome.Changed, PasswordChange.Run(session, team, null, NewPassword));
+
+        var user = team.Files.Users[Account].Model;
+        Assert.NotNull(user);
+        Assert.False(user.MustChangePassword);
+        Assert.True(user.IsSealedBy(adminKey.PublicKey));
+    }
+
+    [Fact]
     public void Run_Voluntary_WithTheCurrentPassword_ChangesIt()
     {
         var team = TeamOf(_kiler.User(Account, level: 2));
