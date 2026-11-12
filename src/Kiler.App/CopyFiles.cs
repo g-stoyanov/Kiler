@@ -25,6 +25,20 @@ internal interface IUpdateFiles
     /// </summary>
     Stream CreateUpdate(string path);
 
+    /// <summary>
+    /// Writes a stream of <see cref="CreateUpdate"/> through to the disk, so a crash or a power cut after its rename into
+    /// <c>Kiler.exe</c> never leaves a file of the right length without its bytes (security review of M3.7). It throws as a
+    /// <see cref="FileStream"/> does.
+    /// </summary>
+    void FlushToDisk(Stream update);
+
+    /// <summary>
+    /// Renames a file in the folder of the local copy, never over a file that is there (M3.7). It throws as
+    /// <see cref="File.Move(string, string, bool)"/> does: a taken name is an <see cref="IOException"/> whose HResult is
+    /// ERROR_ALREADY_EXISTS or ERROR_FILE_EXISTS, a missing file a <see cref="FileNotFoundException"/>.
+    /// </summary>
+    void Rename(string from, string to);
+
     /// <summary>Deletes a file; false when it cannot. A file that is not there counts as deleted.</summary>
     bool TryDelete(string path);
 }
@@ -78,6 +92,18 @@ internal sealed class CopyFiles : ICopyFiles, IUpdateFiles
     /// </summary>
     public Stream CreateUpdate(string path) =>
         new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, BufferSize);
+
+    /// <summary>
+    /// NTFS keeps a rename through a power cut, but not always the bytes that the cache still holds, as the local copy of the
+    /// data knows (<c>DataCopy</c>, Kiler.Storage). The stream is one of <see cref="CreateUpdate"/>, so it is a <see cref="FileStream"/>.
+    /// </summary>
+    public void FlushToDisk(Stream update) => ((FileStream)update).Flush(flushToDisk: true);
+
+    /// <summary>
+    /// Both names are in the folder of the local copy, so the move is a rename and never the copy that
+    /// <see cref="File.Move(string, string, bool)"/> allows between volumes. A running exe can be renamed (M1.0b).
+    /// </summary>
+    public void Rename(string from, string to) => File.Move(from, to, overwrite: false);
 
     public bool TryDelete(string path) => DeleteQuietly(path);
 

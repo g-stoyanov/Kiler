@@ -107,6 +107,36 @@ public sealed class CopyFilesTests : IDisposable
     }
 
     [Fact]
+    public void Rename_AFreeName_MovesTheFile()
+    {
+        new CopyFiles().Rename(_source, _source + ".old");
+
+        Assert.False(File.Exists(_source));
+        Assert.Equal([1, 2, 3, 4], File.ReadAllBytes(_source + ".old"));
+    }
+
+    [Fact]
+    public void Rename_ATakenName_ThrowsWithTheHResultOfATakenNameAndLeavesBoth()
+    {
+        File.WriteAllBytes(_source + ".old", [9]);
+
+        var error = Assert.ThrowsAny<IOException>(() => new CopyFiles().Rename(_source, _source + ".old"));
+
+        // What UpdateSwap takes for a .old that is there: ERROR_ALREADY_EXISTS or ERROR_FILE_EXISTS.
+        Assert.Contains(error.HResult, new[] { unchecked((int)0x800700B7), unchecked((int)0x80070050) });
+        Assert.Equal([1, 2, 3, 4], File.ReadAllBytes(_source));
+        Assert.Equal([9], File.ReadAllBytes(_source + ".old"));
+    }
+
+    [Fact]
+    public void Rename_AFileThatIsNotThere_ThrowsFileNotFound()
+    {
+        File.Delete(_source);
+
+        Assert.Throws<FileNotFoundException>(() => new CopyFiles().Rename(_source, _source + ".old"));
+    }
+
+    [Fact]
     public void TryDelete_AFileThatThisStreamHolds_DeletesItsName()
     {
         var update = _target + ".new";

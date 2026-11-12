@@ -151,6 +151,24 @@ public partial class SmokeTests
     }
 
     [Fact(Skip = NoExe, SkipUnless = nameof(HasExe))]
+    public async Task ExeOutsideTheFolderOfTheCopy_NeverLooksForANewVersion()
+    {
+        // Only the copy in %LOCALAPPDATA%\Programs\Kiler looks (M3.6), and no test makes the published exe that copy (M3.7).
+        // A check that ran would say so in a line on a profile without share.json, as on CI and the developer machine; with
+        // one, it says nothing when the shared folder has no higher version, so the test proves the guard there only.
+        using var exe = new KilerExe();
+        var firstWait = TimeSpan.FromSeconds(2);
+        using var run = exe.Start(["--first-wait", Text(firstWait)]);
+        await run.WaitForLineAsync(OpenPrefix, Quick);
+
+        // The check would start right after the address, and the stop does not wait for it, so it has the first wait.
+        Assert.Equal(0, await run.WaitForExitAsync(firstWait + Late));
+        Assert.DoesNotContain(
+            run.Output.Concat(run.Errors),
+            line => line.Contains("new version", StringComparison.Ordinal) || line.Contains(" is in the shared folder", StringComparison.Ordinal));
+    }
+
+    [Fact(Skip = NoExe, SkipUnless = nameof(HasExe))]
     public async Task SecondStart_PrintsTheAddressOfTheRunningKiler_AndStartsNoServer()
     {
         using var exe = new KilerExe();

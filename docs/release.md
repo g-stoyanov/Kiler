@@ -2,7 +2,7 @@
 
 How a new version of Kiler reaches the team, and where the key that signs it is kept. The decisions are in [tasks/M3.md](tasks/M3.md#decisions-for-the-module) (step 11 of PLAN M3, the signed updates).
 
-**Status:** the release tool and the public key in the exe are done (M3.5), and the local copies find and check a new version (M3.6). They put it in place from M3.7 on, the first start checks its copy from M3.8, and `sign` takes a second key in M3.8a; until M3.7 a release is put in place by hand.
+**Status:** the release tool and the public key in the exe are done (M3.5), the local copies find and check a new version (M3.6) and put it in place (M3.7). They delete the `Kiler.exe.old` that it leaves from M3.7a on, the first start checks its copy from M3.8, and `sign` takes a second key in M3.8a; until M3.7a a release is put in place by hand, as a copy that keeps its `.old` puts no later release in place.
 
 ## How it works
 

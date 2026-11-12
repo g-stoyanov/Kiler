@@ -121,14 +121,25 @@ catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
 Browser.OpenOrPrint(browser, self.EntryAddress, options.NoBrowser, Console.Out, Console.Error);
 
 // The local copy looks for a new version once the page is open, in the background, so a shared folder that does not answer
-// holds up neither the page nor the stop (decided by the user in M3.6).
+// holds up neither the page nor the stop (decided by the user in M3.6), and puts a checked one in place right after it (M3.7).
+UpdateSwap? swap = null;
 if (copyPlace.IsTheExe(Environment.ProcessPath))
 {
+    swap = new UpdateSwap(copyPlace, copyFiles, Console.Out, Console.Error, app.Lifetime.ApplicationStopping);
     _ = new UpdateCheck(copyPlace, share, copyFiles, UpdateKey.PublicKey, HealthApi.Version, Console.Out, Console.Error, app.Lifetime.ApplicationStopping)
-        .StartInBackground();
+        .StartInBackground(swap);
 }
 
-await app.WaitForShutdownAsync();
+try
+{
+    await app.WaitForShutdownAsync();
+}
+finally
+{
+    // The stop does not wait for the check, but it waits for a swap under way, which is local and short, so the process
+    // never ends between its two renames (M3.7), also when the stop throws (security review of M3.7).
+    swap?.Close();
+}
 if (app.Services.GetRequiredService<Heartbeat>().TimedOut)
 {
     Console.WriteLine("No Kiler page was open, so Kiler has stopped.");

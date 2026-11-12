@@ -64,6 +64,7 @@ public sealed class UpdateCheckTests : IDisposable
         Assert.Equal(NewPath, update.Path);
         var file = _files.Created[NewPath];
         Assert.True(file.ToArray().AsSpan().SequenceEqual(_exe), "The .new does not hold the exe of the shared folder.");
+        Assert.True(file.FlushedToDisk, "The checked .new is not on the disk before the swap renames it.");
         Assert.False(file.Disposed, "The checked .new was let go before it is in place.");
         Assert.Empty(_files.Deleted);
         Assert.Equal(Lines(CopyLine, "Kiler 1.0.1 is copied and checked."), _output.ToString());
@@ -300,6 +301,20 @@ public sealed class UpdateCheckTests : IDisposable
     }
 
     [Fact]
+    public void Run_TheCheckedNewFileCannotBeWrittenToTheDisk_DeletesItAndSaysSo()
+    {
+        Release(Next, _exe, Signature(Next, _exe));
+        var error = new IOException("There is not enough space on the disk.");
+        _files.FlushError = error;
+
+        Assert.Null(Check().Run());
+
+        Assert.Equal([(NewPath, true)], _files.Deleted);
+        Assert.Empty(_files.Existing);
+        Assert.Equal(Lines($"Kiler cannot copy {ShareExe} to {_place.Folder}, so it takes no new version now: {error.Message}"), _errors.ToString());
+    }
+
+    [Fact]
     public void Run_TheCopyFailsHalfWay_DeletesTheNewFileAndSaysSo()
     {
         Release(Next, _exe, Signature(Next, _exe));
@@ -424,36 +439,72 @@ public sealed class UpdateCheckTests : IDisposable
     }
 
     [Fact]
-    public async Task StartInBackground_ChecksAndDeletesTheCheckedNewFileWhileItIsHeld()
+    public async Task StartInBackground_ChecksAndPutsTheCheckedNewFileInPlaceWhileItIsHeld()
     {
         Release(Next, _exe, Signature(Next, _exe));
+        _files.Existing.Add(_place.ExePath);
 
-        await Check().StartInBackground().WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        await Check().StartInBackground(Swap()).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
 
-        Assert.Equal(Lines(CopyLine, "Kiler 1.0.1 is copied and checked."), _output.ToString());
+        Assert.Equal(Lines(CopyLine, "Kiler 1.0.1 is copied and checked.", "Kiler 1.0.1 is in place. It runs from the next start of Kiler."), _output.ToString());
+        Assert.Equal([(_place.ExePath, _place.ExePath + ".old", false), (NewPath, _place.ExePath, true)], _files.Renamed);
         Assert.True(_files.Created[NewPath].Disposed, "The .new was not let go.");
-        Assert.Equal([(NewPath, true)], _files.Deleted);
-        Assert.Empty(_files.Existing);
+        Assert.Empty(_files.Deleted);
     }
 
     [Fact]
-    public async Task StartInBackground_OnTheRealFilesTwice_LeavesNoNewFile()
+    public async Task StartInBackground_NoNewVersion_RenamesNothing()
+    {
+        Release(Next, _exe, Signature(Next, _exe));
+        _files.Existing.Add(_place.ExePath);
+
+        await Check("1.0.1").StartInBackground(Swap()).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+
+        Assert.Empty(_files.Renamed);
+        Assert.Empty(_files.Created);
+    }
+
+    [Fact]
+    public async Task StartInBackground_OnTheRealFilesTwice_PutsTheNewVersionInPlaceOnce_AndLeavesNoNewFile()
     {
         var shareFolder = Path.Combine(_folder.Path, "share");
         Directory.CreateDirectory(shareFolder);
         Directory.CreateDirectory(_place.Folder);
         File.WriteAllBytes(Path.Combine(shareFolder, "Kiler.exe"), _exe);
         File.WriteAllBytes(Path.Combine(shareFolder, "version.json"), new VersionFile(Next, SHA256.HashData(_exe), [Signature(Next, _exe)]).ToJson());
+        File.WriteAllBytes(_place.ExePath, [1, 2, 3]);
         _share.Write(shareFolder);
 
+        // Two starts of the same old version: the second finds the .old of the first and changes nothing.
         for (var start = 0; start < 2; start++)
         {
-            await new UpdateCheck(_place, _share, new CopyFiles(), _key.PublicKey, "1.0.0", _output, _errors, _stop.Token).StartInBackground()
+            var files = new CopyFiles();
+            await new UpdateCheck(_place, _share, files, _key.PublicKey, "1.0.0", _output, _errors, _stop.Token)
+                .StartInBackground(new UpdateSwap(_place, files, _output, _errors, _stop.Token))
                 .WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
         }
 
         Assert.Empty(_errors.ToString());
-        Assert.Empty(Directory.GetFiles(_place.Folder));
+        Assert.Contains("Kiler 1.0.1 is in place. It runs from the next start of Kiler.", _output.ToString(), StringComparison.Ordinal);
+        Assert.True(File.ReadAllBytes(_place.ExePath).AsSpan().SequenceEqual(_exe), "Kiler.exe is not the new version.");
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(_place.ExePath + ".old"));
+        Assert.Equal(2, Directory.GetFiles(_place.Folder).Length);
+    }
+
+    [Fact]
+    public async Task StartInBackground_AFaultOfTheCodeInTheSwapOutsideItsRenames_LetsTheNewFileGoAndDoesNotFailTheTask()
+    {
+        Release(Next, _exe, Signature(Next, _exe));
+        _files.Existing.Add(_place.ExePath);
+        _files.Existing.Add(_place.ExePath + ".old");
+        _files.DeleteError = new InvalidOperationException("A fault of the code.");
+
+        var task = Check().StartInBackground(Swap());
+        await task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+
+        Assert.True(task.IsCompletedSuccessfully, "The task of the check failed.");
+        Assert.True(_files.Created[NewPath].Disposed, "The .new was not let go.");
+        Assert.StartsWith("Kiler failed while it put Kiler 1.0.1 in place: System.InvalidOperationException: A fault of the code.", _errors.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -461,7 +512,7 @@ public sealed class UpdateCheckTests : IDisposable
     {
         _files.Shared[ShareVersion] = new SharedFile([]) { OpenError = new InvalidOperationException("A fault of the code.") };
 
-        var task = Check().StartInBackground();
+        var task = Check().StartInBackground(Swap());
         await task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
 
         Assert.True(task.IsCompletedSuccessfully, "The task of the check failed.");
@@ -511,6 +562,8 @@ public sealed class UpdateCheckTests : IDisposable
 
     private UpdateCheck Check(string own = "1.0.0") => new(_place, _share, _files, _key.PublicKey, own, _output, _errors, _stop.Token, MaxExe);
 
+    private UpdateSwap Swap() => new(_place, _files, _output, _errors, _stop.Token, TimeSpan.Zero);
+
     private string Signature(ReleaseVersion version, byte[] exe, SigningKey? key = null) => (key ?? _key).Sign(version, SHA256.HashData(exe));
 
     /// <summary>Puts a release on the fake shared folder: <c>version.json</c> and the exe.</summary>
@@ -527,6 +580,7 @@ public sealed class UpdateCheckTests : IDisposable
 
         var newPath = NewPath;
         Assert.True(_files.Created[newPath].Disposed, "The .new was not let go.");
+        Assert.False(_files.Created[newPath].FlushedToDisk, "A refused .new was written to the disk.");
         Assert.Equal([(newPath, true)], _files.Deleted);
         Assert.Empty(_files.Existing);
         Assert.Equal(Lines(CopyLine), _output.ToString());
@@ -583,6 +637,8 @@ public sealed class UpdateCheckTests : IDisposable
     private sealed class NewFile : MemoryStream
     {
         public bool Disposed { get; private set; }
+
+        public bool FlushedToDisk { get; set; }
 
         protected override void Dispose(bool disposing)
         {
@@ -643,8 +699,49 @@ public sealed class UpdateCheckTests : IDisposable
             return file;
         }
 
+        /// <summary>Thrown when the <c>.new</c> is written to the disk.</summary>
+        public Exception? FlushError { get; set; }
+
+        /// <summary>Thrown by every delete.</summary>
+        public Exception? DeleteError { get; set; }
+
+        /// <summary>Each rename, and whether the file was still held then.</summary>
+        public List<(string From, string To, bool Held)> Renamed { get; } = [];
+
+        public void FlushToDisk(Stream update)
+        {
+            if (FlushError is not null)
+            {
+                throw FlushError;
+            }
+
+            ((NewFile)update).FlushedToDisk = true;
+        }
+
+        public void Rename(string from, string to)
+        {
+            if (!Existing.Contains(from))
+            {
+                throw new FileNotFoundException("No such file in the fake folder.", from);
+            }
+
+            if (Existing.Contains(to))
+            {
+                throw new IOException("Cannot create a file when that file already exists.", unchecked((int)0x800700B7));
+            }
+
+            Renamed.Add((from, to, Created.TryGetValue(from, out var file) && !file.Disposed));
+            Existing.Remove(from);
+            Existing.Add(to);
+        }
+
         public bool TryDelete(string path)
         {
+            if (DeleteError is not null)
+            {
+                throw DeleteError;
+            }
+
             Deleted.Add((path, Created.TryGetValue(path, out var file) && !file.Disposed));
             if (DeleteFails.TryDequeue(out var fails) && fails)
             {

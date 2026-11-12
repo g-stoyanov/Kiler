@@ -6,8 +6,8 @@ namespace Kiler.App;
 
 /// <summary>
 /// A new version copied next to the local copy and checked (M3.6). The <c>.new</c> stays open, so that no one can write it
-/// until it is in place (M3.7); disposing lets it go and leaves the file. Its name is new for each check, so a rename by
-/// that name moves this file and no other (security review of M3.6).
+/// until it is in place (<see cref="UpdateSwap"/>, M3.7); disposing lets it go and leaves the file. Its name is new for each
+/// check, so a rename by that name moves this file and no other (security review of M3.6).
 /// </summary>
 internal sealed class CheckedUpdate(ReleaseVersion version, string path, Stream file) : IDisposable
 {
@@ -75,21 +75,34 @@ internal sealed class UpdateCheck
     /// <summary>
     /// A new name for the <c>.new</c> of a check, next to the local copy: an update is made only in its folder. Two Kilers of
     /// the user that check at once never share one, so one never deletes or renames the file of the other, and a file that is
-    /// there is never taken over (security review of M3.6). M3.7 deletes the ones that no Kiler holds.
+    /// there is never taken over (security review of M3.6). M3.7a deletes the ones that no Kiler holds.
     /// </summary>
     public string NewPath() => $"{_place.ExePath}.{Guid.NewGuid():N}{NewEnding}";
 
-    /// <summary>Runs the check on a task of its own; the task never fails.</summary>
-    public Task StartInBackground() => Task.Run(
+    /// <summary>
+    /// Runs the check on a task of its own, and puts a checked new version in place with <paramref name="swap"/> right after
+    /// it, while the <c>.new</c> is still held (M3.7). The task never fails.
+    /// </summary>
+    public Task StartInBackground(UpdateSwap swap) => Task.Run(
         () =>
         {
-            using var update = Run();
-
-            // Until the new version goes into place (M3.7), the checked .new is deleted while it is held: each check makes one
-            // under a new name, so each start would leave one more (security review of M3.6).
-            if (update is not null)
+            if (Run() is not { } update)
             {
-                _files.TryDelete(update.Path);
+                return;
+            }
+
+            // The swap lets the .new go itself; this lets it go after a fault of the code outside its renames too (code
+            // review of M3.7), and disposing twice does nothing.
+            using (update)
+            {
+                try
+                {
+                    swap.Run(update);
+                }
+                catch (Exception ex)
+                {
+                    SayError($"Kiler failed while it put Kiler {update.Version} in place: {ex}");
+                }
             }
         },
         CancellationToken.None);
@@ -215,6 +228,9 @@ internal sealed class UpdateCheck
                 return null;
             }
 
+            // On the disk before the swap gives it the name Kiler.exe: a crash after the rename must not leave an exe of the
+            // right length without its bytes (security review of M3.7). Only a checked one, so a refusal writes nothing more.
+            _files.FlushToDisk(target);
             var update = new CheckedUpdate(release.Version, newPath, target);
             target = null;
             Say($"Kiler {release.Version} is copied and checked.");
@@ -231,7 +247,7 @@ internal sealed class UpdateCheck
             {
                 // Deleted while it is still held, so its name is this check's file; an antivirus that reads it may refuse
                 // the delete until it is let go, so it is tried once more after that. One that cannot be deleted stays, and
-                // is never taken for checked: only a CheckedUpdate goes into place (M3.7).
+                // is never taken for checked: only a CheckedUpdate goes into place (UpdateSwap, M3.7).
                 var deleted = _files.TryDelete(newPath);
                 target.Dispose();
                 if (!deleted)
