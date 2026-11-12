@@ -811,7 +811,7 @@ Also before the trial use, without a number of its own: the open question of sec
 **Then:**
 
 4. The personal key and the private records: M3 step 12, M4 step 12, M5 step 11, the private records of M6 steps 1 and 3, and the private records of the demo data (M8 step 4). The notes in [tasks/M2.md](tasks/M2.md#for-later-modules) on the private folders for M4 and M6 go with them.
-5. Changing a level key when someone untrusted leaves: M3 step 9 and M4 step 11.
+5. Changing a level key when someone untrusted leaves: M3 step 9 and M4 step 11. The admin key changes with it ([tasks/M3.md](tasks/M3.md), "The accepted limits of the seal", 2), and the new user file keeps the lock from before the change, so a change of password refuses the old password and an old user file put back unlocks nothing (decided by the user in M3.9, [tasks/M3.md](tasks/M3.md), "A user file from before a change of the admin key").
 6. "Remember me" and the locking per level: M3 step 8, M4 step 6 and the per-level part of M4 step 5. The overall automatic locking stays.
 7. Restoring admin access with the recovery key (M3 step 7). The key itself is made, shown by the wizard and locks the level keys before the exam.
 8. Adding a level (design 13, decided at the start of M4): the recovery key locks the new level key into the recovery set of `levels.json`, and the users who get the level get new temporary passwords. Until then the levels screen of M4 only renames a level.

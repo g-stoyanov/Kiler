@@ -186,6 +186,35 @@ public class RecoveryKeyTests
         Assert.True(key.Buffer.All(c => c == '\0'), "The key was not zeroed.");
     }
 
+    // A Dispose during a lock with the key would lock the keys under 32 NUL characters with no error (M3.3), and since M3.9
+    // the private key of the admin key in the recovery set too.
+    [Fact]
+    public async Task Dispose_WaitsForAUseUnderWay()
+    {
+        var token = TestContext.Current.CancellationToken;
+        var key = RecoveryKey.FromBytes(AlphabetBytes);
+        using var inUse = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+
+        var use = Task.Run(
+            () => key.Use(secret =>
+            {
+                inUse.Set();
+                release.Wait(token);
+                return secret.ToArray().All(c => c != '\0');
+            }),
+            token);
+        inUse.Wait(token);
+        var dispose = Task.Run(key.Dispose, token);
+
+        Assert.NotSame(dispose, await Task.WhenAny(dispose, Task.Delay(200, token)));
+        release.Set();
+
+        Assert.True(await use, "The key was zeroed during its use.");
+        await dispose;
+        Assert.True(key.Buffer.All(c => c == '\0'), "The key was not zeroed after its use.");
+    }
+
     [Fact]
     public void ANullRecoveryKey_IsRefused()
     {

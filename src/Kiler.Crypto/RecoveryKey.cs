@@ -4,13 +4,19 @@ using System.Security.Cryptography;
 
 namespace Kiler.Crypto;
 
+/// <summary>A use of the 32 characters of a recovery key: they are valid only during the call.</summary>
+internal delegate T SecretUse<T>(ReadOnlySpan<char> secret);
+
 /// <summary>
 /// The recovery key (M3.3, design 7.7): 20 random bytes as 32 characters of Crockford Base32, shown once in 8 groups of 4
 /// joined by "-". It locks the level keys as a password does (<see cref="LevelKeys"/>): the 32 characters in upper case are
 /// the secret. A typed key is read without regard to case, hyphens and spaces, with O read as 0 and I and L as 1; any other
 /// character, or another length, is refused. The characters live in a pinned array that is zeroed when the key is disposed.
-/// A key serves one request, made by the wizard or read from what was typed, so it has no lock as a <see cref="SecretKey"/>
-/// has. <see cref="object.ToString"/> is the type's name.
+/// A key serves one request, made by the wizard or read from what was typed. Its characters are read only through
+/// <see cref="Use{T}"/> and <see cref="ToDisplayString"/>, under the lock that <see cref="Dispose"/> takes, as a
+/// <see cref="SecretKey"/> does: a dispose during a lock with the key would otherwise lock the keys under 32 NUL characters
+/// with no error (M3.3), and since M3.9 the private key of the admin key in the recovery set too (security review of M3.9).
+/// <see cref="object.ToString"/> is the type's name.
 /// </summary>
 public sealed class RecoveryKey : IDisposable
 {
@@ -23,6 +29,7 @@ public sealed class RecoveryKey : IDisposable
     private const int GroupSize = 4;
 
     private readonly char[] _chars = GC.AllocateArray<char>(Length, pinned: true);
+    private readonly Lock _gate = new();
     private bool _disposed;
 
     private RecoveryKey()
@@ -107,29 +114,35 @@ public sealed class RecoveryKey : IDisposable
     /// <summary>The key as it is shown once: 8 groups of 4 characters joined by "-".</summary>
     public string ToDisplayString()
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        return string.Create(Length + (Length / GroupSize) - 1, _chars, static (display, chars) =>
-        {
-            var at = 0;
-            for (var i = 0; i < chars.Length; i++)
-            {
-                if (i > 0 && i % GroupSize == 0)
-                {
-                    display[at++] = '-';
-                }
-
-                display[at++] = chars[i];
-            }
-        });
-    }
-
-    /// <summary>The 32 characters in upper case, the secret of a lock. They are valid until the key is disposed.</summary>
-    internal ReadOnlySpan<char> Secret
-    {
-        get
+        lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            return _chars;
+            return string.Create(Length + (Length / GroupSize) - 1, _chars, static (display, chars) =>
+            {
+                var at = 0;
+                for (var i = 0; i < chars.Length; i++)
+                {
+                    if (i > 0 && i % GroupSize == 0)
+                    {
+                        display[at++] = '-';
+                    }
+
+                    display[at++] = chars[i];
+                }
+            });
+        }
+    }
+
+    /// <summary>
+    /// Runs <paramref name="use"/> with the 32 characters in upper case, the secret of a lock, which it must not keep: the
+    /// derive of the key of a lock runs inside it.
+    /// </summary>
+    internal T Use<T>(SecretUse<T> use)
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return use(_chars);
         }
     }
 
@@ -138,8 +151,11 @@ public sealed class RecoveryKey : IDisposable
 
     public void Dispose()
     {
-        _disposed = true;
-        CryptographicOperations.ZeroMemory(MemoryMarshal.AsBytes(_chars.AsSpan()));
+        lock (_gate)
+        {
+            _disposed = true;
+            CryptographicOperations.ZeroMemory(MemoryMarshal.AsBytes(_chars.AsSpan()));
+        }
     }
 
     /// <summary>The place in the alphabet of a typed character, or -1: an ASCII letter in either case, with O as 0 and I and L as 1.</summary>

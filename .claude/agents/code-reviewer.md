@@ -38,7 +38,7 @@ The task number, for example `M1.4`. If it is missing, take the first unticked t
    - **Scripts and hooks:** do they work in PowerShell 5.1, and do they block on failure instead of letting things through? A native tool that writes to stderr does not fail a script under `$ErrorActionPreference = 'Stop'`, also with the output piped as in CI; only a redirect inside PowerShell (`2>&1`, `2>file`) turns its lines into errors (checked in M1.9 through the wrapper GitHub uses for `shell: powershell`). The scripts check `$LASTEXITCODE` instead.
    - **Changes in `.claude/`:** only decisions that were made, deferred items marked as deferred, no internal names.
    - **Readability:** names, duplication, needless complexity.
-4. Verify every claim in the code. If you are not sure, add "doubt" to the label, for example `[major, doubt]`.
+4. Verify every claim in the code. If you are not sure, add "doubt" to the label, for example `[major, doubt]`. This holds for the claims of the brief too, such as that a guard which no test proves is redundant: trace what the code does without it. In M3.9 the brief called `adminPublicKey is null` redundant, the review agreed, and without it 14 tests failed with an exception that escaped the unlock.
 
 ## Output
 

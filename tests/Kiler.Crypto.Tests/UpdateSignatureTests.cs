@@ -97,51 +97,7 @@ public class UpdateSignatureTests
         Assert.False(UpdateSignature.Verify(publicKey, Version, Hash, signature));
     }
 
-    public static TheoryData<string, string> NotPublicKeys()
-    {
-        var text = UpdateSignature.SignedText(Version, Hash);
-        using var p256 = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var spki = p256.ExportSubjectPublicKeyInfo();
-        var signature = Sign(p256, text);
-        var good = Convert.ToBase64String(spki);
-        Assert.True(UpdateSignature.Verify(good, Version, Hash, signature), "The key the others are made of does not verify.");
-
-        // A curve of 256 bits that is not P-256: its signature has 64 bytes too.
-        using var brainpool = ECDsa.Create(ECCurve.NamedCurves.brainpoolP256r1);
-        using var p384 = ECDsa.Create(ECCurve.NamedCurves.nistP384);
-        using var rsa = RSA.Create(2048);
-        var point = p256.ExportParameters(false).Q;
-
-        // The OID of P-256 in the key, 1.2.840.10045.3.1.7, with its last arc made one that no curve has.
-        byte[] p256Oid = [0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x07];
-        var oidAt = spki.AsSpan().IndexOf(p256Oid);
-        Assert.True(oidAt > 0, "The key holds no OID of P-256.");
-        var unknownCurve = (byte[])spki.Clone();
-        unknownCurve[oidAt + p256Oid.Length - 1] = 0x7F;
-
-        // The same point of P-256, with the parameters of the curve written out instead of its name.
-        using var explicitCurve = ECDsa.Create(p256.ExportExplicitParameters(includePrivateParameters: false));
-
-        return new TheoryData<string, string>
-        {
-            { "", signature },
-            { "not base64!", signature },
-            // Base64 that is not in its one form.
-            { good[..8] + " " + good[8..], signature },
-            // The key with a byte too few, or with a byte after it.
-            { Convert.ToBase64String(spki.AsSpan(0, spki.Length - 1)), signature },
-            { Convert.ToBase64String([.. spki, 0]), signature },
-            // The point alone, without its SubjectPublicKeyInfo.
-            { Convert.ToBase64String([0x04, .. point.X!, .. point.Y!]), signature },
-            // A point that is not on the curve: the last byte of its y changed.
-            { Convert.ToBase64String([.. spki.AsSpan(0, spki.Length - 1), (byte)(spki[^1] ^ 0x01)]), signature },
-            { Convert.ToBase64String(unknownCurve), signature },
-            { Convert.ToBase64String(explicitCurve.ExportSubjectPublicKeyInfo()), signature },
-            { Convert.ToBase64String(brainpool.ExportSubjectPublicKeyInfo()), Sign(brainpool, text) },
-            { Convert.ToBase64String(p384.ExportSubjectPublicKeyInfo()), Sign(p384, text) },
-            { Convert.ToBase64String(rsa.ExportSubjectPublicKeyInfo()), Convert.ToBase64String(rsa.SignData(text, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1)) },
-        };
-    }
+    public static TheoryData<string, string> NotPublicKeys() => TestKeys.NotPublicKeys(UpdateSignature.SignedText(Version, Hash));
 
     [Theory]
     [MemberData(nameof(NotSignatures))]
@@ -150,26 +106,7 @@ public class UpdateSignatureTests
         Assert.False(UpdateSignature.Verify(publicKey, Version, Hash, signature));
     }
 
-    public static TheoryData<string, string> NotSignatures()
-    {
-        var text = UpdateSignature.SignedText(Version, Hash);
-        using var p256 = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var publicKey = Convert.ToBase64String(p256.ExportSubjectPublicKeyInfo());
-        var good = Sign(p256, text);
-        var bytes = Convert.FromBase64String(good);
-        Assert.True(UpdateSignature.Verify(publicKey, Version, Hash, good), "The signature the others are made of does not verify.");
-
-        return new TheoryData<string, string>
-        {
-            { publicKey, "" },
-            { publicKey, "not base64!" },
-            { publicKey, good[..8] + " " + good[8..] },
-            { publicKey, Convert.ToBase64String(bytes.AsSpan(0, 63)) },
-            { publicKey, Convert.ToBase64String([.. bytes, 0]) },
-            // The same signature in the DER form of RFC 3279.
-            { publicKey, Convert.ToBase64String(p256.SignData(text, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence)) },
-        };
-    }
+    public static TheoryData<string, string> NotSignatures() => TestKeys.NotSignatures(UpdateSignature.SignedText(Version, Hash));
 
     [Theory]
     [InlineData(0)]
@@ -225,8 +162,8 @@ public class UpdateSignatureTests
         var publicKey = Rfc6979PublicKey();
         var signature = Convert.ToBase64String(Convert.FromHexString(r + s));
 
-        Assert.True(UpdateSignature.VerifyData(publicKey, Encoding.ASCII.GetBytes(message), signature));
-        Assert.False(UpdateSignature.VerifyData(publicKey, Encoding.ASCII.GetBytes(message + "."), signature));
+        Assert.True(EcdsaP256.Verify(publicKey, Encoding.ASCII.GetBytes(message), signature));
+        Assert.False(EcdsaP256.Verify(publicKey, Encoding.ASCII.GetBytes(message + "."), signature));
     }
 
     // Written by the code of M3.4 and kept as it is: a version signed before stays signed when the code changes.
@@ -249,7 +186,4 @@ public class UpdateSignatureTests
         });
         return Convert.ToBase64String(key.ExportSubjectPublicKeyInfo());
     }
-
-    private static string Sign(ECDsa key, byte[] text) =>
-        Convert.ToBase64String(key.SignData(text, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation));
 }

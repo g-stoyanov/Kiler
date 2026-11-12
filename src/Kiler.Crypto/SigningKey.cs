@@ -48,7 +48,7 @@ public sealed class SigningKey : IDisposable
     public string Sign(ReleaseVersion version, ReadOnlySpan<byte> sha256)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        return UpdateSignature.Sign(_key, UpdateSignature.SignedText(version, sha256));
+        return EcdsaP256.Sign(_key, UpdateSignature.SignedText(version, sha256));
     }
 
     /// <summary>
@@ -65,23 +65,8 @@ public sealed class SigningKey : IDisposable
 
         var salt = PasswordKey.NewSalt();
         using var passwordKey = PasswordKey.Derive(password, salt);
-
-        // A PKCS#8 of P-256 with its public key has about 140 bytes.
-        var pkcs8 = GC.AllocateArray<byte>(512, pinned: true);
-        try
-        {
-            if (!_key.TryExportPkcs8PrivateKey(pkcs8, out var length))
-            {
-                throw new CryptographicException("The signing key cannot be exported.");
-            }
-
-            var locked = EncryptedValue.Encrypt(passwordKey, pkcs8.AsSpan(0, length), Purpose.SigningKey, PublicKey);
-            return string.Join('.', Label, Format1, Convert.ToBase64String(salt), PublicKey, locked);
-        }
-        finally
-        {
-            CryptographicOperations.ZeroMemory(pkcs8);
-        }
+        var locked = EcdsaP256.LockPrivateKey(_key, passwordKey, Purpose.SigningKey, PublicKey);
+        return string.Join('.', Label, Format1, Convert.ToBase64String(salt), PublicKey, locked);
     }
 
     /// <summary>
@@ -111,7 +96,7 @@ public sealed class SigningKey : IDisposable
         }
 
         var publicKey = parts[3];
-        using (var check = UpdateSignature.ImportPublicKey(publicKey))
+        using (var check = EcdsaP256.ImportPublicKey(publicKey))
         {
             if (check is null)
             {
@@ -120,49 +105,18 @@ public sealed class SigningKey : IDisposable
         }
 
         using var passwordKey = PasswordKey.Derive(password, salt);
-        var pkcs8 = GC.AllocateArray<byte>(locked.Length - EncryptedValue.MinSize, pinned: true);
-        try
-        {
-            EncryptedValue.Decrypt(passwordKey, parts[4], pkcs8, Purpose.SigningKey, publicKey);
-            key = Import(pkcs8, publicKey);
-            return key is not null;
-        }
-        catch (CryptographicException)
+        if (EcdsaP256.UnlockPrivateKey(passwordKey, parts[4], Purpose.SigningKey, publicKey) is not { } ecdsa)
         {
             return false;
         }
-        finally
-        {
-            CryptographicOperations.ZeroMemory(pkcs8);
-        }
+
+        key = new SigningKey(ecdsa);
+        return true;
     }
 
     public void Dispose()
     {
         _disposed = true;
         _key.Dispose();
-    }
-
-    /// <summary>
-    /// The key of a whole PKCS#8 whose public key is <paramref name="publicKey"/>, which the caller checked is of P-256;
-    /// anything else is null.
-    /// </summary>
-    private static SigningKey? Import(ReadOnlySpan<byte> pkcs8, string publicKey)
-    {
-        var ecdsa = ECDsa.Create();
-        try
-        {
-            ecdsa.ImportPkcs8PrivateKey(pkcs8, out var read);
-            if (read == pkcs8.Length && string.Equals(Convert.ToBase64String(ecdsa.ExportSubjectPublicKeyInfo()), publicKey, StringComparison.Ordinal))
-            {
-                return new SigningKey(ecdsa);
-            }
-        }
-        catch (Exception exception) when (UpdateSignature.IsNotAKey(exception))
-        {
-        }
-
-        ecdsa.Dispose();
-        return null;
     }
 }

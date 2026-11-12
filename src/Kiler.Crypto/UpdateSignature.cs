@@ -18,11 +18,6 @@ public static class UpdateSignature
     /// <summary>The first byte of the signed text: ECDSA over P-256 with SHA-256. A new algorithm gets a new format.</summary>
     internal const byte Format1 = 1;
 
-    /// <summary>The bytes of a signature of P-256 in the form of IEEE P1363.</summary>
-    internal const int SignatureSize = 64;
-
-    private const DSASignatureFormat SignatureFormat = DSASignatureFormat.IeeeP1363FixedFieldConcatenation;
-
     /// <summary>
     /// Whether <paramref name="signature"/> is a signature of <paramref name="version"/> and <paramref name="sha256"/> by the
     /// key of <paramref name="publicKey"/>. A key that is not a public key of P-256, or a signature that is not 64 bytes,
@@ -32,7 +27,7 @@ public static class UpdateSignature
     {
         ArgumentNullException.ThrowIfNull(publicKey);
         ArgumentNullException.ThrowIfNull(signature);
-        return VerifyData(publicKey, SignedText(version, sha256), signature);
+        return EcdsaP256.Verify(publicKey, SignedText(version, sha256), signature);
     }
 
     /// <summary>The text that a release signs.</summary>
@@ -44,67 +39,5 @@ public static class UpdateSignature
         }
 
         return EncryptedValue.AssociatedData(Format1, Purpose.Update, [version.ToString(), Convert.ToHexStringLower(sha256)]);
-    }
-
-    /// <summary>The signature of <paramref name="text"/>, which <see cref="SigningKey"/> makes.</summary>
-    internal static string Sign(ECDsa key, byte[] text) => Convert.ToBase64String(key.SignData(text, HashAlgorithmName.SHA256, SignatureFormat));
-
-    /// <summary>The check of a signature of any data: the test vectors sign other texts.</summary>
-    internal static bool VerifyData(string publicKey, ReadOnlySpan<byte> data, string signature)
-    {
-        ArgumentNullException.ThrowIfNull(publicKey);
-        ArgumentNullException.ThrowIfNull(signature);
-
-        // VerifyData of .NET 10 gives false for a signature of another length too (M3.4, with the length check taken out);
-        // the check keeps the format in the code, not in the platform.
-        if (!CanonicalBase64.TryDecode(signature, out var signatureBytes) || signatureBytes.Length != SignatureSize)
-        {
-            return false;
-        }
-
-        using var key = ImportPublicKey(publicKey);
-        return key is not null && key.VerifyData(data, signatureBytes, HashAlgorithmName.SHA256, SignatureFormat);
-    }
-
-    /// <summary>
-    /// The key of the base64 of a SubjectPublicKeyInfo of P-256, in its one form and with no byte after it; anything else is
-    /// null. The caller disposes it.
-    /// </summary>
-    internal static ECDsa? ImportPublicKey(string publicKey)
-    {
-        if (!CanonicalBase64.TryDecode(publicKey, out var bytes))
-        {
-            return null;
-        }
-
-        var key = ECDsa.Create();
-        try
-        {
-            key.ImportSubjectPublicKeyInfo(bytes, out var read);
-            if (read == bytes.Length && IsP256(key))
-            {
-                return key;
-            }
-        }
-        catch (Exception exception) when (IsNotAKey(exception))
-        {
-        }
-
-        key.Dispose();
-        return null;
-    }
-
-    /// <summary>
-    /// Whether an import failed because the bytes are not a key it takes. On Windows, an OID of no known curve and a point
-    /// that is not on its curve throw <see cref="PlatformNotSupportedException"/>, not <see cref="CryptographicException"/>
-    /// (M3.4, security review).
-    /// </summary>
-    internal static bool IsNotAKey(Exception exception) => exception is CryptographicException or PlatformNotSupportedException;
-
-    /// <summary>Whether the key is of P-256: a curve of 256 bits, such as brainpoolP256r1, makes signatures of 64 bytes too.</summary>
-    internal static bool IsP256(ECDsa key)
-    {
-        var curve = key.ExportParameters(includePrivateParameters: false).Curve;
-        return curve.IsNamed && string.Equals(curve.Oid.Value, ECCurve.NamedCurves.nistP256.Oid.Value, StringComparison.Ordinal);
     }
 }

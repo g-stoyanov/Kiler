@@ -27,6 +27,18 @@ internal enum Purpose
 
     /// <summary>The signing key of the releases locked with a password (M3.4); the context is its public key.</summary>
     SigningKey,
+
+    /// <summary>
+    /// The sealed text of a file (M3.9); the context is the label of its <see cref="SealPurpose"/>, then the text. Only
+    /// <see cref="AdminSeal"/> takes it: Kiler encrypts no value with it.
+    /// </summary>
+    Seal,
+
+    /// <summary>The public key of the admin key locked with a password or the recovery key (M3.9); there is no context.</summary>
+    AdminPublicKey,
+
+    /// <summary>The private key of the admin key locked with a password or the recovery key (M3.9); the context is its public key.</summary>
+    AdminPrivateKey,
 }
 
 /// <summary>
@@ -159,6 +171,9 @@ internal static class EncryptedValue
         Purpose.LevelKey => "level-key",
         Purpose.Update => "update",
         Purpose.SigningKey => "signing-key",
+        Purpose.Seal => "seal",
+        Purpose.AdminPublicKey => "admin-public-key",
+        Purpose.AdminPrivateKey => "admin-private-key",
         _ => throw new ArgumentOutOfRangeException(nameof(purpose)),
     };
 
