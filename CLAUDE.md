@@ -53,7 +53,7 @@ These are outside git (in `.gitignore`):
 
 ## Working style
 
-- Communicate with the user in Bulgarian.
+- Communicate with the user in Bulgarian: the answers, the questions of the dialogs, and the prompts for a new session given to the user, such as the short prompt of step 9 of the work cycle (decided by the user on 2026-11-12).
 - Before a new module: its open questions and the tasks in `docs/tasks/`, then code.
 - Questions are answered in the chat. Files are created only when explicitly asked.
 - Commit and push only when explicitly asked.
