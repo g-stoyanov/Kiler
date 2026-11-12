@@ -21,9 +21,6 @@ internal static class ReleaseTool
     /// <summary>The largest key file that <c>sign</c> reads: one line of some 400 characters (kiler-crypto, "Formats").</summary>
     public const int MaxKeyFileSize = 4096;
 
-    /// <summary>The largest exe that <c>sign</c> reads into memory; Kiler.exe has some 22 MB.</summary>
-    public const int MaxExeSize = 256 * 1024 * 1024;
-
     public const int Done = 0;
 
     public const int Refused = 1;
@@ -143,7 +140,7 @@ internal static class ReleaseTool
         }
 
         // One read of the exe gives both the version and the hash (M3.4, security review).
-        if (ReadAll(exePath, MaxExeSize, out var bytes) is { } exeError)
+        if (ReadAll(exePath, VersionFile.MaxExeSize, out var bytes) is { } exeError)
         {
             return Refuse(console, exeError);
         }
@@ -182,7 +179,7 @@ internal static class ReleaseTool
                     return Refuse(console, "The new signature does not verify; nothing was written.");
                 }
 
-                var file = new VersionFile(version, sha256, signature);
+                var file = new VersionFile(version, sha256, [signature]);
                 var target = Path.Combine(Path.GetDirectoryName(exePath)!, VersionFile.Name);
                 if (Write(target, file.ToJson()) is { } error)
                 {

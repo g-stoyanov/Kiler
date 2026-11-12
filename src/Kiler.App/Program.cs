@@ -76,7 +76,9 @@ switch (decision)
 // Started from a shared folder, Kiler runs from its copy in the profile. The single instance comes first, so a Kiler that
 // runs already only gets the browser. The copy takes the lock itself.
 var share = ShareFile.ForCurrentUser();
-var localCopy = new LocalCopy(CopyPlace.ForCurrentUser(), share, new CopyFiles(), new ShellShortcuts(), new ProcessStarter());
+var copyPlace = CopyPlace.ForCurrentUser();
+var copyFiles = new CopyFiles();
+var localCopy = new LocalCopy(copyPlace, share, copyFiles, new ShellShortcuts(), new ProcessStarter());
 var copyDecision = localCopy.Decide(Environment.ProcessPath);
 if (copyDecision is not LocalCopyDecision.RunHere)
 {
@@ -117,6 +119,14 @@ catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
 }
 
 Browser.OpenOrPrint(browser, self.EntryAddress, options.NoBrowser, Console.Out, Console.Error);
+
+// The local copy looks for a new version once the page is open, in the background, so a shared folder that does not answer
+// holds up neither the page nor the stop (decided by the user in M3.6).
+if (copyPlace.IsTheExe(Environment.ProcessPath))
+{
+    _ = new UpdateCheck(copyPlace, share, copyFiles, UpdateKey.PublicKey, HealthApi.Version, Console.Out, Console.Error, app.Lifetime.ApplicationStopping)
+        .StartInBackground();
+}
 
 await app.WaitForShutdownAsync();
 if (app.Services.GetRequiredService<Heartbeat>().TimedOut)

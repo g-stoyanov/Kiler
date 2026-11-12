@@ -98,6 +98,8 @@ Opening the browser is `IBrowser` in Kiler.App (decided in M1.5), because only t
 - A script that breaks the guards one by one in the background is read when it ends, not watched: a `tail -f` of its results file (a Monitor) held the file, and every later `Add-Content` of the script failed, though the runs went on and the code was put back (M2.8b).
 - An age check is broken by taking it out, not by setting the age to zero: a `FakeTimeProvider` that starts at the real time is behind the times of the files made after it, so a file made a moment ago still counts as young (M2.7e).
 - A test class with a field named `Record`, such as a `DocumentKey`, hides `Xunit.Record`: write `Xunit.Record.Exception` there.
+- A fake stream derived from `MemoryStream` overrides only `Read(byte[], int, int)`: `MemoryStream` gives the read of a span of a derived type to `Stream`, which reads into an array, so overriding both makes each call the other until the stack overflows, and the test run ends with exit code -1073741571 and no failed test (M3.6).
+- A test that another handle cannot write a file that a stream holds opens that handle sharing everything (`CopyFilesTests.OpenToWrite`): `File.OpenWrite` shares nothing, so any open stream refuses it, whatever its own share mode, and the test passes with the guard broken (M3.6).
 - A null-conditional call skips the evaluation of its arguments too: `outside?.AddRange(copy.Load().Outside)` does not load at all when `outside` is null (M2.8c). Make the call with a side effect first, then pass its result.
 - Tests on the real clock, such as the stop by the heartbeat: take the time stamp before the action that starts the wait, check a lower and an upper bound, and leave margins for a slow CI machine (`windows-latest`) (M1.6).
 

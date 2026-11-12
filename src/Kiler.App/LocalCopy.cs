@@ -5,10 +5,20 @@ namespace Kiler.App;
 /// <summary>Where the local copy of Kiler lives: the exe in the profile and its shortcut in the Start menu.</summary>
 internal sealed record CopyPlace(string ExePath, string ShortcutPath)
 {
+    /// <summary>The name of the exe, in the shared folder and in the local copy.</summary>
+    public const string ExeName = "Kiler.exe";
+
     public string Folder => Path.GetDirectoryName(ExePath)!;
 
     public static CopyPlace ForCurrentUser() =>
-        new(Path.Combine(UserFolders.Programs(), "Kiler.exe"), Path.Combine(UserFolders.StartMenu(), "Kiler.lnk"));
+        new(Path.Combine(UserFolders.Programs(), ExeName), Path.Combine(UserFolders.StartMenu(), "Kiler.lnk"));
+
+    /// <summary>
+    /// Whether <paramref name="exePath"/> is the exe of the local copy, which alone looks for a new version (M3.6): an exe of
+    /// another name in its folder, a publish folder and the tests never do.
+    /// </summary>
+    public bool IsTheExe(string? exePath) =>
+        exePath is not null && string.Equals(Path.GetFullPath(exePath), Path.GetFullPath(ExePath), StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>What a start does about the local copy.</summary>

@@ -5,7 +5,8 @@ namespace Kiler.App;
 /// maintainer's signing key of ECDSA P-256, made with <c>keygen</c> of the release tool on 2026-11-11. The local copies check
 /// the signature of <c>version.json</c> with it (M3.6, M3.8), never with a key from the shared folder. Its private key is
 /// only in the key file and the password manager. It is never a key of the tests (<c>UpdateKeyTests</c>), and Kiler.App never
-/// uses <c>SigningKey</c>. How a release brings a new key is decided in M3.6 (docs/release.md, "The signing key").
+/// uses <c>SigningKey</c>. A new key comes with a release signed with the old key and the new one, as <c>version.json</c>
+/// carries one or two signatures (decided in M3.6; docs/release.md, "The signing key").
 /// </summary>
 internal static class UpdateKey
 {

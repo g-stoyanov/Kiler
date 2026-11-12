@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.Json;
+using Kiler.Core;
 using Kiler.Crypto;
 
 namespace Kiler.Release.Tests;
@@ -53,13 +54,17 @@ internal sealed class ToolFolder : IDisposable
         return (path, key.PublicKey);
     }
 
-    /// <summary>The members of a <c>version.json</c>, as a local copy would read them.</summary>
+    /// <summary>The members of a <c>version.json</c>, as a local copy reads them, with the one signature that the tool writes.</summary>
     public static (string Version, string Sha256, string Signature) ReadVersionJson(string path)
     {
-        using var json = JsonDocument.Parse(File.ReadAllBytes(path));
-        var root = json.RootElement;
-        Assert.Equal(["version", "sha256", "signature"], root.EnumerateObject().Select(member => member.Name));
-        return (root.GetProperty("version").GetString()!, root.GetProperty("sha256").GetString()!, root.GetProperty("signature").GetString()!);
+        var bytes = File.ReadAllBytes(path);
+        using (var json = JsonDocument.Parse(bytes))
+        {
+            Assert.Equal(["version", "sha256", "signatures"], json.RootElement.EnumerateObject().Select(member => member.Name));
+        }
+
+        Assert.True(VersionFile.TryRead(bytes, out var file, out var invalid), invalid);
+        return (file.Version.ToString(), file.Sha256, Assert.Single(file.Signatures));
     }
 
     public void Dispose()

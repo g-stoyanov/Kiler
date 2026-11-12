@@ -225,6 +225,29 @@ public sealed class LocalCopyTests : IDisposable
         Assert.Empty(_starter.Started);
     }
 
+    [Fact]
+    public void IsTheExe_TheExeOfTheCopyInAnotherCase_IsTrue()
+    {
+        Assert.True(_place.IsTheExe(_place.ExePath.ToUpperInvariant()));
+        Assert.True(_place.IsTheExe(Path.Combine(_place.Folder, "..", "Kiler", "kiler.exe")));
+    }
+
+    [Theory]
+    [InlineData("Kiler.exe.old")]
+    [InlineData("Kiler (2).exe")]
+    [InlineData("Kiler.exe.new")]
+    public void IsTheExe_AnotherExeInTheFolderOfTheCopy_IsFalse(string name)
+    {
+        Assert.False(_place.IsTheExe(Path.Combine(_place.Folder, name)));
+    }
+
+    [Fact]
+    public void IsTheExe_TheExeOfTheSharedFolderOrNone_IsFalse()
+    {
+        Assert.False(_place.IsTheExe(Source));
+        Assert.False(_place.IsTheExe(null));
+    }
+
     private static string Lines(params string[] lines) => string.Concat(lines.Select(line => line + Environment.NewLine));
 
     private LocalCopy LocalCopy() => new(_place, _share, _files, _shortcuts, _starter);

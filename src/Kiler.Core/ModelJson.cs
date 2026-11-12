@@ -207,7 +207,7 @@ internal sealed class VersionJson
 
     public string? Sha256 { get; init; }
 
-    public string? Signature { get; init; }
+    public List<string?>? Signatures { get; init; }
 }
 
 internal sealed class UserJson

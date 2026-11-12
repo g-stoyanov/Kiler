@@ -2,7 +2,7 @@
 
 How a new version of Kiler reaches the team, and where the key that signs it is kept. The decisions are in [tasks/M3.md](tasks/M3.md#decisions-for-the-module) (step 11 of PLAN M3, the signed updates).
 
-**Status:** the release tool and the public key in the exe are done (M3.5). The copies check and take a new version from M3.6 to M3.8 on; until then a release is put in place by hand.
+**Status:** the release tool and the public key in the exe are done (M3.5), and the local copies find and check a new version (M3.6). They put it in place from M3.7 on, the first start checks its copy from M3.8, and `sign` takes a second key in M3.8a; until M3.7 a release is put in place by hand.
 
 ## How it works
 
@@ -12,13 +12,15 @@ The shared folder holds `Kiler.exe` and `version.json` next to it:
 {
   "version": "1.0.1",
   "sha256": "<the SHA-256 of Kiler.exe, lowercase hex>",
-  "signature": "<base64>"
+  "signatures": [
+    "<base64>"
+  ]
 }
 ```
 
-Everyone runs Kiler from a copy of their own in `%LOCALAPPDATA%\Programs\Kiler`. At each start the copy reads `version.json` of the shared folder. It takes a new `Kiler.exe` only when the version is higher than its own, and the signature over that version and the SHA-256 of the copied file verifies with the public key built into the copy. Anyone can write the shared folder, but no one can make that signature without the signing key, so a changed `Kiler.exe` or an older one under a higher number is refused. The first start from the shared folder checks its copy against `version.json` in the same way.
+Everyone runs Kiler from a copy of their own in `%LOCALAPPDATA%\Programs\Kiler`. At each start the copy reads `version.json` of the shared folder, in the background once the page is open, so the start never waits for the shared folder. It takes a new `Kiler.exe` only when the version is higher than its own, and a signature over that version and the SHA-256 of the copied file verifies with the public key built into the copy. The new version goes into place without a restart and runs from the next start. Anyone can write the shared folder, but no one can make that signature without the signing key, so a changed `Kiler.exe` or an older one under a higher number is refused. The first start from the shared folder checks its copy against `version.json` in the same way.
 
-The `sha256` of the file is there for people: the copies hash the file they copied, never the text of `version.json`.
+The `sha256` of the file is there for people: the copies hash the file they copied, never the text of `version.json`. `signatures` holds one signature, and two during a change of the signing key (below); a copy takes the release when one of them verifies with its key.
 
 ## The signing key
 
@@ -30,7 +32,7 @@ A key pair of ECDSA P-256, made once by the maintainer with the release tool, `t
 - **Never** in the repo, the shared folder, a mail, a chat, CI or a log. The tool never prints the password, and asks for it without showing it.
 - **Lost key:** the copies take no new version signed with another key. Every user then installs the next version by hand: compare `Get-FileHash` of `Kiler.exe` on the shared folder with the announced SHA-256 (step 5 below), then delete `%LOCALAPPDATA%\Programs\Kiler` and start Kiler from the shared folder. The hash check is the only defense there, as a start from the shared folder runs whatever exe is there. That is why the password manager keeps a copy.
 - **A key that has leaked** (the file and its password): it can no longer vouch for a release, as anyone with it can sign too. Make a new key, and every user installs the release with the new public key by hand, as for a lost key.
-- **A new key while the old one is safe** (for example a new maintainer) is not possible yet. `version.json` carries one signature, and each exe checks it with its own key: while the release with the new key is on the shared folder, a first start refuses it, and a copy that misses that release refuses every later one. How `version.json` carries a change of key is decided in M3.6 ([tasks/M3.md](tasks/M3.md)); until then, a new key is installed by hand, as for a lost key.
+- **A new key while the old one is safe** (for example a new maintainer): each exe takes a release when one of the signatures of `version.json` verifies with its own key (decided in M3.6, [tasks/M3.md](tasks/M3.md)). So each release is signed with the old key and the new one until the old one is retired: the copies with the old key take the release that brings the new key, a first start of it takes it with the new key, and a copy that missed it still takes the later ones. `sign` takes a second key file from M3.8a on; until then, a new key is installed by hand, as for a lost key.
 
 ### Make the key
 
