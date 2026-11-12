@@ -2,7 +2,9 @@ using System.Net.Sockets;
 using Kiler.App;
 
 // First of all, so that no DLL from a network path, such as one planted next to the exe in the shared folder, loads after
-// this (M3.8). From a network folder Kiler does not go on without it.
+// this (M3.8). From a network folder Kiler does not go on without it. It also loads the DLLs that the exe delay-loads from
+// System32 (M3.8b): nothing may call ncrypt, CRYPT32 or Secur32 before it, nor a static constructor or a module initializer,
+// or delayimp.lib loads that DLL by name from the folder of the exe first, before the policy.
 if (!RemoteImages.Forbid(Environment.ProcessPath, Console.Error))
 {
     return 1;

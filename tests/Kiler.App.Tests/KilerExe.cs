@@ -204,6 +204,13 @@ internal sealed class KilerRun : IDisposable
     /// <summary>The handle of the process, for what only Windows can tell about it, such as its mitigation policies.</summary>
     public SafeProcessHandle Handle => _process.SafeHandle;
 
+    /// <summary>The full paths of the modules that the process has loaded now.</summary>
+    public IReadOnlyList<string> ModulePaths()
+    {
+        _process.Refresh();
+        return [.. _process.Modules.Cast<ProcessModule>().Select(module => module.FileName)];
+    }
+
     /// <summary>
     /// The lines of the output so far, with the token hidden, because an assertion prints what it compares. The line with
     /// the token comes from <see cref="WaitForLineAsync"/>.

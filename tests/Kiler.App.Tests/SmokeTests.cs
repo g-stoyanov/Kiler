@@ -27,6 +27,35 @@ public partial class SmokeTests
     /// <summary><c>LOAD_LIBRARY_SEARCH_SYSTEM32</c>, from <c>/DEPENDENTLOADFLAG:0x800</c> in Kiler.App.csproj (M1.8).</summary>
     private const ushort LoadLibrarySearchSystem32 = 0x800;
 
+    /// <summary>The API sets, which Windows resolves to their host DLLs in System32 and never searches for.</summary>
+    private static readonly string[] ApiSets = ["api-ms-", "ext-ms-"];
+
+    /// <summary>
+    /// The DLLs that Kiler.exe may import, each examined for what Windows loads for it before <c>Main</c>, where
+    /// <c>NoRemoteImages</c> cannot reach (M3.8b): a KnownDLL, whose own imports are KnownDLLs too, or a DLL whose imports
+    /// are only <c>ntdll.dll</c> and API sets. A new import is examined so before it goes here (host.md, "UI files and
+    /// publish"); the forwarders of the functions are checked by the test itself, as they change with each function.
+    /// </summary>
+    private static readonly string[] ExaminedImports =
+        ["ADVAPI32.dll", "bcrypt.dll", "IPHLPAPI.DLL", "KERNEL32.dll", "ole32.dll", "OLEAUT32.dll", "USER32.dll", "WS2_32.dll"];
+
+    /// <summary>
+    /// The DLLs that the exe delay-loads (Kiler.App.csproj, M3.8b), as Windows took from the folder of the exe what they load
+    /// by name before <c>Main</c>: <c>SspiCli.dll</c>, where <c>Secur32!GetUserNameExW</c> forwards, and <c>NTASN1.dll</c> for
+    /// <c>ncrypt.dll</c>. <c>RemoteImages</c> loads them from System32 right after the policy.
+    /// </summary>
+    private static readonly string[] DelayLoaded = ["ncrypt.dll", "CRYPT32.dll", "Secur32.dll"];
+
+    /// <summary>
+    /// The system DLLs whose copies a test puts next to the exe (M3.8b): those that <c>RemoteImages</c> loads, and those that
+    /// the exe imports and that are not KnownDLLs. The folder is local, so nothing refuses a copy there: a load of one by
+    /// name before the policy or a missing load from System32 would take it. Not <c>bcrypt.dll</c>: the runtime loads
+    /// <c>BCrypt.dll</c> by its full path in the folder of the exe for a framework P/Invoke that it binds at its first call
+    /// (the M1.8 measurement), after the policy, which refuses it from a network folder and the runtime then goes on to
+    /// System32 (M3.8b); a local folder takes the copy, and only the user writes the folder of the local copy.
+    /// </summary>
+    private static readonly string[] Planted = [.. RemoteImages.SystemDlls, "IPHLPAPI.DLL"];
+
     /// <summary>The longest wait for a start or an end that does not wait on purpose: a busy CI machine, an antivirus scan of the new copy.</summary>
     private static readonly TimeSpan Quick = TimeSpan.FromSeconds(30);
 
@@ -52,6 +81,30 @@ public partial class SmokeTests
         Assert.Equal(Machine.Amd64, pe.PEHeaders.CoffHeader.Machine);
         Assert.Equal(PEMagic.PE32Plus, pe.PEHeaders.PEHeader!.Magic);
         Assert.Equal(LoadLibrarySearchSystem32, ReadDependentLoadFlags(pe));
+    }
+
+    [Fact(Skip = NoExe, SkipUnless = nameof(HasExe))]
+    public void Exe_ImportsOnlyTheDllsWhoseChainWasExamined_AndDelayLoadsTheOthers()
+    {
+        using var file = File.OpenRead(KilerExe.Published!);
+        using var pe = new PEReader(file);
+
+        var imports = PeImports.Static(pe).Where(import => !IsApiSet(import.Dll)).ToList();
+        var delayed = PeImports.Delayed(pe);
+        var delayLoaded = delayed.Select(import => import.Dll).ToList();
+
+        Assert.Empty(imports.Select(import => import.Dll).Except(ExaminedImports, StringComparer.OrdinalIgnoreCase));
+        Assert.Equal(
+            DelayLoaded.Order(StringComparer.OrdinalIgnoreCase), delayLoaded.Order(StringComparer.OrdinalIgnoreCase), StringComparer.OrdinalIgnoreCase);
+        // Each is loaded from System32 right after the policy, so its load at the first call finds it loaded.
+        Assert.Empty(delayLoaded.Except(RemoteImages.SystemDlls, StringComparer.OrdinalIgnoreCase));
+
+        // A function that forwards makes Windows load its target by name when the import binds: before Main for the imports,
+        // so only to a KnownDLL; at the first call for the delay loads, so also to a DLL that RemoteImages has loaded. This
+        // System32 decides, so the test checks the Windows that it runs on.
+        var known = KnownDlls.Names();
+        var loaded = new HashSet<string>(known.Concat(RemoteImages.SystemDlls), StringComparer.OrdinalIgnoreCase);
+        Assert.Empty(ForwardersOutside(imports, known).Concat(ForwardersOutside(delayed, loaded)));
     }
 
     [Fact(Skip = NoExe, SkipUnless = nameof(HasExe))]
@@ -151,16 +204,34 @@ public partial class SmokeTests
     }
 
     [Fact(Skip = NoExe, SkipUnless = nameof(HasExe))]
-    public async Task Start_ForbidsDllsFromANetworkPath()
+    public async Task Start_ForbidsDllsFromANetworkPath_AndLoadsNoCopyOfASystemDllNextToTheExe()
     {
-        // At every start, first of all (decided by the user in M3.8); a local folder is no network path, so it says nothing.
+        // At every start, first of all (decided by the user in M3.8 and M3.8b); a local folder is no network path, so it says
+        // nothing. The copies are the measurement of M3.8b without a network path: the folder refuses nothing, so a load of
+        // one by name before the policy (the imports, their forwarders and delay loads) or a missing load from System32 takes it.
         using var exe = new KilerExe();
-        using var run = exe.Start(["--first-wait", "2"]);
-        await run.WaitForLineAsync(OpenPrefix, Quick);
+        var folder = Path.GetDirectoryName(exe.ExePath)!;
+        foreach (var name in Planted)
+        {
+            File.Copy(Path.Combine(Environment.SystemDirectory, name), Path.Combine(folder, name));
+        }
 
-        Assert.True(RemoteImages.AreForbidden(run.Handle), "The running Kiler does not forbid DLLs from a network path.");
-        Assert.Equal(0, await run.WaitForExitAsync(TimeSpan.FromSeconds(2) + Late));
-        Assert.Empty(run.Errors);
+        // Long enough for the module list on a busy machine, which a run that has ended cannot give.
+        var firstWait = TimeSpan.FromSeconds(5);
+        using (var run = exe.Start(["--first-wait", Text(firstWait)]))
+        {
+            await run.WaitForLineAsync(OpenPrefix, Quick);
+
+            Assert.True(RemoteImages.AreForbidden(run.Handle), "The running Kiler does not forbid DLLs from a network path.");
+            AssertFromSystem32(run.ModulePaths(), RemoteImages.SystemDlls);
+            Assert.Equal(0, await run.WaitForExitAsync(firstWait + Late));
+            Assert.Empty(run.Errors);
+        }
+
+        // --diag checks the same in itself; the trial use runs it from the shared folder.
+        using var diag = exe.Diag(["--data", exe.DataFolder]);
+        await diag.WaitForExitAsync(DiagRun);
+        Assert.Contains("[OK] The DLLs that the exe delay-loads come from System32", diag.Output);
     }
 
     [Fact(Skip = NoExe, SkipUnless = nameof(HasExe))]
@@ -329,7 +400,8 @@ public partial class SmokeTests
         Assert.Equal("Exe location: local disk", output[2]);
         Assert.StartsWith("Process start to Main: ", output[3], StringComparison.Ordinal);
         Assert.Equal("[OK] DLLs from a network path are refused", output[4]);
-        Assert.Equal($"Test folder: {exe.DataFolder} (local disk)", output[5]);
+        Assert.Equal("[OK] The DLLs that the exe delay-loads come from System32", output[5]);
+        Assert.Equal($"Test folder: {exe.DataFolder} (local disk)", output[6]);
         Assert.Contains(output, line => line.StartsWith($"Write, one by one: {FileDiag.DefaultFileCount} files in ", StringComparison.Ordinal));
         Assert.Contains(output, line => line.StartsWith("[OK] Replace by rename over the old file: ", StringComparison.Ordinal));
         Assert.Contains(FileDiagTests.OwnerLine("Owner of a new file"), output);
@@ -494,6 +566,41 @@ public partial class SmokeTests
         Assert.True(reader.ReadUInt32() >= DependentLoadFlagsOffset + sizeof(ushort), "The load config of the exe has no DependentLoadFlags.");
         reader.Offset = DependentLoadFlagsOffset;
         return reader.ReadUInt16();
+    }
+
+    private static bool IsApiSet(string dll) => ApiSets.Any(prefix => dll.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Each function of <paramref name="imports"/> that its DLL in System32 forwards to a DLL that is neither an API set nor in <paramref name="allowed"/>.</summary>
+    private static IEnumerable<string> ForwardersOutside(IEnumerable<PeImports.Import> imports, IReadOnlySet<string> allowed)
+    {
+        foreach (var import in imports)
+        {
+            var forwarders = PeImports.Forwarders(Path.Combine(Environment.SystemDirectory, import.Dll));
+            foreach (var function in import.Functions)
+            {
+                if (forwarders.TryGetValue(function, out var target)
+                    && target[..target.LastIndexOf('.')] is var dll
+                    && !IsApiSet(dll)
+                    && !allowed.Contains($"{dll}.dll"))
+                {
+                    yield return $"{import.Dll}!{function} forwards to {target}";
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Each module of <paramref name="modules"/> named as one of <see cref="Planted"/> comes from System32, and each of
+    /// <paramref name="mustBeLoaded"/> is among them.
+    /// </summary>
+    private static void AssertFromSystem32(IReadOnlyList<string> modules, IEnumerable<string> mustBeLoaded)
+    {
+        var planted = modules.Where(path => Planted.Contains(Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)).ToList();
+        // The names only: the folder of the copy holds the Windows account.
+        Assert.Empty(planted
+            .Where(path => !string.Equals(Path.GetDirectoryName(path), Environment.SystemDirectory, StringComparison.OrdinalIgnoreCase))
+            .Select(Path.GetFileName));
+        Assert.All(mustBeLoaded, name => Assert.Contains(planted, path => string.Equals(Path.GetFileName(path), name, StringComparison.OrdinalIgnoreCase)));
     }
 
     [GeneratedRegex(@"^\?t=[A-Za-z0-9_-]{43}$")]

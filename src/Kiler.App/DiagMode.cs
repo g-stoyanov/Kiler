@@ -28,6 +28,7 @@ internal static class DiagMode
         report.Line($"Exe location: {FileDiag.Location(exeFolder)}");
         report.Line($"Process start to Main: {DiagReport.Ms(startup)}");
         CheckRemoteImages(report);
+        CheckSystemDlls(report);
 
         var share = ShareFile.ForCurrentUser();
         var files = new CopyFiles();
@@ -72,6 +73,34 @@ internal static class DiagMode
         {
             using var self = Process.GetCurrentProcess();
             report.Check(What, RemoteImages.AreForbidden(self.SafeHandle));
+        }
+        catch (Win32Exception ex)
+        {
+            report.Check(What, false, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Whether each DLL that the start loads from System32 after the policy (M3.8b) is loaded, and only from there: its
+    /// later loads by name take it, so a copy next to the exe is never tried. The detail names the DLLs that fail, not paths.
+    /// </summary>
+    private static void CheckSystemDlls(DiagReport report)
+    {
+        const string What = "The DLLs that the exe delay-loads come from System32";
+        try
+        {
+            using var self = Process.GetCurrentProcess();
+            var modules = self.Modules.Cast<ProcessModule>().Select(module => module.FileName).ToList();
+            var system32 = Path.TrimEndingDirectorySeparator(Environment.SystemDirectory);
+            var elsewhere = RemoteImages.SystemDlls
+                .Where(name =>
+                {
+                    var paths = modules.Where(path => string.Equals(Path.GetFileName(path), name, StringComparison.OrdinalIgnoreCase)).ToList();
+                    return paths.Count == 0
+                        || paths.Any(path => !string.Equals(Path.GetDirectoryName(path), system32, StringComparison.OrdinalIgnoreCase));
+                })
+                .ToList();
+            report.Check(What, elsewhere.Count == 0, elsewhere.Count == 0 ? null : $"not loaded from System32: {string.Join(", ", elsewhere)}");
         }
         catch (Win32Exception ex)
         {

@@ -50,6 +50,21 @@
     <LinkerArg Include="/DEPENDENTLOADFLAG:0x800" />
   </ItemGroup>
 
+  <!--
+    The flag above covers only the DLLs that the exe imports, not what they load in turn (M3.8b). Windows loads those from
+    the folder of the exe first, before Main, where NoRemoteImages (RemoteImages) cannot reach them: SSPICLI for
+    Secur32!GetUserNameExW, which forwards there, and NTASN1 for ncrypt. Native AOT calls the APIs of these three directly
+    (WindowsAPIs.txt of the ILCompiler package), so the exe delay-loads them instead: RemoteImages loads them, and SSPICLI and
+    NTASN1 before them, from System32 right after the policy, and the LoadLibraryEx(name, NULL, 0) of delayimp.lib at the
+    first call finds them loaded.
+  -->
+  <ItemGroup>
+    <LinkerArg Include="/DELAYLOAD:ncrypt.dll" />
+    <LinkerArg Include="/DELAYLOAD:CRYPT32.dll" />
+    <LinkerArg Include="/DELAYLOAD:Secur32.dll" />
+    <LinkerArg Include="delayimp.lib" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Kiler.Core\Kiler.Core.csproj" />
   </ItemGroup>
