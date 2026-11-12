@@ -117,8 +117,8 @@ export interface PasswordRequest {
  */
 export const passwordRefusals = {
   wrongPassword: 'The current password is wrong.',
-  levelNotUnlocked:
-    'A level of your user file did not unlock with your password, and a new password would lose it. Contact an admin.',
+  keyNotUnlocked:
+    'A key of your user file did not unlock with your password, and a new password would lose it. Contact an admin.',
   userChanged: 'Your user file has changed since you signed in. Sign in again.',
 } as const;
 

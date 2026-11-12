@@ -64,7 +64,7 @@ export function afterPasswordRefusal(error: unknown, forced: boolean): AfterRefu
     case 400:
       return forced ? 'readSession' : 'stay';
     case 403:
-      return error.message === passwordRefusals.wrongPassword || error.message === passwordRefusals.levelNotUnlocked
+      return error.message === passwordRefusals.wrongPassword || error.message === passwordRefusals.keyNotUnlocked
         ? 'stay'
         : 'readSession';
     case 409:

@@ -65,7 +65,7 @@ describe('passwordRequest', () => {
 describe('afterPasswordRefusal', () => {
   it.each([
     ['a wrong current password', refused(403, passwordRefusals.wrongPassword)],
-    ['a level that did not unlock', refused(403, passwordRefusals.levelNotUnlocked)],
+    ['a key that did not unlock', refused(403, passwordRefusals.keyNotUnlocked)],
   ])('keeps the form after %s', (_, error) => {
     expect(afterPasswordRefusal(error, false)).toBe('stay');
   });

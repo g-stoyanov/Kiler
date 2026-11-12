@@ -29,6 +29,41 @@ public sealed class SignInTests : IDisposable
             Assert.False(session.MustChangePassword);
             Assert.False(session.Reads(3));
             Assert.True(session.Use(2, key => LevelCheck.Verify(key, _kiler.Check(2), 2)), "The key of level 2 is not the key of the level.");
+
+            // A file locked without the admin key, as one that an admin action wrote before M4.14.
+            Assert.Null(session.AdminPublicKey);
+            Assert.False(session.HoldsAdminKey);
+        }
+    }
+
+    [Fact]
+    public void TryStart_OfAnAdmin_HoldsThePublicKeyAndThePrivateKeyOfTheAdminKey()
+    {
+        var admin = _kiler.User(Account, level: 3, canEdit: true, isAdmin: true, adminKey: AdminKeyLock.PublicAndPrivateKey);
+        var files = _kiler.Files(guestMode: false, admin);
+
+        Assert.True(SignIn.TryStart(files, Account, TestKiler.Password, out var session, out _));
+
+        using (session)
+        {
+            Assert.Equal(_kiler.AdminKey.PublicKey, session.AdminPublicKey);
+            Assert.True(session.HoldsAdminKey);
+            var seal = session.UseAdminKey(key => key.Seal(SealPurpose.UserFile, "made-up text"u8));
+            Assert.True(AdminSeal.Verify(_kiler.AdminKey.PublicKey, SealPurpose.UserFile, "made-up text"u8, seal), "The admin key of the session is not the one of the file.");
+        }
+    }
+
+    [Fact]
+    public void TryStart_OfAUser_HoldsOnlyThePublicKeyOfTheAdminKey()
+    {
+        var files = _kiler.Files(guestMode: false, _kiler.User(Account, level: 2, adminKey: AdminKeyLock.PublicKey));
+
+        Assert.True(SignIn.TryStart(files, Account, TestKiler.Password, out var session, out _));
+
+        using (session)
+        {
+            Assert.Equal(_kiler.AdminKey.PublicKey, session.AdminPublicKey);
+            Assert.False(session.HoldsAdminKey);
         }
     }
 

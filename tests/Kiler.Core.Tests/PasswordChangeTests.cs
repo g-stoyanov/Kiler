@@ -68,6 +68,51 @@ public sealed class PasswordChangeTests : IDisposable
         Assert.True(user.IsSealedBy(adminKey.PublicKey));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Run_KeepsTheAdminKeyOfTheFile_LockedWithTheNewPassword(bool admin)
+    {
+        // M4.13: a user's file has the public key, an admin's the private key too.
+        var user = _kiler.User(Account, level: 2, isAdmin: admin, adminKey: admin ? AdminKeyLock.PublicAndPrivateKey : AdminKeyLock.PublicKey);
+        var team = TeamOf(user);
+        using (var before = SignInWith(team, TestKiler.Password))
+        {
+            Assert.Equal(PasswordChangeOutcome.Changed, PasswordChange.Run(before, team, TestKiler.Password, NewPassword));
+        }
+
+        var keys = team.Files.Users[Account].Model?.Keys;
+        Assert.NotNull(keys);
+        Assert.Equal(admin, keys.AdminPrivateKey is not null);
+        using var after = SignInWith(team, NewPassword);
+        Assert.Equal(_kiler.AdminKey.PublicKey, after.AdminPublicKey);
+        Assert.Equal(admin, after.HoldsAdminKey);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Run_WhereAPartOfTheAdminKeyOfTheFileDidNotUnlock_IsRefused_AsItWouldDropOut(bool admin)
+    {
+        // A user's public key, or an admin's private key, from another lock with the same password: under another salt it does
+        // not decrypt, as a damaged value. The user's file has no private key, so only the public key refuses it.
+        var adminKey = admin ? AdminKeyLock.PublicAndPrivateKey : AdminKeyLock.PublicKey;
+        var user = _kiler.User(Account, level: 2, isAdmin: admin, adminKey: adminKey);
+        var other = _kiler.User(Account, level: 2, isAdmin: admin, adminKey: adminKey).Keys;
+        var keys = user.Keys;
+        var damaged = admin
+            ? new LockedKeys(keys.Salt, keys.Keys, keys.AdminPublicKey, other.AdminPrivateKey)
+            : new LockedKeys(keys.Salt, keys.Keys, other.AdminPublicKey);
+        var team = TeamOf(user.WithKeys(damaged, mustChangePassword: false));
+        using var session = SignInWith(team, TestKiler.Password);
+        Assert.Equal(admin ? _kiler.AdminKey.PublicKey : null, session.AdminPublicKey);
+        Assert.False(session.HoldsAdminKey);
+
+        Assert.Equal(PasswordChangeOutcome.KeyNotUnlocked, PasswordChange.Run(session, team, TestKiler.Password, NewPassword));
+
+        Assert.Equal(1, team.Files.Users[Account].Version);
+    }
+
     [Fact]
     public void Run_Voluntary_WithTheCurrentPassword_ChangesIt()
     {
@@ -119,7 +164,7 @@ public sealed class PasswordChangeTests : IDisposable
         using var session = SignInWith(team, TestKiler.Password);
         Assert.Equal([0, 1], session.Levels);
 
-        Assert.Equal(PasswordChangeOutcome.LevelNotUnlocked, PasswordChange.Run(session, team, TestKiler.Password, NewPassword));
+        Assert.Equal(PasswordChangeOutcome.KeyNotUnlocked, PasswordChange.Run(session, team, TestKiler.Password, NewPassword));
 
         Assert.Equal(1, team.Files.Users[Account].Version);
     }

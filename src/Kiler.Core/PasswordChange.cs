@@ -6,6 +6,7 @@ namespace Kiler.Core;
 /// <summary>
 /// The change of password (M4.5a, design 7.6, decided at the start of M4): the keys of the session locked again with the new
 /// password, into the user file of its account, which loses <c>mustChangePassword</c>, so the session gets its rights. The
+/// keys are the level keys and the admin key that the session holds, its public key and an admin's private key (M4.13). The
 /// forced change after a temporary password uses the keys of the sign-in; a voluntary one asks for the current password. The
 /// keys stay the same, so what they locked before reads after it.
 /// </summary>
@@ -15,9 +16,9 @@ public static class PasswordChange
     /// Changes the password of <paramref name="session"/> through <paramref name="team"/> (<see cref="Team.Replace(UserFile, int)"/>), and,
     /// when the user file is written, clears the mark of a temporary password in the session. It refuses a user file at another
     /// version than the session knows, as the admin may have changed its level or given a new temporary password meanwhile
-    /// (decided by the user in M4.5), and one with a level whose key the session does not hold, as the level did not unlock or
-    /// verify at the sign-in and would drop out of the file for good (M3.3). PBKDF2 runs once, and once more for the current
-    /// password of a voluntary change.
+    /// (decided by the user in M4.5), and one with a key that the session does not hold, a level key or a part of the admin key,
+    /// as it did not unlock or verify at the sign-in and would drop out of the file for good (M3.3; the admin key decided by the
+    /// user in M4.13). PBKDF2 runs once, and once more for the current password of a voluntary change.
     /// </summary>
     /// <param name="session">The session of the request, which the rights let through (<see cref="Need.SignedIn"/>).</param>
     /// <param name="team">The team of the local copy, which writes the user file.</param>
@@ -46,9 +47,9 @@ public static class PasswordChange
         }
 
         var user = file.Model;
-        if (!user.Keys.Keys.Keys.All(session.Reads))
+        if (!HoldsEveryKey(session, user.Keys))
         {
-            return PasswordChangeOutcome.LevelNotUnlocked;
+            return PasswordChangeOutcome.KeyNotUnlocked;
         }
 
         if (!forced && (current is null || !Unlocks(user.Keys, current)))
@@ -89,16 +90,26 @@ public static class PasswordChange
         };
     }
 
-    /// <summary>Whether <paramref name="password"/> unlocks a key of <paramref name="keys"/>; the keys are disposed at once.</summary>
+    /// <summary>
+    /// Whether the session holds every key of <paramref name="keys"/>, the user file at the version of the sign-in: the key of
+    /// each level of it, and the public key and the private key of the admin key when the file has them (M4.13).
+    /// </summary>
+    private static bool HoldsEveryKey(Session session, LockedKeys keys) =>
+        keys.Keys.Keys.All(session.Reads)
+        && (keys.AdminPublicKey is null || session.AdminPublicKey is not null)
+        && (keys.AdminPrivateKey is null || session.HoldsAdminKey);
+
+    /// <summary>Whether <paramref name="password"/> unlocks a level key of <paramref name="keys"/>; the keys are disposed at once.</summary>
     private static bool Unlocks(LockedKeys keys, string password)
     {
-        var unlocked = LevelKeys.Unlock(keys, password);
-        foreach (var key in unlocked.Values)
+        var unlocked = LevelKeys.UnlockAll(keys, password);
+        unlocked.AdminKey?.Dispose();
+        foreach (var key in unlocked.Levels.Values)
         {
             key.Dispose();
         }
 
-        return unlocked.Count > 0;
+        return unlocked.Levels.Count > 0;
     }
 }
 
@@ -111,8 +122,11 @@ public enum PasswordChangeOutcome
     /// <summary>A voluntary change, and the current password is missing or unlocks no key of the user file.</summary>
     WrongPassword,
 
-    /// <summary>A level of the user file did not unlock or verify at the sign-in, so the session does not hold its key (M3.3).</summary>
-    LevelNotUnlocked,
+    /// <summary>
+    /// A key of the user file did not unlock or verify at the sign-in, a level key (M3.3) or a part of the admin key (M4.13),
+    /// so the session does not hold it.
+    /// </summary>
+    KeyNotUnlocked,
 
     /// <summary>
     /// The user file is missing, does not fit, or is at another version than the session knows, here or on the share: it has

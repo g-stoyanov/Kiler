@@ -16,7 +16,7 @@ internal sealed record PasswordRequest(string? Current, string? Password)
 /// the forced change after a temporary password and the voluntary one with the current password, and answers with the session
 /// as it is then, as the sign-in does (<see cref="SessionApi"/>). It needs a session, also one with a temporary password
 /// (<see cref="Need.SignedIn"/>). A password that does not fit, or a voluntary change without the current one, is 400; a wrong
-/// current password, or a level of the user file that did not unlock, is 403; a change that cannot be made now is 409. Each
+/// current password, or a key of the user file that did not unlock, is 403; a change that cannot be made now is 409. Each
 /// refusal is an <see cref="ErrorResponse"/>.
 /// </summary>
 internal static class PasswordApi
@@ -29,13 +29,13 @@ internal static class PasswordApi
 
     /// <summary>
     /// What the page says when the password was not changed. The page acts on the sentences of <c>WrongPassword</c>,
-    /// <c>LevelNotUnlocked</c> and <c>UserChanged</c> (<c>passwordRefusals</c> in <c>src/ui/src/api.ts</c>), so a change of them
+    /// <c>KeyNotUnlocked</c> and <c>UserChanged</c> (<c>passwordRefusals</c> in <c>src/ui/src/api.ts</c>), so a change of them
     /// changes it too.
     /// </summary>
     public static string Message(PasswordChangeOutcome outcome) => outcome switch
     {
         PasswordChangeOutcome.WrongPassword => "The current password is wrong.",
-        PasswordChangeOutcome.LevelNotUnlocked => "A level of your user file did not unlock with your password, and a new password would lose it. Contact an admin.",
+        PasswordChangeOutcome.KeyNotUnlocked => "A key of your user file did not unlock with your password, and a new password would lose it. Contact an admin.",
         PasswordChangeOutcome.UserChanged => "Your user file has changed since you signed in. Sign in again.",
         PasswordChangeOutcome.Busy => "Your user file is being written now. Try again in a moment.",
         PasswordChangeOutcome.Offline => "The shared folder cannot be reached. The password can be changed once it is back.",
@@ -69,7 +69,7 @@ internal static class PasswordApi
         return outcome switch
         {
             PasswordChangeOutcome.Changed => TypedResults.Ok(SessionApi.Describe(sessions, data, account)),
-            PasswordChangeOutcome.WrongPassword or PasswordChangeOutcome.LevelNotUnlocked =>
+            PasswordChangeOutcome.WrongPassword or PasswordChangeOutcome.KeyNotUnlocked =>
                 TypedResults.Json(new ErrorResponse(Message(outcome)), KilerJsonContext.Default.ErrorResponse, statusCode: StatusCodes.Status403Forbidden),
             _ => TypedResults.Conflict(new ErrorResponse(Message(outcome))),
         };

@@ -6,13 +6,15 @@ namespace Kiler.Core;
 /// <summary>
 /// The sign-in (M4.4, design 7.5): the user file of the account, its keys unlocked with the password, and of them only the
 /// ones that pass the check of their level in <c>levels.json</c> (kiler-crypto, "Rules"). With none, there is no access. The
-/// files are those of the team at one moment (<see cref="Team.Files"/>), read once.
+/// same password unlocks the admin key of the file, its public key and an admin's private key, which the session keeps too
+/// (M4.13). The files are those of the team at one moment (<see cref="Team.Files"/>), read once.
 /// </summary>
 public static class SignIn
 {
     /// <summary>
     /// A session of <paramref name="account"/>, or why there is none. <paramref name="password"/> has passed
-    /// <see cref="Password.Invalid"/>; PBKDF2 runs once, so it takes a moment. The keys that do not verify are disposed.
+    /// <see cref="Password.Invalid"/>; PBKDF2 runs once, so it takes a moment. The keys that do not verify are disposed, and
+    /// the admin key when there is no session.
     /// </summary>
     /// <exception cref="ArgumentException">The password does not fit (<see cref="Password.Invalid"/>), a fault of the caller.</exception>
     public static bool TryStart(TeamFiles files, string account, ReadOnlySpan<char> password, [NotNullWhen(true)] out Session? session, out SignInRefusal refusal)
@@ -50,30 +52,43 @@ public static class SignIn
             return false;
         }
 
-        var unlocked = LevelKeys.Unlock(user.Keys, password);
-        if (unlocked.Count == 0)
+        // One PBKDF2 for the level keys and the admin key (M4.13). The session takes the admin key; every way out without one
+        // disposes it.
+        var unlocked = LevelKeys.UnlockAll(user.Keys, password);
+        var adminKey = unlocked.AdminKey;
+        try
         {
-            refusal = SignInRefusal.WrongPassword;
-            return false;
-        }
+            if (unlocked.Levels.Count == 0)
+            {
+                refusal = SignInRefusal.WrongPassword;
+                return false;
+            }
 
-        var levels = levelsFile.Model;
-        var verified = Verified(unlocked, levels);
-        if (verified.Count == 0)
+            var levels = levelsFile.Model;
+            var verified = Verified(unlocked.Levels, levels);
+            if (verified.Count == 0)
+            {
+                refusal = SignInRefusal.NoAccess;
+                return false;
+            }
+
+            // A file that fits its model is not damaged, so it has a version. A key verified only against a check, so it has one.
+            var checks = verified.Keys.ToDictionary(level => level, level => levels.Levels[level].Check!);
+            session = new Session(user, file.Version!.Value, verified, checks, unlocked.AdminPublicKey, adminKey);
+            adminKey = null;
+            refusal = default;
+            return true;
+        }
+        finally
         {
-            refusal = SignInRefusal.NoAccess;
-            return false;
+            adminKey?.Dispose();
         }
-
-        // A file that fits its model is not damaged, so it has a version. A key verified only against a check, so it has one.
-        session = new Session(user, file.Version!.Value, verified, verified.Keys.ToDictionary(level => level, level => levels.Levels[level].Check!));
-        refusal = default;
-        return true;
     }
 
     /// <summary>
-    /// The keys that pass the check of their level, which the caller then owns; the rest are disposed. A level above the top
-    /// level, or one without a check, does not verify (M3.2): the check is never given to <see cref="LevelCheck.Verify"/> as null.
+    /// The keys that pass the check of their level, which the caller then owns; the rest are disposed, and all of them when it
+    /// throws. A level above the top level, or one without a check, does not verify (M3.2): the check is never given to
+    /// <see cref="LevelCheck.Verify"/> as null.
     /// </summary>
     private static Dictionary<int, SecretKey> Verified(IReadOnlyDictionary<int, SecretKey> unlocked, LevelsFile levels)
     {

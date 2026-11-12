@@ -34,13 +34,16 @@ internal sealed class TestKiler : IDisposable
 
     public LevelsFile Levels { get; }
 
+    /// <summary>The admin key of the made-up Kiler (M4.13), which <see cref="User"/> locks into a user file when it is asked to.</summary>
+    public AdminKey AdminKey { get; } = AdminKey.New();
+
     /// <summary>The check of <paramref name="level"/> in <see cref="Levels"/>.</summary>
     public string Check(int level) => Levels.Levels[level].Check!;
 
     /// <summary>
     /// A user file of <paramref name="account"/> with the keys of <paramref name="keyLevels"/> (by default 1 to
     /// <paramref name="level"/>) and the keys of <paramref name="own"/>, which are not the keys of their levels, locked
-    /// together with <see cref="Password"/>.
+    /// together with <see cref="Password"/>, and with what <paramref name="adminKey"/> says of <see cref="AdminKey"/>.
     /// </summary>
     public UserFile User(
         string account,
@@ -49,7 +52,8 @@ internal sealed class TestKiler : IDisposable
         bool isAdmin = false,
         bool mustChangePassword = false,
         int[]? keyLevels = null,
-        IReadOnlyDictionary<int, SecretKey>? own = null)
+        IReadOnlyDictionary<int, SecretKey>? own = null,
+        AdminKeyLock adminKey = AdminKeyLock.None)
     {
         var keys = (keyLevels ?? Enumerable.Range(1, level).ToArray()).ToDictionary(key => key, key => _keys[key]);
         foreach (var (ownLevel, key) in own ?? new Dictionary<int, SecretKey>())
@@ -57,7 +61,10 @@ internal sealed class TestKiler : IDisposable
             keys[ownLevel] = key;
         }
 
-        return new UserFile(account, $"Demo {account}", level, canEdit, isAdmin, mustChangePassword, LevelKeys.Lock(keys, Password));
+        var locked = adminKey == AdminKeyLock.None
+            ? LevelKeys.Lock(keys, Password)
+            : LevelKeys.Lock(keys, AdminKey.PublicKey, adminKey == AdminKeyLock.PublicAndPrivateKey ? AdminKey : null, Password);
+        return new UserFile(account, $"Demo {account}", level, canEdit, isAdmin, mustChangePassword, locked);
     }
 
     /// <summary>The files of the team with <paramref name="users"/>, <see cref="Levels"/>, and settings with or without guest mode.</summary>
@@ -92,5 +99,20 @@ internal sealed class TestKiler : IDisposable
         {
             key.Dispose();
         }
+
+        AdminKey.Dispose();
     }
+}
+
+/// <summary>What of the admin key a user file of <see cref="TestKiler.User"/> has, locked with its level keys (M4.13).</summary>
+internal enum AdminKeyLock
+{
+    /// <summary>Nothing, as a file that an admin action wrote before M4.14.</summary>
+    None,
+
+    /// <summary>The public key, as a user's file.</summary>
+    PublicKey,
+
+    /// <summary>The public key and the private key, as an admin's file.</summary>
+    PublicAndPrivateKey,
 }

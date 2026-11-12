@@ -162,7 +162,7 @@ public sealed class PasswordApiTests : IDisposable
 
         using var response = await ChangeAsync(client, MadeUpKiler.Password, NewPassword);
 
-        await AssertErrorAsync(response, HttpStatusCode.Forbidden, PasswordApi.Message(PasswordChangeOutcome.LevelNotUnlocked));
+        await AssertErrorAsync(response, HttpStatusCode.Forbidden, PasswordApi.Message(PasswordChangeOutcome.KeyNotUnlocked));
     }
 
     [Fact]

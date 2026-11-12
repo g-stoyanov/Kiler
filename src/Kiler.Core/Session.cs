@@ -8,11 +8,17 @@ namespace Kiler.Core;
 /// levels of its keys, never the <c>level</c> of the file (design 7.8); <see cref="CanEdit"/> and <see cref="IsAdmin"/> give
 /// the screens, and only the keys give the data. A lock disposes the keys (<see cref="Dispose"/>): a use under way ends with
 /// its key, and a use after it is <see cref="SessionLockedException"/>, which the API answers as locked (core.md).
+/// <para>
+/// With the level keys, the same password unlocks the admin key of the user file (M4.13): its public key, which every user
+/// has, and its private key, which an admin has (<see cref="AdminPublicKey"/>, <see cref="HoldsAdminKey"/>). The session
+/// keeps them until a lock, as the level keys, and a change of password locks them again.
+/// </para>
 /// </summary>
 public sealed class Session : IDisposable
 {
     private readonly IReadOnlyDictionary<int, SecretKey> _keys;
     private readonly IReadOnlyDictionary<int, string> _checks;
+    private readonly AdminKey? _adminKey;
     private volatile bool _locked;
 
     /// <summary>Kept for the two below, which a change of password changes together (M4.5a).</summary>
@@ -24,7 +30,18 @@ public sealed class Session : IDisposable
     /// <param name="userVersion">The version of the user file.</param>
     /// <param name="keys">The keys that verified, by level from 1; the session owns them.</param>
     /// <param name="checks">The check of <c>levels.json</c> that each key verified against, by level (M4.6).</param>
-    internal Session(UserFile user, int userVersion, IReadOnlyDictionary<int, SecretKey> keys, IReadOnlyDictionary<int, string> checks)
+    /// <param name="adminPublicKey">The public key of the admin key that unlocked with the level keys, or <c>null</c> (M4.13).</param>
+    /// <param name="adminKey">
+    /// The admin key that unlocked with them, or <c>null</c>; the session owns it. One whose public key is not
+    /// <paramref name="adminPublicKey"/> is not kept: it is disposed at once (M4.13).
+    /// </param>
+    internal Session(
+        UserFile user,
+        int userVersion,
+        IReadOnlyDictionary<int, SecretKey> keys,
+        IReadOnlyDictionary<int, string> checks,
+        string? adminPublicKey = null,
+        AdminKey? adminKey = null)
     {
         Account = user.Account;
         DisplayName = user.DisplayName;
@@ -35,6 +52,14 @@ public sealed class Session : IDisposable
         _keys = keys;
         _checks = checks;
         Levels = [0, .. keys.Keys.Order()];
+        AdminPublicKey = adminPublicKey;
+        if (adminKey is not null && !string.Equals(adminKey.PublicKey, adminPublicKey, StringComparison.Ordinal))
+        {
+            adminKey.Dispose();
+            adminKey = null;
+        }
+
+        _adminKey = adminKey;
     }
 
     public string Account { get; }
@@ -77,6 +102,18 @@ public sealed class Session : IDisposable
 
     /// <summary>The levels that the session reads: 0, and the levels of its keys, in order.</summary>
     public IReadOnlyList<int> Levels { get; }
+
+    /// <summary>
+    /// The public key of the admin key (M3.9) that unlocked with the level keys at the sign-in, or <c>null</c> when the user
+    /// file has none or it did not unlock (M4.13). It is no secret, so a lock leaves it.
+    /// </summary>
+    public string? AdminPublicKey { get; }
+
+    /// <summary>
+    /// Whether the session holds the admin key, the private key of <see cref="AdminPublicKey"/>, which only an admin's user
+    /// file has (M4.13). A lock disposes it, as a level key.
+    /// </summary>
+    public bool HoldsAdminKey => _adminKey is not null;
 
     /// <summary>Whether a lock, a sign-out or the stop has disposed the keys.</summary>
     public bool IsLocked => _locked;
@@ -126,11 +163,44 @@ public sealed class Session : IDisposable
     }
 
     /// <summary>
-    /// The keys of the session locked with <paramref name="password"/> (<see cref="LevelKeys.Lock(IReadOnlyDictionary{int, SecretKey}, ReadOnlySpan{char})"/>),
-    /// for a change of password (M4.5a). PBKDF2 runs once. A lock before or during it is <see cref="SessionLockedException"/>, as for <see cref="Use"/>.
+    /// Runs <paramref name="use"/> with the admin key, which it must not keep, as <see cref="Use"/> does with a level key: a
+    /// lock before it or during it is <see cref="SessionLockedException"/> (M4.13).
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The session has no admin key; the caller checks <see cref="HoldsAdminKey"/>.</exception>
+    /// <exception cref="SessionLockedException">The session is locked.</exception>
+    internal T UseAdminKey<T>(Func<AdminKey, T> use)
+    {
+        ArgumentNullException.ThrowIfNull(use);
+        if (_adminKey is not { } adminKey)
+        {
+            throw new InvalidOperationException("The session has no admin key.");
+        }
+
+        if (_locked)
+        {
+            throw new SessionLockedException();
+        }
+
+        try
+        {
+            return use(adminKey);
+        }
+        // As in Use: Dispose sets the mark before it disposes the key.
+        catch (ObjectDisposedException) when (_locked)
+        {
+            throw new SessionLockedException();
+        }
+    }
+
+    /// <summary>
+    /// The keys of the session locked with <paramref name="password"/>, for a change of password (M4.5a): the level keys, with
+    /// <see cref="AdminPublicKey"/> and the admin key when the session holds them (M4.13), through
+    /// <see cref="LevelKeys.Lock(IReadOnlyDictionary{int, SecretKey}, string, AdminKey?, ReadOnlySpan{char})"/>, and without
+    /// them through <see cref="LevelKeys.Lock(IReadOnlyDictionary{int, SecretKey}, ReadOnlySpan{char})"/>. PBKDF2 runs once.
+    /// A lock before or during it is <see cref="SessionLockedException"/>, as for <see cref="Use"/>.
     /// </summary>
     /// <exception cref="SessionLockedException">The session is locked.</exception>
-    internal LockedKeys LockKeys(ReadOnlySpan<char> password) => Lock(_keys, password);
+    internal LockedKeys LockKeys(ReadOnlySpan<char> password) => Lock(_keys, AdminPublicKey, _adminKey, password);
 
     /// <summary>
     /// The keys of the levels 1 to <paramref name="top"/> locked with <paramref name="password"/>, for an admin action that
@@ -146,7 +216,7 @@ public sealed class Session : IDisposable
             throw new ArgumentOutOfRangeException(nameof(top), top, "The session has no key of a level up to it.");
         }
 
-        return Lock(_keys.Where(key => key.Key <= top).ToDictionary(), password);
+        return Lock(_keys.Where(key => key.Key <= top).ToDictionary(), adminPublicKey: null, adminKey: null, password);
     }
 
     /// <summary>A change of password wrote the user file at <paramref name="userVersion"/>: the password is no longer a temporary one.</summary>
@@ -159,7 +229,7 @@ public sealed class Session : IDisposable
         }
     }
 
-    private LockedKeys Lock(IReadOnlyDictionary<int, SecretKey> keys, ReadOnlySpan<char> password)
+    private LockedKeys Lock(IReadOnlyDictionary<int, SecretKey> keys, string? adminPublicKey, AdminKey? adminKey, ReadOnlySpan<char> password)
     {
         if (_locked)
         {
@@ -168,7 +238,7 @@ public sealed class Session : IDisposable
 
         try
         {
-            return LevelKeys.Lock(keys, password);
+            return adminPublicKey is null ? LevelKeys.Lock(keys, password) : LevelKeys.Lock(keys, adminPublicKey, adminKey, password);
         }
         // As in Use: Dispose sets the mark before it disposes a key.
         catch (ObjectDisposedException) when (_locked)
@@ -177,7 +247,7 @@ public sealed class Session : IDisposable
         }
     }
 
-    /// <summary>Locks the session: disposes its keys, which zeroes them. A use under way ends with its key first.</summary>
+    /// <summary>Locks the session: disposes its keys and its admin key, which zeroes them. A use under way ends with its key first.</summary>
     public void Dispose()
     {
         _locked = true;
@@ -185,6 +255,8 @@ public sealed class Session : IDisposable
         {
             key.Dispose();
         }
+
+        _adminKey?.Dispose();
     }
 }
 

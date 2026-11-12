@@ -2,7 +2,10 @@ using Kiler.Crypto;
 
 namespace Kiler.Core.Tests;
 
-/// <summary>The session (M4.4): its keys until a lock, a sign-out or the stop, and a key in use after a lock answers as locked.</summary>
+/// <summary>
+/// The session (M4.4): its keys until a lock, a sign-out or the stop, and a key in use after a lock answers as locked; the
+/// admin key too (M4.13).
+/// </summary>
 public sealed class SessionTests
 {
     [Fact]
@@ -43,6 +46,69 @@ public sealed class SessionTests
         using var session = NewSession(1);
 
         Assert.Throws<ArgumentOutOfRangeException>(() => session.Use(2, key => LevelCheck.Create(key, 2)));
+    }
+
+    [Fact]
+    public void Lock_DisposesTheAdminKey_AndKeepsThePublicKey()
+    {
+        var adminKey = AdminKey.New();
+        var session = NewSession(1, adminPublicKey: adminKey.PublicKey, adminKey: adminKey);
+        Assert.True(session.HoldsAdminKey);
+
+        session.Dispose();
+
+        // A use that would not touch the disposed key is locked too.
+        Assert.Throws<SessionLockedException>(() => session.UseAdminKey(key => key.PublicKey));
+        Assert.Throws<ObjectDisposedException>(() => adminKey.Seal(SealPurpose.UserFile, "made-up text"u8));
+        Assert.Equal(adminKey.PublicKey, session.AdminPublicKey);
+    }
+
+    [Fact]
+    public void UseAdminKey_WhenALockComesWhileTheKeyIsInUse_IsLocked()
+    {
+        var adminKey = AdminKey.New();
+        using var session = NewSession(1, adminPublicKey: adminKey.PublicKey, adminKey: adminKey);
+
+        Assert.Throws<SessionLockedException>(() => session.UseAdminKey(key =>
+        {
+            session.Dispose();
+            return key.Seal(SealPurpose.UserFile, "made-up text"u8);
+        }));
+    }
+
+    [Fact]
+    public void UseAdminKey_GivesTheKeyOfThePublicKey()
+    {
+        var adminKey = AdminKey.New();
+        using var session = NewSession(1, adminPublicKey: adminKey.PublicKey, adminKey: adminKey);
+
+        var seal = session.UseAdminKey(key => key.Seal(SealPurpose.UserFile, "made-up text"u8));
+
+        Assert.True(AdminSeal.Verify(adminKey.PublicKey, SealPurpose.UserFile, "made-up text"u8, seal), "The seal of the session's key does not verify.");
+    }
+
+    [Fact]
+    public void UseAdminKey_OfASessionWithoutIt_Throws()
+    {
+        using var adminKey = AdminKey.New();
+        using var session = NewSession(1, adminPublicKey: adminKey.PublicKey);
+
+        Assert.False(session.HoldsAdminKey);
+        Assert.Throws<InvalidOperationException>(() => session.UseAdminKey(key => key.PublicKey));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void AnAdminKeyThatIsNotOfThePublicKey_IsNotKept_AndIsDisposed(bool otherPublicKey)
+    {
+        using var other = AdminKey.New();
+        var adminKey = AdminKey.New();
+
+        using var session = NewSession(1, adminPublicKey: otherPublicKey ? other.PublicKey : null, adminKey: adminKey);
+
+        Assert.False(session.HoldsAdminKey);
+        Assert.Throws<ObjectDisposedException>(() => adminKey.Seal(SealPurpose.UserFile, "made-up text"u8));
     }
 
     [Fact]
@@ -147,14 +213,22 @@ public sealed class SessionTests
 
     /// <summary>
     /// A session with new keys of the levels 1 to <paramref name="top"/>, without PBKDF2, which verified against the checks of
-    /// <paramref name="levels"/> (M4.6), or against made-up ones without it.
+    /// <paramref name="levels"/> (M4.6), or against made-up ones without it, and with the admin key given, which it owns (M4.13).
     /// </summary>
-    internal static Session NewSession(int top, int level = -1, bool canEdit = false, bool isAdmin = false, bool mustChangePassword = false, LevelsFile? levels = null)
+    internal static Session NewSession(
+        int top,
+        int level = -1,
+        bool canEdit = false,
+        bool isAdmin = false,
+        bool mustChangePassword = false,
+        LevelsFile? levels = null,
+        string? adminPublicKey = null,
+        AdminKey? adminKey = null)
     {
         level = level < 0 ? top : level;
         var user = new UserFile("demo.user", "Demo User", level, canEdit, isAdmin, mustChangePassword, new LockedKeys("salt", new Dictionary<int, string>()));
         var keys = Enumerable.Range(1, top).ToDictionary(key => key, _ => SecretKey.New());
         var checks = keys.Keys.ToDictionary(key => key, key => levels is not null && key <= levels.Top ? levels.Levels[key].Check! : $"made-up check {key}");
-        return new Session(user, userVersion: 1, keys, checks);
+        return new Session(user, userVersion: 1, keys, checks, adminPublicKey, adminKey);
     }
 }
