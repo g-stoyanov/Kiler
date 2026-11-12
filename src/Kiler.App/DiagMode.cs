@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
@@ -26,9 +27,11 @@ internal static class DiagMode
         report.Line($"{RuntimeInformation.FrameworkDescription}, {RuntimeInformation.OSDescription}");
         report.Line($"Exe location: {FileDiag.Location(exeFolder)}");
         report.Line($"Process start to Main: {DiagReport.Ms(startup)}");
+        CheckRemoteImages(report);
 
         var share = ShareFile.ForCurrentUser();
-        var start = new LocalCopy(CopyPlace.ForCurrentUser(), share, new CopyFiles(), new ShellShortcuts(), new ProcessStarter())
+        var files = new CopyFiles();
+        var start = new LocalCopy(CopyPlace.ForCurrentUser(), share, files, files, new ShellShortcuts(), new ProcessStarter(), UpdateKey.PublicKey, HealthApi.Version)
             .Decide(Environment.ProcessPath);
         if (DiagTarget.Choose(options, start, share) is not { } folder)
         {
@@ -56,6 +59,24 @@ internal static class DiagMode
 
         report.Save(exeFolder, time.GetLocalNow());
         return report.Failed ? 1 : 0;
+    }
+
+    /// <summary>
+    /// Whether the policy of the start holds (M3.8): from the shared folder, a DLL planted next to the exe does not load
+    /// after it. The trial use checks it there (docs/real-environment-checks.md).
+    /// </summary>
+    private static void CheckRemoteImages(DiagReport report)
+    {
+        const string What = "DLLs from a network path are refused";
+        try
+        {
+            using var self = Process.GetCurrentProcess();
+            report.Check(What, RemoteImages.AreForbidden(self.SafeHandle));
+        }
+        catch (Win32Exception ex)
+        {
+            report.Check(What, false, ex.Message);
+        }
     }
 
     /// <summary>The time since Windows started the process, the load of the exe included: from the shared folder, most of it.</summary>

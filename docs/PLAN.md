@@ -803,7 +803,7 @@ Decided by the user on 2026-10-29, after M2 took three days: until the exam, the
 **First, before the trial use in the real environment (phase 4):**
 
 1. The audit of the Prod passwords: M4 step 10, the audit of M5 step 6, and the audit screen of M6 step 7. A view of a Prod password before it is in place is recorded nowhere, so it comes before the first real Prod data. It needs a new mechanism in Kiler.Storage, appending to a file in `audit\`. Done before the exam: M6.17 to M6.19.
-2. Signed updates: M3 step 11, with the open questions on the signing key and on the check of the first copy. A local copy is never overwritten (M1), so every user who started a version without updates installs the first version with them by hand. Its tasks are M3.4 to M3.8a in [tasks/M3.md](tasks/M3.md).
+2. Signed updates: M3 step 11, with the open questions on the signing key and on the check of the first copy. A local copy is never overwritten (M1), so every user who started a version without updates installs the first version with them by hand. Its tasks are M3.4 to M3.8b in [tasks/M3.md](tasks/M3.md).
 3. The admin seal and the marks of design section 7.8: M3 step 6 and M4 step 8, with the open question on the seal key. The user files made before it get their seal once, from an admin's exe. The seal covers `levels.json` too, not only the user files, as anyone who can write it can replace the check of a level with one of a key of their own (decided by the user after M3.2, [tasks/M3.md](tasks/M3.md), "The accepted limits").
 
 Also before the trial use, without a number of its own: the open question of section 6 on `Clear-Site-Data: "cache"` in the redirect of the token exchange, checked in Edge with a test listener first (deferred at the start of M6).

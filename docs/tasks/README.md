@@ -8,7 +8,7 @@ Here [the plan](../PLAN.md) is broken into small tasks with ticks. The work foll
 |---|---|---|
 | M1 Host and skeleton | [M1.md](M1.md) | done, with the checkpoint in the real environment |
 | M2 Data layer | [M2.md](M2.md) | done; its checks that need the user's hands go to the [trial use](../real-environment-checks.md#the-trial-use-phase-4) |
-| M3 Cryptography | [M3.md](M3.md) | in progress: the signed updates, M3.4 to M3.8a ([PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam), item 2); the other deferred steps after their items |
+| M3 Cryptography | [M3.md](M3.md) | in progress: the signed updates, M3.4 to M3.8b ([PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam), item 2); the other deferred steps after their items |
 | M4 Users and permissions | [M4.md](M4.md) | done; part of it deferred until after the exam ([PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam)) |
 | M5 Templates, records and search | [M5.md](M5.md) | done; part of it deferred until after the exam ([PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam)) |
 | M6 User interface | [M6.md](M6.md) | done; M6.16 to M6.24 brought forward part of [PLAN.md, section 10](../PLAN.md#10-deferred-until-after-the-exam), and the rest of it is deferred until after the exam |

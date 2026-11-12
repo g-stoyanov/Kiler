@@ -7,19 +7,20 @@ internal interface ICopyFiles
     bool IsOnNetwork(string path);
 
     bool Exists(string path);
-
-    /// <summary>Copies <paramref name="source"/> to <paramref name="target"/>. False when the target exists: it is never replaced.</summary>
-    bool CopyNew(string source, string target);
 }
 
-/// <summary>The files that the local copy reads and makes when it looks for a new version (M3.6). Tests replace them.</summary>
+/// <summary>
+/// The files that the local copy reads and makes when it looks for a new version (M3.6), and a start from the shared folder
+/// when it makes the first copy (M3.8). Tests replace them.
+/// </summary>
 internal interface IUpdateFiles
 {
     /// <summary>Opens a file of the shared folder to read. While it is open, no one can write it. It throws as a <see cref="FileStream"/> does.</summary>
     Stream OpenShared(string path);
 
     /// <summary>
-    /// Makes the file of a new version under a name that is not there yet, to write and read. While it is open, no one else can
+    /// Makes the file of a copy of the exe under a name that is not there yet, to write and read: the <c>.new</c> of a new
+    /// version, the <c>.tmp</c> of a first copy, whose folder it makes when it is not there. While it is open, no one else can
     /// write it, but it can be renamed (M3.7). It throws as a <see cref="FileStream"/> does, also when a file of that name is
     /// there: a file that the check did not make is never taken over.
     /// </summary>
@@ -89,40 +90,6 @@ internal sealed class CopyFiles : ICopyFiles, IUpdateFiles, ILeftoverFiles
     public bool Exists(string path) => File.Exists(path);
 
     /// <summary>
-    /// Through a temporary file and a rename, so an interrupted copy never leaves a broken exe under the real name. The rename
-    /// does not replace a file, so a copy that another start made at the same moment stays as it is.
-    /// </summary>
-    public bool CopyNew(string source, string target)
-    {
-        // The target is always a file in a folder: %LOCALAPPDATA%\Programs\Kiler or a test folder.
-        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-        // A name of its own, so two starts that copy at once never share one; one that a start leaves goes at a later start of
-        // the copy, once it is old (UpdateLeftovers, M3.7a).
-        var temporary = $"{target}.{Guid.NewGuid():N}{TmpEnding}";
-        try
-        {
-            File.Copy(source, temporary);
-
-            // File.Copy keeps the attributes of its source, and Windows refuses to delete a read-only file: the .old of a
-            // copy of an exe that is read-only on the shared folder would stay, and hold up every later update (security
-            // review of M3.7a).
-            File.SetAttributes(temporary, File.GetAttributes(temporary) & ~FileAttributes.ReadOnly);
-            File.Move(temporary, target, overwrite: false);
-            return true;
-        }
-        catch (IOException) when (File.Exists(target))
-        {
-            DeleteQuietly(temporary);
-            return false;
-        }
-        catch
-        {
-            DeleteQuietly(temporary);
-            throw;
-        }
-    }
-
-    /// <summary>
     /// Others can still read it, and rename or delete it, so a release is not held up; whatever they do, the copy reads one
     /// file, and its hash is taken of the local file anyway.
     /// </summary>
@@ -131,11 +98,16 @@ internal sealed class CopyFiles : ICopyFiles, IUpdateFiles, ILeftoverFiles
 
     /// <summary>
     /// The hash of the file is read through this stream, and no one can write the file until it is disposed (M3.4, security
-    /// review). Its name can still be deleted or renamed, as the swap of M3.7 renames it by path while it is held; the name
-    /// is new for each check, so it is that check's file (security review of M3.6).
+    /// review). Its name can still be deleted or renamed, as the swap of M3.7 and the first copy (M3.8) rename it by path
+    /// while it is held; the name is new for each check, so it is that check's file (security review of M3.6). The file is
+    /// new, so it has none of the attributes of the exe that it copies, such as read-only (security review of M3.7a).
     /// </summary>
-    public Stream CreateUpdate(string path) =>
-        new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, BufferSize);
+    public Stream CreateUpdate(string path)
+    {
+        // The path is always a file in a folder: the folder of the local copy, or a test folder.
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        return new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, BufferSize);
+    }
 
     /// <summary>
     /// NTFS keeps a rename through a power cut, but not always the bytes that the cache still holds, as the local copy of the

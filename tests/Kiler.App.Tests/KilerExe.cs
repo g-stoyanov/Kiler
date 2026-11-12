@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
+using Microsoft.Win32.SafeHandles;
 
 namespace Kiler.App.Tests;
 
@@ -199,6 +200,9 @@ internal sealed class KilerRun : IDisposable
     public long Started { get; }
 
     public bool HasExited => _process.HasExited;
+
+    /// <summary>The handle of the process, for what only Windows can tell about it, such as its mitigation policies.</summary>
+    public SafeProcessHandle Handle => _process.SafeHandle;
 
     /// <summary>
     /// The lines of the output so far, with the token hidden, because an assertion prints what it compares. The line with

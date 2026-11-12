@@ -1,6 +1,13 @@
 using System.Net.Sockets;
 using Kiler.App;
 
+// First of all, so that no DLL from a network path, such as one planted next to the exe in the shared folder, loads after
+// this (M3.8). From a network folder Kiler does not go on without it.
+if (!RemoteImages.Forbid(Environment.ProcessPath, Console.Error))
+{
+    return 1;
+}
+
 if (!StartOptions.TryParse(args, out var options, out var error))
 {
     Console.Error.WriteLine(error);
@@ -78,7 +85,7 @@ switch (decision)
 var share = ShareFile.ForCurrentUser();
 var copyPlace = CopyPlace.ForCurrentUser();
 var copyFiles = new CopyFiles();
-var localCopy = new LocalCopy(copyPlace, share, copyFiles, new ShellShortcuts(), new ProcessStarter());
+var localCopy = new LocalCopy(copyPlace, share, copyFiles, copyFiles, new ShellShortcuts(), new ProcessStarter(), UpdateKey.PublicKey, HealthApi.Version);
 var copyDecision = localCopy.DecideStart(
     Environment.ProcessPath,
     new UpdateLeftovers(copyPlace, copyFiles, TimeProvider.System, Console.Out, Console.Error, CancellationToken.None));

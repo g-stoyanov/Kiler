@@ -151,6 +151,19 @@ public partial class SmokeTests
     }
 
     [Fact(Skip = NoExe, SkipUnless = nameof(HasExe))]
+    public async Task Start_ForbidsDllsFromANetworkPath()
+    {
+        // At every start, first of all (decided by the user in M3.8); a local folder is no network path, so it says nothing.
+        using var exe = new KilerExe();
+        using var run = exe.Start(["--first-wait", "2"]);
+        await run.WaitForLineAsync(OpenPrefix, Quick);
+
+        Assert.True(RemoteImages.AreForbidden(run.Handle), "The running Kiler does not forbid DLLs from a network path.");
+        Assert.Equal(0, await run.WaitForExitAsync(TimeSpan.FromSeconds(2) + Late));
+        Assert.Empty(run.Errors);
+    }
+
+    [Fact(Skip = NoExe, SkipUnless = nameof(HasExe))]
     public async Task ExeOutsideTheFolderOfTheCopy_NeverLooksForANewVersion()
     {
         // Only the copy in %LOCALAPPDATA%\Programs\Kiler looks (M3.6), and no test makes the published exe that copy (M3.7).
@@ -315,7 +328,8 @@ public partial class SmokeTests
         Assert.StartsWith($"Kiler {HealthApi.Version}, --diag, ", output[0], StringComparison.Ordinal);
         Assert.Equal("Exe location: local disk", output[2]);
         Assert.StartsWith("Process start to Main: ", output[3], StringComparison.Ordinal);
-        Assert.Equal($"Test folder: {exe.DataFolder} (local disk)", output[4]);
+        Assert.Equal("[OK] DLLs from a network path are refused", output[4]);
+        Assert.Equal($"Test folder: {exe.DataFolder} (local disk)", output[5]);
         Assert.Contains(output, line => line.StartsWith($"Write, one by one: {FileDiag.DefaultFileCount} files in ", StringComparison.Ordinal));
         Assert.Contains(output, line => line.StartsWith("[OK] Replace by rename over the old file: ", StringComparison.Ordinal));
         Assert.Contains(FileDiagTests.OwnerLine("Owner of a new file"), output);

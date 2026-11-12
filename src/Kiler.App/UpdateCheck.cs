@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using Kiler.Core;
 using Kiler.Crypto;
 
@@ -23,27 +22,22 @@ internal sealed class CheckedUpdate(ReleaseVersion version, string path, Stream 
 /// The local copy looks for a new version (design 4.1, M3 step 11, M3.6). It runs in the background after the start
 /// (decided by the user in M3.6), so a shared folder that does not answer holds up neither the start nor the stop. It reads
 /// <c>version.json</c> of the shared folder that <c>share.json</c> remembers, and for a version higher than its own it
-/// copies <c>Kiler.exe</c> of the shared folder next to itself as <c>Kiler.exe.&lt;random&gt;.new</c>. It checks the SHA-256 of that local
-/// file and a signature of the version and that hash with the key built into the copy (<see cref="UpdateKey"/>), never a key
-/// or the hash text from the shared folder, which anyone in the team can write. Anything else deletes the <c>.new</c> and
-/// says so in one line, and Kiler goes on with its own version: nothing here ever stops it.
+/// copies <c>Kiler.exe</c> of the shared folder next to itself as <c>Kiler.exe.&lt;random&gt;.new</c> and checks it with
+/// <see cref="ReleaseCheck"/>, which the first copy of a start from the shared folder uses too (M3.8). Anything else deletes
+/// the <c>.new</c> and says so in one line, and Kiler goes on with its own version: nothing here ever stops it.
 /// </summary>
 internal sealed class UpdateCheck
 {
     /// <summary>The ending of a new version next to the local copy: <c>Kiler.exe.&lt;random&gt;.new</c>.</summary>
     public const string NewEnding = ".new";
 
-    private const int BufferSize = 81920;
-
     private readonly CopyPlace _place;
     private readonly ShareFile _share;
-    private readonly IUpdateFiles _files;
-    private readonly string _publicKey;
+    private readonly ReleaseCheck _release;
     private readonly string _ownVersion;
     private readonly TextWriter _output;
     private readonly TextWriter _errors;
     private readonly CancellationToken _stopping;
-    private readonly long _maxExeSize;
 
     /// <param name="place">The local copy, whose folder alone gets the <c>.new</c>.</param>
     /// <param name="share"><c>share.json</c>, with the shared folder of the new versions.</param>
@@ -63,13 +57,11 @@ internal sealed class UpdateCheck
     {
         _place = place;
         _share = share;
-        _files = files;
-        _publicKey = publicKey;
+        _release = new ReleaseCheck(files, publicKey, maxExeSize, stopping);
         _ownVersion = ownVersion;
         _output = output;
         _errors = errors;
         _stopping = stopping;
-        _maxExeSize = maxExeSize;
     }
 
     /// <summary>
@@ -167,131 +159,46 @@ internal sealed class UpdateCheck
     /// <summary>The version file of the shared folder, or null with a line.</summary>
     private VersionFile? ReadVersionFile(string path)
     {
-        byte[] bytes;
-        try
+        switch (_release.ReadVersionFile(path))
         {
-            using var stream = _files.OpenShared(path);
-
-            // One byte more than the limit is enough to tell a file that is too big; its length is not trusted.
-            bytes = ReadUpTo(stream, VersionFile.MaxSize + 1);
+            case VersionFileRead.Read(var file):
+                return file;
+            case VersionFileRead.Missing:
+                Say($"The shared folder has no {VersionFile.Name}, so Kiler takes no new version.");
+                return null;
+            case VersionFileRead.Unreadable(var message):
+                SayError($"Kiler cannot read {path}, so it takes no new version now: {message}");
+                return null;
+            case VersionFileRead.DoesNotFit(var invalid):
+                SayError($"{path} does not fit, so Kiler takes no new version: {invalid}");
+                return null;
+            case var other:
+                throw new InvalidOperationException($"A read of {VersionFile.Name} gave {other}.");
         }
-        catch (FileNotFoundException)
-        {
-            Say($"The shared folder has no {VersionFile.Name}, so Kiler takes no new version.");
-            return null;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            SayError($"Kiler cannot read {path}, so it takes no new version now: {ex.Message}");
-            return null;
-        }
-
-        if (!VersionFile.TryRead(bytes, out var file, out var invalid))
-        {
-            SayError($"{path} does not fit, so Kiler takes no new version: {invalid}");
-            return null;
-        }
-
-        return file;
     }
 
     /// <summary>The checked copy of the exe of the shared folder, or null with a line and no <c>.new</c> left.</summary>
     private CheckedUpdate? CopyAndCheck(string exePath, VersionFile release)
     {
         var newPath = NewPath();
-
-        // Set once this check has made its .new, so a file that it did not make is never deleted.
-        Stream? target = null;
-        var tooBig = $"{exePath} is larger than {_maxExeSize} bytes, so Kiler takes no new version.";
-        try
+        switch (_release.CopyAndCheck(exePath, newPath, release))
         {
-            using (var source = _files.OpenShared(exePath))
-            {
-                if (source.Length > _maxExeSize)
-                {
-                    SayError(tooBig);
-                    return null;
-                }
-
-                target = _files.CreateUpdate(newPath);
-                if (!Copy(source, target))
-                {
-                    SayError(tooBig);
-                    return null;
-                }
-            }
-
-            // The hash of the local file, read through the stream that no one else can write (M3.4).
-            target.Position = 0;
-            var sha256 = SHA256.HashData(target);
-            if (!release.Signatures.Any(signature => UpdateSignature.Verify(_publicKey, release.Version, sha256, signature)))
-            {
+            case CopyCheck.Checked(var file):
+                var update = new CheckedUpdate(release.Version, newPath, file);
+                Say($"Kiler {release.Version} is copied and checked.");
+                return update;
+            case CopyCheck.TooBig:
+                SayError($"{exePath} is larger than {_release.MaxExeSize} bytes, so Kiler takes no new version.");
+                return null;
+            case CopyCheck.NotSigned:
                 SayError($"{exePath} is not the Kiler {release.Version} that {VersionFile.Name} signs, so Kiler keeps its version.");
                 return null;
-            }
-
-            // On the disk before the swap gives it the name Kiler.exe: a crash after the rename must not leave an exe of the
-            // right length without its bytes (security review of M3.7). Only a checked one, so a refusal writes nothing more.
-            _files.FlushToDisk(target);
-            var update = new CheckedUpdate(release.Version, newPath, target);
-            target = null;
-            Say($"Kiler {release.Version} is copied and checked.");
-            return update;
+            case CopyCheck.Failed(var message):
+                SayError($"Kiler cannot copy {exePath} to {_place.Folder}, so it takes no new version now: {message}");
+                return null;
+            case var other:
+                throw new InvalidOperationException($"A copy of the exe gave {other}.");
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            SayError($"Kiler cannot copy {exePath} to {_place.Folder}, so it takes no new version now: {ex.Message}");
-            return null;
-        }
-        finally
-        {
-            if (target is not null)
-            {
-                // Deleted while it is still held, so its name is this check's file; an antivirus that reads it may refuse
-                // the delete until it is let go, so it is tried once more after that. One that cannot be deleted stays, and
-                // is never taken for checked: only a CheckedUpdate goes into place (UpdateSwap, M3.7).
-                var deleted = _files.TryDelete(newPath);
-                target.Dispose();
-                if (!deleted)
-                {
-                    _files.TryDelete(newPath);
-                }
-            }
-        }
-    }
-
-    /// <summary>Copies the exe; false when it has more bytes than the limit, whatever its length said.</summary>
-    private bool Copy(Stream source, Stream target)
-    {
-        var buffer = new byte[BufferSize];
-        long copied = 0;
-        int read;
-        while ((read = source.Read(buffer)) > 0)
-        {
-            _stopping.ThrowIfCancellationRequested();
-            copied += read;
-            if (copied > _maxExeSize)
-            {
-                return false;
-            }
-
-            target.Write(buffer, 0, read);
-        }
-
-        return true;
-    }
-
-    private static byte[] ReadUpTo(Stream stream, int limit)
-    {
-        var buffer = new byte[limit];
-        var length = 0;
-        int read;
-        while (length < limit && (read = stream.Read(buffer, length, limit - length)) > 0)
-        {
-            length += read;
-        }
-
-        return buffer[..length];
     }
 
     private void Say(string line) => Write(_output, line);

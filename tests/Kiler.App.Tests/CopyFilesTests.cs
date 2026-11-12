@@ -17,55 +17,6 @@ public sealed class CopyFilesTests : IDisposable
     public void Dispose() => _folder.Dispose();
 
     [Fact]
-    public void CopyNew_NoTarget_MakesTheFolderCopiesTheBytesAndLeavesNoOtherFile()
-    {
-        Assert.True(new CopyFiles().CopyNew(_source, _target));
-
-        Assert.Equal([1, 2, 3, 4], File.ReadAllBytes(_target));
-        Assert.Equal([_target], Directory.GetFiles(Path.GetDirectoryName(_target)!));
-    }
-
-    [Fact]
-    public void CopyNew_TheTargetExists_LeavesItAsItIs()
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(_target)!);
-        File.WriteAllBytes(_target, [9]);
-
-        Assert.False(new CopyFiles().CopyNew(_source, _target));
-
-        Assert.Equal([9], File.ReadAllBytes(_target));
-        Assert.Equal([_target], Directory.GetFiles(Path.GetDirectoryName(_target)!));
-    }
-
-    [Fact]
-    public void CopyNew_AReadOnlySource_GivesACopyThatIsNotReadOnly()
-    {
-        // File.Copy keeps the attributes of its source, and Windows refuses to delete a read-only file, so the .old of a
-        // read-only copy would stay for ever and hold up every later update (security review of M3.7a).
-        File.SetAttributes(_source, FileAttributes.ReadOnly);
-        try
-        {
-            Assert.True(new CopyFiles().CopyNew(_source, _target));
-
-            Assert.Equal(FileAttributes.None, File.GetAttributes(_target) & FileAttributes.ReadOnly);
-        }
-        finally
-        {
-            File.SetAttributes(_source, FileAttributes.Normal);
-        }
-    }
-
-    [Fact]
-    public void CopyNew_TheSourceIsMissing_ThrowsAndLeavesNoFile()
-    {
-        File.Delete(_source);
-
-        Assert.ThrowsAny<IOException>(() => new CopyFiles().CopyNew(_source, _target));
-
-        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(_target)!));
-    }
-
-    [Fact]
     public void OpenShared_WhileOpen_OthersCanReadAndRenameButNotWriteIt()
     {
         using (var stream = new CopyFiles().OpenShared(_source))
@@ -110,6 +61,20 @@ public sealed class CopyFilesTests : IDisposable
         }
 
         Assert.Equal([5, 6, 7], File.ReadAllBytes(_target));
+    }
+
+    [Fact]
+    public void CreateUpdate_AFolderThatIsNotThere_MakesItAndAnEmptyFile()
+    {
+        // The first copy makes the folder of the copy (M3.8).
+        var tmp = _target + ".tmp";
+
+        using (var file = new CopyFiles().CreateUpdate(tmp))
+        {
+            Assert.Equal(0, file.Length);
+        }
+
+        Assert.Equal([tmp], Directory.GetFiles(Path.GetDirectoryName(_target)!));
     }
 
     [Fact]
