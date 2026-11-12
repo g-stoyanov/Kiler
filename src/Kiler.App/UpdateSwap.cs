@@ -50,6 +50,9 @@ internal sealed class UpdateSwap(CopyPlace place, IUpdateFiles files, TextWriter
     /// <summary><c>Kiler.exe.old</c> next to the local copy.</summary>
     public string OldPath => place.ExePath + OldEnding;
 
+    /// <summary>Whether a rename of <see cref="IUpdateFiles.Rename"/> failed because its new name is taken.</summary>
+    public static bool NameTaken(Exception ex) => ex.HResult is AlreadyExists or FileExists;
+
     /// <summary>
     /// Puts <paramref name="update"/> in place, unless Kiler stops; true when it is there. It takes the update: the
     /// <c>.new</c> is let go, and deleted when it is not in place. A failure of the files and a fault of the code in a rename
@@ -91,7 +94,7 @@ internal sealed class UpdateSwap(CopyPlace place, IUpdateFiles files, TextWriter
         {
             files.Rename(place.ExePath, OldPath);
         }
-        catch (IOException ex) when (ex.HResult is AlreadyExists or FileExists)
+        catch (IOException ex) when (NameTaken(ex))
         {
             // Another Kiler of the user has put a new version in place already, or runs from the .old still: no fault.
             Discard(update);
@@ -142,7 +145,7 @@ internal sealed class UpdateSwap(CopyPlace place, IUpdateFiles files, TextWriter
             }
             catch (Exception ex)
             {
-                if (tries == MoveBackTries || ex.HResult is AlreadyExists or FileExists)
+                if (tries == MoveBackTries || NameTaken(ex))
                 {
                     return ex;
                 }
@@ -167,7 +170,7 @@ internal sealed class UpdateSwap(CopyPlace place, IUpdateFiles files, TextWriter
     }
 
     /// <summary>The message of an error of the files, and the whole exception of a fault of the code.</summary>
-    private static string Reason(Exception ex) => ex is IOException or UnauthorizedAccessException ? ex.Message : ex.ToString();
+    public static string Reason(Exception ex) => ex is IOException or UnauthorizedAccessException ? ex.Message : ex.ToString();
 
     private static void Say(TextWriter writer, string line)
     {

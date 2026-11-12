@@ -48,6 +48,7 @@ internal abstract record LocalCopyDecision
 /// </summary>
 internal sealed class LocalCopy(CopyPlace place, ShareFile share, ICopyFiles files, IShortcuts shortcuts, IProcessStarter processes)
 {
+    /// <summary>Where a start from <paramref name="exePath"/> runs. It changes nothing, so <c>--diag</c> asks it too.</summary>
     public LocalCopyDecision Decide(string? exePath)
     {
         if (exePath is null || IsTheCopy(exePath) || !files.IsOnNetwork(exePath))
@@ -56,6 +57,24 @@ internal sealed class LocalCopy(CopyPlace place, ShareFile share, ICopyFiles fil
         }
 
         return files.Exists(place.ExePath) ? new LocalCopyDecision.StartCopy(exePath) : new LocalCopyDecision.CopyAndStart(exePath);
+    }
+
+    /// <summary>
+    /// <see cref="Decide"/> for a start of the server. Started from a network folder without a copy, it first moves back a
+    /// <c>Kiler.exe.old</c> that a swap cut off between its two renames left alone, and then finds that copy (decided by the
+    /// user in M3.7a): the copy that was there takes only a version higher than its own, where a new copy would take whatever
+    /// the shared folder holds.
+    /// </summary>
+    public LocalCopyDecision DecideStart(string? exePath, UpdateLeftovers leftovers)
+    {
+        var decision = Decide(exePath);
+        if (decision is not LocalCopyDecision.CopyAndStart)
+        {
+            return decision;
+        }
+
+        leftovers.MoveBackOld();
+        return Decide(exePath);
     }
 
     /// <summary>Starts the copy with the arguments of this start; the exit code of this process.</summary>

@@ -444,7 +444,7 @@ public sealed class UpdateCheckTests : IDisposable
         Release(Next, _exe, Signature(Next, _exe));
         _files.Existing.Add(_place.ExePath);
 
-        await Check().StartInBackground(Swap()).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        await Check().StartInBackground(Leftovers(), Swap()).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
 
         Assert.Equal(Lines(CopyLine, "Kiler 1.0.1 is copied and checked.", "Kiler 1.0.1 is in place. It runs from the next start of Kiler."), _output.ToString());
         Assert.Equal([(_place.ExePath, _place.ExePath + ".old", false), (NewPath, _place.ExePath, true)], _files.Renamed);
@@ -458,34 +458,38 @@ public sealed class UpdateCheckTests : IDisposable
         Release(Next, _exe, Signature(Next, _exe));
         _files.Existing.Add(_place.ExePath);
 
-        await Check("1.0.1").StartInBackground(Swap()).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        await Check("1.0.1").StartInBackground(Leftovers(), Swap()).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
 
         Assert.Empty(_files.Renamed);
         Assert.Empty(_files.Created);
     }
 
     [Fact]
-    public async Task StartInBackground_OnTheRealFilesTwice_PutsTheNewVersionInPlaceOnce_AndLeavesNoNewFile()
+    public async Task StartInBackground_OnTheRealFiles_PutsTheNewVersionInPlace_AndItsNextStartDeletesTheOldExe()
     {
-        var shareFolder = Path.Combine(_folder.Path, "share");
-        Directory.CreateDirectory(shareFolder);
-        Directory.CreateDirectory(_place.Folder);
-        File.WriteAllBytes(Path.Combine(shareFolder, "Kiler.exe"), _exe);
-        File.WriteAllBytes(Path.Combine(shareFolder, "version.json"), new VersionFile(Next, SHA256.HashData(_exe), [Signature(Next, _exe)]).ToJson());
-        File.WriteAllBytes(_place.ExePath, [1, 2, 3]);
-        _share.Write(shareFolder);
+        RealRelease();
 
-        // Two starts of the same old version: the second finds the .old of the first and changes nothing.
-        for (var start = 0; start < 2; start++)
+        // The start of the old version puts the new one in place, and the next start, of the new version, deletes the .old.
+        foreach (var own in new[] { "1.0.0", "1.0.1" })
         {
-            var files = new CopyFiles();
-            await new UpdateCheck(_place, _share, files, _key.PublicKey, "1.0.0", _output, _errors, _stop.Token)
-                .StartInBackground(new UpdateSwap(_place, files, _output, _errors, _stop.Token))
-                .WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            await RealStart(own);
         }
 
         Assert.Empty(_errors.ToString());
         Assert.Contains("Kiler 1.0.1 is in place. It runs from the next start of Kiler.", _output.ToString(), StringComparison.Ordinal);
+        Assert.True(File.ReadAllBytes(_place.ExePath).AsSpan().SequenceEqual(_exe), "Kiler.exe is not the new version.");
+        Assert.Equal([_place.ExePath], Directory.GetFiles(_place.Folder));
+    }
+
+    [Fact]
+    public async Task StartInBackground_OnTheRealFilesWithTheOldExeOfAnEarlierUpdate_DeletesItFirst_SoTheNewVersionGoesInPlace()
+    {
+        RealRelease();
+        File.WriteAllBytes(_place.ExePath + ".old", [9]);
+
+        await RealStart("1.0.0");
+
+        Assert.Empty(_errors.ToString());
         Assert.True(File.ReadAllBytes(_place.ExePath).AsSpan().SequenceEqual(_exe), "Kiler.exe is not the new version.");
         Assert.Equal([1, 2, 3], File.ReadAllBytes(_place.ExePath + ".old"));
         Assert.Equal(2, Directory.GetFiles(_place.Folder).Length);
@@ -499,7 +503,7 @@ public sealed class UpdateCheckTests : IDisposable
         _files.Existing.Add(_place.ExePath + ".old");
         _files.DeleteError = new InvalidOperationException("A fault of the code.");
 
-        var task = Check().StartInBackground(Swap());
+        var task = Check().StartInBackground(Leftovers(), Swap());
         await task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
 
         Assert.True(task.IsCompletedSuccessfully, "The task of the check failed.");
@@ -512,7 +516,7 @@ public sealed class UpdateCheckTests : IDisposable
     {
         _files.Shared[ShareVersion] = new SharedFile([]) { OpenError = new InvalidOperationException("A fault of the code.") };
 
-        var task = Check().StartInBackground(Swap());
+        var task = Check().StartInBackground(Leftovers(), Swap());
         await task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
 
         Assert.True(task.IsCompletedSuccessfully, "The task of the check failed.");
@@ -563,6 +567,34 @@ public sealed class UpdateCheckTests : IDisposable
     private UpdateCheck Check(string own = "1.0.0") => new(_place, _share, _files, _key.PublicKey, own, _output, _errors, _stop.Token, MaxExe);
 
     private UpdateSwap Swap() => new(_place, _files, _output, _errors, _stop.Token, TimeSpan.Zero);
+
+    /// <summary>
+    /// The leftovers on the real files: the fake folder of the copy is not on the disk, so they find nothing there and leave
+    /// the fake to the check and the swap.
+    /// </summary>
+    private UpdateLeftovers Leftovers(CopyFiles? files = null) =>
+        new(_place, files ?? new CopyFiles(), TimeProvider.System, _output, _errors, _stop.Token, TimeSpan.Zero);
+
+    /// <summary>A real shared folder with the release 1.0.1, signed, and a real copy whose <c>Kiler.exe</c> has three bytes.</summary>
+    private void RealRelease()
+    {
+        var shareFolder = Path.Combine(_folder.Path, "share");
+        Directory.CreateDirectory(shareFolder);
+        Directory.CreateDirectory(_place.Folder);
+        File.WriteAllBytes(Path.Combine(shareFolder, "Kiler.exe"), _exe);
+        File.WriteAllBytes(Path.Combine(shareFolder, "version.json"), new VersionFile(Next, SHA256.HashData(_exe), [Signature(Next, _exe)]).ToJson());
+        File.WriteAllBytes(_place.ExePath, [1, 2, 3]);
+        _share.Write(shareFolder);
+    }
+
+    /// <summary>What a start of the copy of version <paramref name="own"/> does in the background, on the real files.</summary>
+    private Task RealStart(string own)
+    {
+        var files = new CopyFiles();
+        return new UpdateCheck(_place, _share, files, _key.PublicKey, own, _output, _errors, _stop.Token)
+            .StartInBackground(Leftovers(files), new UpdateSwap(_place, files, _output, _errors, _stop.Token))
+            .WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+    }
 
     private string Signature(ReleaseVersion version, byte[] exe, SigningKey? key = null) => (key ?? _key).Sign(version, SHA256.HashData(exe));
 

@@ -43,8 +43,45 @@ internal interface IUpdateFiles
     bool TryDelete(string path);
 }
 
-internal sealed class CopyFiles : ICopyFiles, IUpdateFiles
+/// <summary>A file of a folder as <see cref="ILeftoverFiles.List"/> found it, with the times in UTC.</summary>
+internal sealed record FolderFile(string Path, FileAttributes Attributes, DateTimeOffset Created, DateTimeOffset Written)
 {
+    /// <summary>A symbolic link or another reparse point: a delete through a handle would follow it (M3.6, security review).</summary>
+    public bool IsLink => (Attributes & FileAttributes.ReparsePoint) != 0;
+}
+
+/// <summary>The files that a start deletes or moves back in the folder of the local copy (M3.7a). Tests replace them.</summary>
+internal interface ILeftoverFiles
+{
+    /// <summary>The files in <paramref name="folder"/>, not in its subfolders. A folder that is not there throws <see cref="DirectoryNotFoundException"/>.</summary>
+    IReadOnlyList<FolderFile> List(string folder);
+
+    bool Exists(string path);
+
+    /// <inheritdoc cref="IUpdateFiles.Rename"/>
+    void Rename(string from, string to);
+
+    /// <summary>
+    /// Deletes a file by its name, a read-only one too, and also one that others hold while they share the delete. It throws
+    /// as <see cref="File.Delete"/> does: Windows refuses an exe that a process runs, with an
+    /// <see cref="UnauthorizedAccessException"/>. A link throws an <see cref="IOException"/> and stays.
+    /// </summary>
+    void Delete(string path);
+
+    /// <summary>
+    /// Deletes a file only when no one holds it, a read-only one too: one that another handle holds throws a sharing
+    /// violation, an <see cref="IOException"/>, and stays; one that is not there throws <see cref="FileNotFoundException"/>.
+    /// Its open would follow a symbolic link and delete the target, so a caller skips a reparse point, and a link that a
+    /// file has become since its listing throws an <see cref="IOException"/> and stays.
+    /// </summary>
+    void DeleteUnheld(string path);
+}
+
+internal sealed class CopyFiles : ICopyFiles, IUpdateFiles, ILeftoverFiles
+{
+    /// <summary>The ending of the temporary file of a first copy: <c>Kiler.exe.&lt;random&gt;.tmp</c>.</summary>
+    public const string TmpEnding = ".tmp";
+
     private const int BufferSize = 81920;
 
     public bool IsOnNetwork(string path) => IsNetworkPath(path);
@@ -59,10 +96,17 @@ internal sealed class CopyFiles : ICopyFiles, IUpdateFiles
     {
         // The target is always a file in a folder: %LOCALAPPDATA%\Programs\Kiler or a test folder.
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-        var temporary = $"{target}.{Guid.NewGuid():N}.tmp";
+        // A name of its own, so two starts that copy at once never share one; one that a start leaves goes at a later start of
+        // the copy, once it is old (UpdateLeftovers, M3.7a).
+        var temporary = $"{target}.{Guid.NewGuid():N}{TmpEnding}";
         try
         {
             File.Copy(source, temporary);
+
+            // File.Copy keeps the attributes of its source, and Windows refuses to delete a read-only file: the .old of a
+            // copy of an exe that is read-only on the shared folder would stay, and hold up every later update (security
+            // review of M3.7a).
+            File.SetAttributes(temporary, File.GetAttributes(temporary) & ~FileAttributes.ReadOnly);
             File.Move(temporary, target, overwrite: false);
             return true;
         }
@@ -106,6 +150,50 @@ internal sealed class CopyFiles : ICopyFiles, IUpdateFiles
     public void Rename(string from, string to) => File.Move(from, to, overwrite: false);
 
     public bool TryDelete(string path) => DeleteQuietly(path);
+
+    /// <summary>The attributes and the times come with the names, so a reparse point is known without opening it.</summary>
+    public IReadOnlyList<FolderFile> List(string folder) =>
+    [
+        .. new DirectoryInfo(folder)
+            .EnumerateFiles("*", new EnumerationOptions { AttributesToSkip = 0, IgnoreInaccessible = false })
+            .Select(file => new FolderFile(file.FullName, file.Attributes, file.CreationTimeUtc, file.LastWriteTimeUtc)),
+    ];
+
+    public void Delete(string path)
+    {
+        AllowDelete(path);
+        File.Delete(path);
+    }
+
+    /// <summary>
+    /// <see cref="FileShare.None"/> refuses the open while any other handle holds the file, as a check holds its
+    /// <c>.new</c> and a first copy its <c>.tmp</c>; once open, no one else can open it until it is deleted with the handle.
+    /// </summary>
+    public void DeleteUnheld(string path)
+    {
+        AllowDelete(path);
+        using var unheld = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None, 1, FileOptions.DeleteOnClose);
+    }
+
+    /// <summary>
+    /// Looks at the file again just before its delete (security review of M3.7a). One that has become a link since it was
+    /// listed throws, so the open with <see cref="FileOptions.DeleteOnClose"/> never deletes its target, and the attributes of
+    /// a target are never changed. A read-only one loses the attribute: <see cref="File.Delete"/> refuses it, and that open
+    /// leaves it without an error. A first copy was read-only before M3.7a when the exe on the shared folder was.
+    /// </summary>
+    private static void AllowDelete(string path)
+    {
+        var attributes = File.GetAttributes(path);
+        if ((attributes & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new IOException($"{path} is a link, not a file that Kiler made.");
+        }
+
+        if ((attributes & FileAttributes.ReadOnly) != 0)
+        {
+            File.SetAttributes(path, attributes & ~FileAttributes.ReadOnly);
+        }
+    }
 
     public static bool IsNetworkPath(string path)
     {

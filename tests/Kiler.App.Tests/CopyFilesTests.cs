@@ -38,6 +38,24 @@ public sealed class CopyFilesTests : IDisposable
     }
 
     [Fact]
+    public void CopyNew_AReadOnlySource_GivesACopyThatIsNotReadOnly()
+    {
+        // File.Copy keeps the attributes of its source, and Windows refuses to delete a read-only file, so the .old of a
+        // read-only copy would stay for ever and hold up every later update (security review of M3.7a).
+        File.SetAttributes(_source, FileAttributes.ReadOnly);
+        try
+        {
+            Assert.True(new CopyFiles().CopyNew(_source, _target));
+
+            Assert.Equal(FileAttributes.None, File.GetAttributes(_target) & FileAttributes.ReadOnly);
+        }
+        finally
+        {
+            File.SetAttributes(_source, FileAttributes.Normal);
+        }
+    }
+
+    [Fact]
     public void CopyNew_TheSourceIsMissing_ThrowsAndLeavesNoFile()
     {
         File.Delete(_source);
@@ -174,6 +192,77 @@ public sealed class CopyFilesTests : IDisposable
         }
 
         Assert.True(File.Exists(_source));
+    }
+
+    [Fact]
+    public void Delete_AReadOnlyFile_DeletesIt()
+    {
+        File.SetAttributes(_source, FileAttributes.ReadOnly);
+
+        new CopyFiles().Delete(_source);
+
+        Assert.False(File.Exists(_source), "A read-only file was not deleted.");
+    }
+
+    [Fact]
+    public void DeleteUnheld_AReadOnlyFile_DeletesIt()
+    {
+        // The open with DeleteOnClose does not throw for a read-only file: it only leaves it.
+        File.SetAttributes(_source, FileAttributes.ReadOnly);
+
+        new CopyFiles().DeleteUnheld(_source);
+
+        Assert.False(File.Exists(_source), "A read-only file was not deleted.");
+    }
+
+    [Fact]
+    public void DeleteUnheld_AFileThatAnotherHandleHolds_ThrowsAndLeavesIt()
+    {
+        using (new FileStream(_source, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+        {
+            Assert.ThrowsAny<IOException>(() => new CopyFiles().DeleteUnheld(_source));
+        }
+
+        Assert.True(File.Exists(_source));
+    }
+
+    [Fact]
+    public void DeleteUnheld_AFileThatIsNotThere_ThrowsFileNotFound()
+    {
+        File.Delete(_source);
+
+        Assert.Throws<FileNotFoundException>(() => new CopyFiles().DeleteUnheld(_source));
+    }
+
+    [Fact]
+    public void Deletes_AFileThatHasBecomeALinkSinceItWasListed_ThrowAndLeaveTheLinkAndItsTarget()
+    {
+        // The open with DeleteOnClose would delete the target of a link; the leftovers skip a link by the attributes of
+        // the listing, and both deletes look again just before (security review of M3.7a).
+        var link = _source + ".new";
+        try
+        {
+            File.CreateSymbolicLink(link, _source);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Assert.Skip($"This account cannot make a symbolic link: {ex.Message}");
+        }
+
+        File.SetAttributes(_source, FileAttributes.ReadOnly);
+        try
+        {
+            Assert.ThrowsAny<IOException>(() => new CopyFiles().DeleteUnheld(link));
+            Assert.ThrowsAny<IOException>(() => new CopyFiles().Delete(link));
+
+            Assert.True(File.Exists(link), "The link was deleted.");
+            Assert.Equal(FileAttributes.ReadOnly, File.GetAttributes(_source) & FileAttributes.ReadOnly);
+            Assert.Equal([1, 2, 3, 4], File.ReadAllBytes(_source));
+        }
+        finally
+        {
+            File.SetAttributes(_source, FileAttributes.Normal);
+        }
     }
 
     /// <summary>

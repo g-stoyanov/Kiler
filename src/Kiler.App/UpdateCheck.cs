@@ -75,17 +75,19 @@ internal sealed class UpdateCheck
     /// <summary>
     /// A new name for the <c>.new</c> of a check, next to the local copy: an update is made only in its folder. Two Kilers of
     /// the user that check at once never share one, so one never deletes or renames the file of the other, and a file that is
-    /// there is never taken over (security review of M3.6). M3.7a deletes the ones that no Kiler holds.
+    /// there is never taken over (security review of M3.6). <see cref="UpdateLeftovers"/> deletes the ones that no Kiler holds.
     /// </summary>
     public string NewPath() => $"{_place.ExePath}.{Guid.NewGuid():N}{NewEnding}";
 
     /// <summary>
-    /// Runs the check on a task of its own, and puts a checked new version in place with <paramref name="swap"/> right after
-    /// it, while the <c>.new</c> is still held (M3.7). The task never fails.
+    /// On a task of its own: deletes what earlier updates left with <paramref name="leftovers"/>, so the swap finds no
+    /// <c>.old</c> of an earlier version (decided by the user in M3.7a); runs the check; and puts a checked new version in
+    /// place with <paramref name="swap"/> right after it, while the <c>.new</c> is still held (M3.7). The task never fails.
     /// </summary>
-    public Task StartInBackground(UpdateSwap swap) => Task.Run(
+    public Task StartInBackground(UpdateLeftovers leftovers, UpdateSwap swap) => Task.Run(
         () =>
         {
+            leftovers.Clean();
             if (Run() is not { } update)
             {
                 return;

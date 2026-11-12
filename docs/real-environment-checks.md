@@ -100,6 +100,12 @@ Before: a data folder on the shared folder with a few documents, and Kiler start
 - (M2.11a) how often a listing of a history folder on the other machine misses a slot that the first machine has just made: the SMB cache of about 10 s, and a load that misses a slot never takes it (M2.7a). The slots of one machine showed in its own listings right after, 20 of 20.
 - (M2.4, M2.5) what the file server does with the handles of a machine that sleeps or loses its session, with a write or a delete under way, or a probe that holds a slot without sharing and a marker. From the other machine: whether the slot is still held (a sharing violation) after 2 minutes and later, and whether the marker goes when the session ends or its open lingers until a durable handle times out. After the wake: whether the calls through the handles fail. When the file server closes the slot's handle, another write can take over the slot after 2 minutes while the write still runs, and the write renames over the document when it wakes; a delete woken so moves the version N+1 of the other write to the trash as N. If a call through such a handle fails after the wake, a check of the slot's handle before each rename over the document closes it (second security review of M2.4), a change of the layer to decide with the user.
 
+### The updates
+
+Starts from the shared folder, which the tests cover only with fake files.
+
+- (M3.7a) a start from the shared folder whose copy in `%LOCALAPPDATA%\Programs\Kiler` is only `Kiler.exe.old`, as a swap cut off between its two renames leaves it (rename `Kiler.exe` to `Kiler.exe.old` by hand, with no Kiler running): it says `Kiler has moved its copy back …` and starts that copy, not a new one, and the copy then looks for a new version as usual.
+
 ### Another account and the rights as IT sets them
 
 With Everyone full control most rights are given anyway, so these count only with the rights that IT sets.

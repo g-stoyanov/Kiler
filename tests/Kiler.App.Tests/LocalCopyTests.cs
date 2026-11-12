@@ -26,6 +26,8 @@ public sealed class LocalCopyTests : IDisposable
         _share = new ShareFile(Path.Combine(_folder.Path, "Kiler", "share.json"));
     }
 
+    private string OldPath => _place.ExePath + ".old";
+
     public void Dispose() => _folder.Dispose();
 
     [Fact]
@@ -64,6 +66,63 @@ public sealed class LocalCopyTests : IDisposable
     public void Decide_WithoutThePathOfTheExe_RunsHere()
     {
         Assert.IsType<LocalCopyDecision.RunHere>(LocalCopy().Decide(null));
+    }
+
+    [Fact]
+    public void Decide_OnlyTheOldExeOfASwapCutOff_CopiesAndStarts_AndMovesNothing()
+    {
+        // --diag decides too, and changes nothing.
+        _files.Existing.Add(OldPath);
+
+        Assert.Equal(new LocalCopyDecision.CopyAndStart(Source), LocalCopy().Decide(Source));
+
+        Assert.Empty(_files.Renamed);
+    }
+
+    [Fact]
+    public void DecideStart_StartedFromANetworkFolderWithOnlyTheOldExeOfASwapCutOff_MovesItBackAndStartsIt()
+    {
+        // The copy that was there takes only a version higher than its own; a new copy would take what the shared folder holds.
+        _files.Existing.Add(OldPath);
+
+        Assert.Equal(new LocalCopyDecision.StartCopy(Source), LocalCopy().DecideStart(Source, Leftovers()));
+
+        Assert.Equal([(OldPath, _place.ExePath)], _files.Renamed);
+        Assert.Equal(Lines($"Kiler has moved its copy back from {OldPath} to {_place.ExePath}, as an update had stopped halfway."), _output.ToString());
+        Assert.Empty(_errors.ToString());
+    }
+
+    [Fact]
+    public void DecideStart_StartedFromANetworkFolderWithoutACopyOrAnOldExe_CopiesAndStarts()
+    {
+        Assert.Equal(new LocalCopyDecision.CopyAndStart(Source), LocalCopy().DecideStart(Source, Leftovers()));
+
+        Assert.Empty(_files.Renamed);
+        Assert.Empty(_output.ToString());
+    }
+
+    [Fact]
+    public void DecideStart_StartedFromANetworkFolderWithACopyAndItsOldExe_LeavesTheOldExeToTheCopy()
+    {
+        _files.Existing.Add(_place.ExePath);
+        _files.Existing.Add(OldPath);
+
+        Assert.Equal(new LocalCopyDecision.StartCopy(Source), LocalCopy().DecideStart(Source, Leftovers()));
+
+        Assert.Empty(_files.Renamed);
+        Assert.Empty(_output.ToString());
+    }
+
+    [Fact]
+    public void DecideStart_StartedFromALocalFolderOrTheCopy_LeavesTheFolderOfTheCopyAsItIs()
+    {
+        _files.Network = false;
+        _files.Existing.Add(OldPath);
+
+        Assert.IsType<LocalCopyDecision.RunHere>(LocalCopy().DecideStart(@"D:\Tools\Kiler.exe", Leftovers()));
+        Assert.IsType<LocalCopyDecision.RunHere>(LocalCopy().DecideStart(_place.ExePath, Leftovers()));
+
+        Assert.Empty(_files.Renamed);
     }
 
     [Fact]
@@ -252,13 +311,18 @@ public sealed class LocalCopyTests : IDisposable
 
     private LocalCopy LocalCopy() => new(_place, _share, _files, _shortcuts, _starter);
 
-    private sealed class FakeFiles : ICopyFiles
+    private UpdateLeftovers Leftovers() => new(_place, _files, TimeProvider.System, _output, _errors, CancellationToken.None, TimeSpan.Zero);
+
+    /// <summary>The files of the copy in memory; the leftovers only list and rename them here.</summary>
+    private sealed class FakeFiles : ICopyFiles, ILeftoverFiles
     {
         public bool Network { get; set; } = true;
 
         public HashSet<string> Existing { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         public List<(string Source, string Target)> Copied { get; } = [];
+
+        public List<(string From, string To)> Renamed { get; } = [];
 
         public Exception? CopyError { get; set; }
 
@@ -284,6 +348,28 @@ public sealed class LocalCopyTests : IDisposable
             Copied.Add((source, target));
             return true;
         }
+
+        public IReadOnlyList<FolderFile> List(string folder) =>
+        [
+            .. Existing
+                .Where(path => string.Equals(Path.GetDirectoryName(path), folder, StringComparison.OrdinalIgnoreCase))
+                .Select(path => new FolderFile(path, FileAttributes.Archive, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch)),
+        ];
+
+        public void Rename(string from, string to)
+        {
+            if (!Existing.Remove(from))
+            {
+                throw new FileNotFoundException("No such file in the fake folder.", from);
+            }
+
+            Existing.Add(to);
+            Renamed.Add((from, to));
+        }
+
+        public void Delete(string path) => throw new NotSupportedException("A start from the shared folder deletes nothing.");
+
+        public void DeleteUnheld(string path) => throw new NotSupportedException("A start from the shared folder deletes nothing.");
     }
 
     private sealed class FakeShortcuts : IShortcuts

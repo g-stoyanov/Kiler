@@ -2,7 +2,7 @@
 
 How a new version of Kiler reaches the team, and where the key that signs it is kept. The decisions are in [tasks/M3.md](tasks/M3.md#decisions-for-the-module) (step 11 of PLAN M3, the signed updates).
 
-**Status:** the release tool and the public key in the exe are done (M3.5), the local copies find and check a new version (M3.6) and put it in place (M3.7). They delete the `Kiler.exe.old` that it leaves from M3.7a on, the first start checks its copy from M3.8, and `sign` takes a second key in M3.8a; until M3.7a a release is put in place by hand, as a copy that keeps its `.old` puts no later release in place.
+**Status:** the release tool and the public key in the exe are done (M3.5), the local copies find and check a new version (M3.6), put it in place (M3.7) and delete the `Kiler.exe.old` that it leaves at their next start (M3.7a). The first start checks its copy from M3.8, and `sign` takes a second key in M3.8a.
 
 ## How it works
 
@@ -18,7 +18,7 @@ The shared folder holds `Kiler.exe` and `version.json` next to it:
 }
 ```
 
-Everyone runs Kiler from a copy of their own in `%LOCALAPPDATA%\Programs\Kiler`. At each start the copy reads `version.json` of the shared folder, in the background once the page is open, so the start never waits for the shared folder. It takes a new `Kiler.exe` only when the version is higher than its own, and a signature over that version and the SHA-256 of the copied file verifies with the public key built into the copy. The new version goes into place without a restart and runs from the next start. Anyone can write the shared folder, but no one can make that signature without the signing key, so a changed `Kiler.exe` or an older one under a higher number is refused. The first start from the shared folder checks its copy against `version.json` in the same way.
+Everyone runs Kiler from a copy of their own in `%LOCALAPPDATA%\Programs\Kiler`. At each start the copy reads `version.json` of the shared folder, in the background once the page is open, so the start never waits for the shared folder. It takes a new `Kiler.exe` only when the version is higher than its own, and a signature over that version and the SHA-256 of the copied file verifies with the public key built into the copy. The new version goes into place without a restart and runs from the next start, which deletes the old exe, kept until then as `Kiler.exe.old`. Anyone can write the shared folder, but no one can make that signature without the signing key, so a changed `Kiler.exe` or an older one under a higher number is refused. The first start from the shared folder checks its copy against `version.json` in the same way.
 
 The `sha256` of the file is there for people: the copies hash the file they copied, never the text of `version.json`. `signatures` holds one signature, and two during a change of the signing key (below); a copy takes the release when one of them verifies with its key.
 

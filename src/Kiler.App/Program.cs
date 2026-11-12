@@ -79,7 +79,9 @@ var share = ShareFile.ForCurrentUser();
 var copyPlace = CopyPlace.ForCurrentUser();
 var copyFiles = new CopyFiles();
 var localCopy = new LocalCopy(copyPlace, share, copyFiles, new ShellShortcuts(), new ProcessStarter());
-var copyDecision = localCopy.Decide(Environment.ProcessPath);
+var copyDecision = localCopy.DecideStart(
+    Environment.ProcessPath,
+    new UpdateLeftovers(copyPlace, copyFiles, TimeProvider.System, Console.Out, Console.Error, CancellationToken.None));
 if (copyDecision is not LocalCopyDecision.RunHere)
 {
     instanceLock.Dispose();
@@ -122,12 +124,14 @@ Browser.OpenOrPrint(browser, self.EntryAddress, options.NoBrowser, Console.Out, 
 
 // The local copy looks for a new version once the page is open, in the background, so a shared folder that does not answer
 // holds up neither the page nor the stop (decided by the user in M3.6), and puts a checked one in place right after it (M3.7).
+// Before the check it deletes what earlier updates left, so the swap finds no .old of an earlier version (M3.7a).
 UpdateSwap? swap = null;
 if (copyPlace.IsTheExe(Environment.ProcessPath))
 {
-    swap = new UpdateSwap(copyPlace, copyFiles, Console.Out, Console.Error, app.Lifetime.ApplicationStopping);
-    _ = new UpdateCheck(copyPlace, share, copyFiles, UpdateKey.PublicKey, HealthApi.Version, Console.Out, Console.Error, app.Lifetime.ApplicationStopping)
-        .StartInBackground(swap);
+    var stopping = app.Lifetime.ApplicationStopping;
+    swap = new UpdateSwap(copyPlace, copyFiles, Console.Out, Console.Error, stopping);
+    _ = new UpdateCheck(copyPlace, share, copyFiles, UpdateKey.PublicKey, HealthApi.Version, Console.Out, Console.Error, stopping)
+        .StartInBackground(new UpdateLeftovers(copyPlace, copyFiles, TimeProvider.System, Console.Out, Console.Error, stopping), swap);
 }
 
 try
