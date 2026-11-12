@@ -55,10 +55,15 @@ public sealed class NewKilerTests : IDisposable
         var admin = Valid(files.Users[Account]);
         Assert.Equal(("Demo Admin", 2, true, true, false), (admin.DisplayName, admin.Level, admin.CanEdit, admin.IsAdmin, admin.MustChangePassword));
 
-        // The five initial templates (M5.2), with no level above the top level, 2.
+        // The five initial templates (M5.2), with no level above the top level, 2, and a stamp (M4.12).
         var initial = InitialTemplates.For(2).ToDictionary(template => template.Id, template => template.ToContent().ToJsonString());
         Assert.Equal(["db", "link", "note", "snippet", "sql"], files.Templates.Keys);
-        Assert.All(files.Templates, pair => Assert.Equal(initial[pair.Key], Valid(pair.Value).ToContent().ToJsonString()));
+        Assert.All(files.Templates, pair =>
+        {
+            var content = Valid(pair.Value).ToContent();
+            Assert.True(content.Remove("stamp"), $"The template {pair.Key} has no stamp.");
+            Assert.Equal(initial[pair.Key], content.ToJsonString());
+        });
         Assert.Equal(2, Assert.Single(Valid(files.Templates["db"]).Fields, field => field.Key == "password").LevelByEnv?["prod"]);
 
         // Both sets verify against the same checks, so they hold the same keys.
@@ -68,6 +73,43 @@ public sealed class NewKilerTests : IDisposable
         {
             AssertEveryLevelVerifies(levels, LevelKeys.Unlock(levels.Recovery, recoveryKey));
         }
+    }
+
+    [Fact]
+    public void MakeAndWrite_SealEachDocument_ByAnAdminKey_ThatThePasswordAndTheRecoveryKeyUnlock_AndNoOtherKilerHas()
+    {
+        var kiler = NewKiler.Make(Account, Names, "Demo Admin", DemoPassword, guestMode: true, autoLockMinutes: 45);
+        Assert.Equal(NewKilerOutcome.Made, kiler.Write(_data.Copy).Outcome);
+        var other = NewKiler.Make(Account, Names, "Demo Admin", DemoPassword, guestMode: true, autoLockMinutes: 45);
+
+        // As another Kiler reads them, at the version of their create.
+        var files = Load();
+        var levels = Valid(files.Levels);
+        var admin = Valid(files.Users[Account]);
+
+        // The admin's password and the recovery key unlock the same admin key, its private key too.
+        var publicKey = AdminPublicKeyOf(LevelKeys.UnlockAll(admin.Keys, DemoPassword));
+        Assert.True(RecoveryKey.TryParse(kiler.RecoveryKey, out var recoveryKey), "The recovery key is not in the form that is shown.");
+        using (recoveryKey)
+        {
+            Assert.Equal(publicKey, AdminPublicKeyOf(LevelKeys.UnlockAll(levels.Recovery, recoveryKey)));
+        }
+
+        var otherKey = AdminPublicKeyOf(LevelKeys.UnlockAll(other.Admin.Keys, DemoPassword));
+        Assert.NotEqual(publicKey, otherKey);
+        Assert.Equal(5, files.Templates.Count);
+        List<(string File, Func<string, bool> IsSealedBy)> sealedBy =
+        [
+            ("levels.json", levels.IsSealedBy),
+            ("settings.json", Valid(files.Settings).IsSealedBy),
+            ("the user file of the admin", admin.IsSealedBy),
+            .. files.Templates.Select(pair => ($"the template {pair.Key}", (Func<string, bool>)Valid(pair.Value).IsSealedBy)),
+        ];
+        Assert.All(sealedBy, file =>
+        {
+            Assert.True(file.IsSealedBy(publicKey), $"{file.File} is not sealed by the admin key.");
+            Assert.False(file.IsSealedBy(otherKey), $"{file.File} is sealed by the admin key of another Kiler.");
+        });
     }
 
     [Fact]
@@ -188,6 +230,30 @@ public sealed class NewKilerTests : IDisposable
         finally
         {
             foreach (var key in keys.Values)
+            {
+                key.Dispose();
+            }
+        }
+    }
+
+    /// <summary>
+    /// The public key of the admin key that <paramref name="unlocked"/> holds, after a check that its private key is there
+    /// and seals what the public key verifies; disposes the keys.
+    /// </summary>
+    private static string AdminPublicKeyOf(UnlockedKeys unlocked)
+    {
+        try
+        {
+            Assert.NotNull(unlocked.AdminPublicKey);
+            Assert.NotNull(unlocked.AdminKey);
+            var stamp = unlocked.AdminKey.Seal(SealPurpose.Settings, "demo text"u8);
+            Assert.True(AdminSeal.Verify(unlocked.AdminPublicKey, SealPurpose.Settings, "demo text"u8, stamp), "The private key does not seal for the public key.");
+            return unlocked.AdminPublicKey;
+        }
+        finally
+        {
+            unlocked.AdminKey?.Dispose();
+            foreach (var key in unlocked.Levels.Values)
             {
                 key.Dispose();
             }

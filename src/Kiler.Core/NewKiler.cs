@@ -9,12 +9,16 @@ namespace Kiler.Core;
 /// The documents of a new Kiler, which the wizard makes (M4.3, design 13, decided at the start of M4): <c>levels.json</c>, with
 /// a new key and its check for each level from 1 and the recovery set, the keys locked with a new recovery key;
 /// <c>settings.json</c>; the user file of the first admin, the current account, with the keys locked with their password; and
-/// the five initial templates (M5.2, <see cref="InitialTemplates"/>). The level keys and the recovery key live only while it
-/// is made (kiler-crypto, "Rules"): it keeps the locked documents, and the recovery key as it is shown, once, in the answer of
-/// the wizard.
+/// the five initial templates (M5.2, <see cref="InitialTemplates"/>). A new admin key (M4.12, M3 step 6) seals each of them,
+/// and is locked with the keys: its public and private key in the recovery set and in the admin's user file. The level keys,
+/// the admin key and the recovery key live only while it is made (kiler-crypto, "Rules"): it keeps the locked and sealed
+/// documents, and the recovery key as it is shown, once, in the answer of the wizard.
 /// </summary>
 public sealed class NewKiler
 {
+    /// <summary>The version that a create gives a document, which the seal of a whole file covers (<see cref="LevelsFile.Sealed"/>).</summary>
+    private const int Created = 1;
+
     private NewKiler(LevelsFile levels, SettingsFile settings, UserFile admin, IReadOnlyList<TemplateFile> templates, string recoveryKey)
     {
         Levels = levels;
@@ -28,7 +32,10 @@ public sealed class NewKiler
 
     public SettingsFile Settings { get; }
 
-    /// <summary>The user file of the first admin: the top level, an editor and an admin, with the password that they chose, not a temporary one.</summary>
+    /// <summary>
+    /// The user file of the first admin: the top level, an editor and an admin, with the level keys and the admin key locked
+    /// with the password that they chose, not a temporary one.
+    /// </summary>
     public UserFile Admin { get; }
 
     /// <summary>The initial templates, with no level above the top level (<see cref="InitialTemplates.For"/>).</summary>
@@ -60,9 +67,11 @@ public sealed class NewKiler
     }
 
     /// <summary>
-    /// Makes the documents: a new key and its check for each level from 1, a new recovery key, and the keys locked with it
-    /// and with <paramref name="password"/>. The keys are disposed before it returns. PBKDF2 runs twice, so it takes a moment.
-    /// <paramref name="account"/> is the current account (<see cref="ICurrentAccount.Name"/>), the id of the admin's user file.
+    /// Makes the documents: a new key and its check for each level from 1, a new admin key, a new recovery key, and the keys
+    /// with the public and private key of the admin key locked with it and with <paramref name="password"/>; each document is
+    /// sealed by the admin key, a whole file for the version of its create. The keys are disposed before it returns. PBKDF2
+    /// runs twice, so it takes a moment. <paramref name="account"/> is the current account (<see cref="ICurrentAccount.Name"/>),
+    /// the id of the admin's user file.
     /// </summary>
     /// <exception cref="ArgumentException">A value does not fit (<see cref="TryCheck"/>), or the account does not pass <see cref="StorageName"/>.</exception>
     public static NewKiler Make(string account, IReadOnlyList<string> levelNames, string displayName, ReadOnlySpan<char> password, bool guestMode, int autoLockMinutes)
@@ -88,10 +97,14 @@ public sealed class NewKiler
                 entries.Add(new(level, levelNames[level], LevelCheck.Create(key, level)));
             }
 
+            using var adminKey = AdminKey.New();
             using var recoveryKey = Crypto.RecoveryKey.New();
-            var levels = new LevelsFile(entries, LevelKeys.Lock(keys, recoveryKey));
-            var admin = new UserFile(account, displayName, top, canEdit: true, isAdmin: true, mustChangePassword: false, LevelKeys.Lock(keys, password));
-            return new(levels, new SettingsFile(guestMode, autoLockMinutes), admin, InitialTemplates.For(top), recoveryKey.ToDisplayString());
+            var levels = new LevelsFile(entries, LevelKeys.Lock(keys, adminKey.PublicKey, adminKey, recoveryKey)).Sealed(adminKey, Created);
+            var admin = new UserFile(account, displayName, top, canEdit: true, isAdmin: true, mustChangePassword: false, LevelKeys.Lock(keys, adminKey.PublicKey, adminKey, password))
+                .Sealed(adminKey);
+            var settings = new SettingsFile(guestMode, autoLockMinutes).Sealed(adminKey, Created);
+            var templates = InitialTemplates.For(top).Select(template => template.Sealed(adminKey, Created)).ToList();
+            return new(levels, settings, admin, templates, recoveryKey.ToDisplayString());
         }
         finally
         {
