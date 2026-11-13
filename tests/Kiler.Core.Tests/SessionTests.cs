@@ -111,6 +111,46 @@ public sealed class SessionTests
         Assert.Throws<ObjectDisposedException>(() => adminKey.Seal(SealPurpose.UserFile, "made-up text"u8));
     }
 
+    [Theory]
+    [InlineData("sealed", true, true, null)]
+    [InlineData("not sealed", false, false, RightsRefusal.NotSealed)]
+    [InlineData("sealed by another admin key", false, false, RightsRefusal.NotSealed)]
+    [InlineData("without a public key", false, false, RightsRefusal.NotSealed)]
+    [InlineData("without the private key", true, false, RightsRefusal.NoAdminKey)]
+    public void TheRights_ComeOnlyFromAFileSealedByThePublicKeyOfTheSession_AndTheAdminRightFromThePrivateKeyToo(
+        string file, bool canEdit, bool isAdmin, RightsRefusal? refused)
+    {
+        // M4.15: an editor and an admin of the top level, as their file says.
+        using var other = AdminKey.New();
+        var adminKey = AdminKey.New();
+        using var session = file switch
+        {
+            "sealed" => NewSession(2, canEdit: true, isAdmin: true, adminPublicKey: adminKey.PublicKey, adminKey: adminKey, sealedBy: adminKey),
+            "not sealed" => NewSession(2, canEdit: true, isAdmin: true, adminPublicKey: adminKey.PublicKey, adminKey: adminKey),
+            "sealed by another admin key" => NewSession(2, canEdit: true, isAdmin: true, adminPublicKey: adminKey.PublicKey, adminKey: adminKey, sealedBy: other),
+            "without a public key" => NewSession(2, canEdit: true, isAdmin: true, sealedBy: adminKey),
+            _ => NewSession(2, canEdit: true, isAdmin: true, adminPublicKey: adminKey.PublicKey, sealedBy: adminKey),
+        };
+        adminKey.Dispose();
+
+        Assert.Equal((canEdit, isAdmin, refused), (session.CanEdit, session.IsAdmin, session.RightsRefused));
+    }
+
+    [Fact]
+    public void HoldsEvery_TheLevelsOfLevelsJson_OnlyWhenTheyAreThoseOfTheKeys_NoMoreAndNoFewer()
+    {
+        // M4.15, the M4.6 security review: a levels.json cut down below the keys of the admin after the sign-in.
+        using var kiler = new TestKiler(top: 3);
+        using var admin = NewSession(3, levels: kiler.Levels);
+        using var below = NewSession(2, levels: kiler.Levels);
+        var cut = new LevelsFile([.. kiler.Levels.Levels.Take(3)], kiler.Levels.Recovery);
+
+        Assert.True(admin.HoldsEvery(kiler.Levels));
+        Assert.False(admin.HoldsEvery(cut));
+        Assert.False(below.HoldsEvery(kiler.Levels));
+        Assert.True(below.HoldsEvery(cut));
+    }
+
     [Fact]
     public void Start_LocksTheSessionBefore()
     {
@@ -213,7 +253,8 @@ public sealed class SessionTests
 
     /// <summary>
     /// A session with new keys of the levels 1 to <paramref name="top"/>, without PBKDF2, which verified against the checks of
-    /// <paramref name="levels"/> (M4.6), or against made-up ones without it, and with the admin key given, which it owns (M4.13).
+    /// <paramref name="levels"/> (M4.6), or against made-up ones without it, and with the admin key given, which it owns (M4.13);
+    /// its user file sealed by <paramref name="sealedBy"/>, or not sealed, so it is a reader (M4.15).
     /// </summary>
     internal static Session NewSession(
         int top,
@@ -223,12 +264,29 @@ public sealed class SessionTests
         bool mustChangePassword = false,
         LevelsFile? levels = null,
         string? adminPublicKey = null,
-        AdminKey? adminKey = null)
+        AdminKey? adminKey = null,
+        AdminKey? sealedBy = null)
     {
         level = level < 0 ? top : level;
         var user = new UserFile("demo.user", "Demo User", level, canEdit, isAdmin, mustChangePassword, new LockedKeys("salt", new Dictionary<int, string>()));
         var keys = Enumerable.Range(1, top).ToDictionary(key => key, _ => SecretKey.New());
         var checks = keys.Keys.ToDictionary(key => key, key => levels is not null && key <= levels.Top ? levels.Levels[key].Check! : $"made-up check {key}");
-        return new Session(user, userVersion: 1, keys, checks, adminPublicKey, adminKey);
+        return new Session(sealedBy is null ? user : user.Sealed(sealedBy), userVersion: 1, keys, checks, adminPublicKey, adminKey);
+    }
+
+    /// <summary>
+    /// A session as <see cref="NewSession"/> makes it, whose user file a new admin key sealed, as an admin action leaves it
+    /// (M4.15): with the public key of that admin key, and its private key for an admin.
+    /// </summary>
+    internal static Session NewSealedSession(int top, int level = -1, bool canEdit = false, bool isAdmin = false, bool mustChangePassword = false, LevelsFile? levels = null)
+    {
+        var adminKey = AdminKey.New();
+        var session = NewSession(top, level, canEdit, isAdmin, mustChangePassword, levels, adminKey.PublicKey, isAdmin ? adminKey : null, sealedBy: adminKey);
+        if (!isAdmin)
+        {
+            adminKey.Dispose();
+        }
+
+        return session;
     }
 }

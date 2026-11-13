@@ -202,6 +202,7 @@ const session: Session = {
   isAdmin: false,
   mustChangePassword: false,
   guestMode: false,
+  rightsRefusal: null,
 };
 
 describe('refusals', () => {
@@ -280,11 +281,20 @@ describe('the session', () => {
     ['levels that are not whole numbers', { ...session, levels: [0, '1'] }],
     ['levels that are not a list', { ...session, levels: 2 }],
     ['signedIn that is not true or false', { ...session, signedIn: 'yes' }],
+    ['no rightsRefusal member', { ...session, rightsRefusal: undefined }],
+    ['a rightsRefusal that this page does not know', { ...session, rightsRefusal: 'forged' }],
     ['a list', [session]],
   ])('turns a session with %s into "invalid"', async (_, body) => {
     stubFetch(() => json(body));
 
     expect((await failure(getSession())).kind).toBe('invalid');
+  });
+
+  it.each(['notSealed', 'noAdminKey'] as const)('reads the rightsRefusal %s of a session (M4.15)', async (refusal) => {
+    const reader = { ...session, canEdit: false, rightsRefusal: refusal };
+    stubFetch(() => json(reader));
+
+    expect(await getSession()).toEqual(reader);
   });
 });
 

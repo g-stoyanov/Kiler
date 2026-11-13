@@ -13,7 +13,14 @@ import { History } from './History.tsx';
 import { Levels } from './Levels.tsx';
 import { RecordForm } from './RecordForm.tsx';
 import { RecordPage } from './RecordPage.tsx';
-import { SessionContext, SessionStore, useSessionSnapshot, useSessionStore, type SessionView } from './session.ts';
+import {
+  rightsNotice,
+  SessionContext,
+  SessionStore,
+  useSessionSnapshot,
+  useSessionStore,
+  type SessionView,
+} from './session.ts';
 import { SignIn } from './SignIn.tsx';
 import { signInFrom } from './signIn.ts';
 import { Stashes } from './Stashes.tsx';
@@ -287,7 +294,7 @@ function AppRoutes({ session, locked }: { session: Session; locked: boolean }) {
     <Routes>
       <Route path="sign-in" element={<SignIn session={session} locked={locked} />} />
       <Route path="password" element={session.signedIn ? <ChangePassword session={session} /> : <ToSignIn />} />
-      <Route element={<Screens locked={locked} />}>
+      <Route element={<Screens locked={locked} notice={rightsNotice(session)} />}>
         <Route index element={<Browse session={session} />} />
         <Route
           path="new"
@@ -353,13 +360,21 @@ function AppRoutes({ session, locked }: { session: Session; locked: boolean }) {
   );
 }
 
-/** The screens, under the banner of a guest after a lock (M4.8): the page shows only level 0 again. */
-function Screens({ locked }: { locked: boolean }) {
+/**
+ * The screens, under the banner of a guest after a lock (M4.8): the page shows only level 0 again; and under the banner of
+ * a session that does not get the rights of its user file (M4.15, `rightsNotice`).
+ */
+function Screens({ locked, notice }: { locked: boolean; notice: string | undefined }) {
   return (
     <>
       {locked && (
         <p className="banner banner-warning" role="status">
           {texts.frame.locked}
+        </p>
+      )}
+      {notice !== undefined && (
+        <p className="banner banner-warning" role="status">
+          {notice}
         </p>
       )}
       <Outlet />

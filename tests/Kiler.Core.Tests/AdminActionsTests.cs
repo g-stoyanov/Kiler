@@ -466,36 +466,44 @@ public sealed class AdminActionsTests : IDisposable
         var team = TeamOf(AdminFile(), _kiler.User(User, level: 1));
         using var admin = SignInWith(team.Files, Admin, TestKiler.Password);
 
-        // The top level cut away after the sign-in, with the other checks as they were (the M4.6 finding on Session.HoldsEvery).
+        // The top level cut away after the sign-in, with the other checks as they were: the admin signs in again, and the sign-in
+        // refuses it (M4.15, the M4.6 finding on Session.HoldsEvery).
         var levels = team.Files.Levels!.Model!;
         var other = _data.OpenCopy();
         other.Load();
         Assert.Equal(WriteOutcome.Written, other.Replace(LevelsFile.Key, 1, new LevelsFile([.. levels.Levels.Take(3)], levels.Recovery).ToContent()).Outcome);
         team.Follow(_data.Copy.Load());
+        Assert.False(admin.HoldsEvery(team.Files.Levels!.Model!));
+
+        Assert.Equal(AdminOutcome.LevelsChanged, AdminActions.RenameLevel(admin, team, 1, "Team").Outcome);
+        Assert.Equal(2, team.Files.Levels!.Version);
+
+        // Every level and check as they were, but not sealed: the rename does not seal it under the admin's name.
+        Assert.Equal(WriteOutcome.Written, other.Replace(LevelsFile.Key, 2, new LevelsFile(levels.Levels, levels.Recovery).ToContent()).Outcome);
+        team.Follow(_data.Copy.Load());
         Assert.True(admin.HoldsEvery(team.Files.Levels!.Model!));
 
         Assert.Equal(AdminOutcome.LevelsNotSealed, AdminActions.RenameLevel(admin, team, 1, "Team").Outcome);
-        Assert.Equal(2, team.Files.Levels!.Version);
+        Assert.Equal(3, team.Files.Levels!.Version);
 
         // A seal by a key of someone's own is no better.
         using var theirs = AdminKey.New();
-        Assert.Equal(WriteOutcome.Written, other.Replace(LevelsFile.Key, 2, levels.Sealed(theirs, 3).ToContent()).Outcome);
+        Assert.Equal(WriteOutcome.Written, other.Replace(LevelsFile.Key, 3, levels.Sealed(theirs, 4).ToContent()).Outcome);
         team.Follow(_data.Copy.Load());
 
         Assert.Equal(AdminOutcome.LevelsNotSealed, AdminActions.RenameLevel(admin, team, 1, "Team").Outcome);
-        Assert.Equal(3, team.Files.Levels!.Version);
+        Assert.Equal(4, team.Files.Levels!.Version);
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Actions_OfASessionWithoutTheAdminKey_AreRefused_AndWriteNothing(bool withPublicKey)
+    [Fact]
+    public void Actions_OfASessionWithoutTheAdminKey_AreRefused_AndWriteNothing()
     {
-        // isAdmin and every level key, but no private key of the admin key to seal with.
-        var adminKey = withPublicKey ? AdminKeyLock.PublicKey : AdminKeyLock.None;
-        var team = TeamOf(_kiler.User(Admin, level: 3, canEdit: true, isAdmin: true, adminKey: adminKey, seal: true), SealedUser(User, level: 1));
+        // isAdmin and every level key, but no private key of the admin key to seal with: Need.Admin refuses it first (M4.15),
+        // and the actions refuse it too. A file without the public key does not sign in at all (M4.15, SignInTests).
+        var team = TeamOf(_kiler.User(Admin, level: 3, canEdit: true, isAdmin: true, adminKey: AdminKeyLock.PublicKey, seal: true), SealedUser(User, level: 1));
         using var admin = SignInWith(team.Files, Admin, TestKiler.Password);
         Assert.False(admin.HoldsAdminKey);
+        Assert.Equal(AccessRefusal.NotAdmin, Access.Check(Need.Admin, admin, team.Files));
 
         Assert.Equal(AdminOutcome.NoAdminKey, AdminActions.NewUser(admin, team, "demo.new", "Demo New", level: 1, canEdit: false).Outcome);
         Assert.Equal(AdminOutcome.NoAdminKey, AdminActions.ChangeLevel(admin, team, User, 2).Outcome);

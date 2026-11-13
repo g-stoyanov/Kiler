@@ -2,15 +2,18 @@ namespace Kiler.Core;
 
 /// <summary>
 /// The automatic locking (M4.5b, decided at the start of M4): the session locks after the minutes of <c>settings.json</c>
-/// without activity, and after <see cref="DefaultMinutes"/> without a <c>settings.json</c> that fits. The host calls
+/// without activity, only of one whose seal verifies with the public key of the session (M4.15), and after
+/// <see cref="DefaultMinutes"/> without one that fits and is sealed so (<see cref="MinutesOf"/>). The host calls
 /// <see cref="Activity"/> for each request of a page but those that a page makes of its own again and again (the event stream,
 /// the health check and the state of the data). The lock is <see cref="CurrentSession.Lock(Session)"/>, so the pages get the
 /// <c>session</c> event as at the "Lock" button.
 /// <para>
 /// The timer runs from an activity until it locks. When it comes, it locks if the minutes have passed since the last activity,
-/// and else waits for the rest, so a request sets no new timer. The minutes are read at each activity and each time the timer
-/// comes: shorter minutes set the timer again at once, as the first request of a page can come before the copy has opened or
-/// the wizard has written <c>settings.json</c> (code review); longer ones count when the timer comes.
+/// and else waits for the rest, so a request sets no new timer. The minutes are read at each activity, at each sign-in and lock
+/// (<see cref="CurrentSession.Changed"/>) and each time the timer comes: shorter minutes set the timer again at once, as the
+/// first request of a page can come before the copy has opened or the wizard has written <c>settings.json</c> (code review),
+/// and the request of a sign-in is an activity before its session, whose public key checks the seal, is in place (M4.15);
+/// longer ones count when the timer comes.
 /// </para>
 /// </summary>
 public sealed class AutoLock : IDisposable
@@ -43,10 +46,16 @@ public sealed class AutoLock : IDisposable
         _sessions = sessions;
         _files = files;
         _time = time;
+        _sessions.Changed += OnSessionChanged;
     }
 
-    /// <summary>The minutes of the automatic lock in <paramref name="files"/>: those of <c>settings.json</c>, else <see cref="DefaultMinutes"/>.</summary>
-    public static int MinutesOf(TeamFiles? files) => files?.Settings?.Model?.AutoLockMinutes ?? DefaultMinutes;
+    /// <summary>
+    /// The minutes of the automatic lock in <paramref name="files"/>: those of <c>settings.json</c> when its seal verifies with
+    /// <paramref name="adminPublicKey"/>, the public key of the session, else <see cref="DefaultMinutes"/> (M4.15). So whoever
+    /// can write the share does not set the lock of every session to a day or to a minute (the M4.5b security review).
+    /// </summary>
+    public static int MinutesOf(TeamFiles? files, string? adminPublicKey) =>
+        adminPublicKey is not null && files?.Settings?.Model is { } settings && settings.IsSealedBy(adminPublicKey) ? settings.AutoLockMinutes : DefaultMinutes;
 
     /// <summary>A request of a page: the lock is put off until the minutes have passed from now.</summary>
     public void Activity()
@@ -59,20 +68,45 @@ public sealed class AutoLock : IDisposable
             }
 
             _lastActivity = _time.GetTimestamp();
-            var wait = Wait();
-            if (_timer is null || _timerWait - _time.GetElapsedTime(_timerSetAt) > wait)
-            {
-                SetTimer(wait);
-            }
+            Arm();
         }
     }
 
     public void Dispose()
     {
+        _sessions.Changed -= OnSessionChanged;
         lock (_gate)
         {
             _disposed = true;
             CancelTimer();
+        }
+    }
+
+    /// <summary>
+    /// A sign-in or a lock, on the thread of the change: the minutes of the session now in place count from the last activity
+    /// (M4.15). Only a timer that runs is set again, as a sign-in is an activity and sets one; it does not throw (core.md).
+    /// </summary>
+    private void OnSessionChanged(object? sender, EventArgs e)
+    {
+        lock (_gate)
+        {
+            if (!_disposed && _timer is not null)
+            {
+                Arm();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Sets the timer for what is left of the minutes since the last activity, when none is set or when the one set comes
+    /// later; at least a tick, so even a fake clock does not call back while the lock is held.
+    /// </summary>
+    private void Arm()
+    {
+        var left = Wait() - _time.GetElapsedTime(_lastActivity);
+        if (_timer is null || _timerWait - _time.GetElapsedTime(_timerSetAt) > left)
+        {
+            SetTimer(left > TimeSpan.Zero ? left : TimeSpan.FromTicks(1));
         }
     }
 
@@ -106,7 +140,11 @@ public sealed class AutoLock : IDisposable
         }
     }
 
-    private TimeSpan Wait() => TimeSpan.FromMinutes(MinutesOf(_files()));
+    /// <summary>
+    /// The minutes of the session in place, whose public key checks the seal of <c>settings.json</c>; without a session the
+    /// default, as the timer locks nothing then, and the next activity or the timer reads them again (the remarks above).
+    /// </summary>
+    private TimeSpan Wait() => TimeSpan.FromMinutes(MinutesOf(_files(), _sessions.Session?.AdminPublicKey));
 
     private void SetTimer(TimeSpan wait)
     {

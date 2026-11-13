@@ -13,8 +13,8 @@ The examples are made up.
 - **Dates** are UTC in ISO 8601 with `Z`, such as `2026-10-21T11:32:00Z`. Only Kiler sets them. The page shows them in local time (design 6.1).
 - **Rights.** Each endpoint states its `Need` (`core.md`, "Keys and the session"):
   - `Reader` is a guest while guest mode is on, who reads level 0, or a session, which reads the levels of its keys;
-  - `Editor` is a session with `canEdit`;
-  - `Admin` is a session with `isAdmin` that holds the key of every level of the current `levels.json`, the need of every `/api/admin` endpoint, the audit (M6.18) too.
+  - `Editor` is a session whose user file has `canEdit` under the admin seal (M4.15): a user file whose seal does not verify gives a reader;
+  - `Admin` is a session whose user file has `isAdmin` under the admin seal and that holds the private key of the admin key (M4.15), and the key of every level of the current `levels.json`, the need of every `/api/admin` endpoint, the audit (M6.18) too.
 
   A request that does not get what its endpoint needs is 403 with the sentence of `AccessRules.Message`. A session that was locked meanwhile is 403 with `AccessRules.Locked` (`host.md`, "Rights"). The other 403s of this contract are of the same kind: something that this session may not do. So after any 403 the page reads the session again (`kiler-ui`, "API"), and the page hides what the session may not do, so these 403s come only from a race. A request that the page built wrong is 400.
 - **Activity.** Every endpoint here is activity for the automatic lock (`host.md`, "Automatic lock"); none is `.NotActivity()`. The one exception is a `GET` with `Kiler-Activity: none`, the read of a page that follows a `changed` event ("The changes of other users" at the end).

@@ -8,6 +8,11 @@ namespace Kiler.Core;
 /// ones that pass the check of their level in <c>levels.json</c> (kiler-crypto, "Rules"). With none, there is no access. The
 /// same password unlocks the admin key of the file, its public key and an admin's private key, which the session keeps too
 /// (M4.13). The files are those of the team at one moment (<see cref="Team.Files"/>), read once.
+/// <para>
+/// The checks come only from a <c>levels.json</c> whose seal verifies with that public key (M4.15, docs/tasks/M4.md, "A seal
+/// that fails"): a check planted in it, or a level cut away, refuses the sign-in, an admin's too, rather than verify a key of
+/// someone else's. Without the public key nothing can be checked, so a file without one is refused too.
+/// </para>
 /// </summary>
 public static class SignIn
 {
@@ -65,6 +70,13 @@ public static class SignIn
             }
 
             var levels = levelsFile.Model;
+            if (unlocked.AdminPublicKey is not { } publicKey || !levels.IsSealedBy(publicKey))
+            {
+                Dispose(unlocked.Levels);
+                refusal = unlocked.AdminPublicKey is null ? SignInRefusal.NoAdminPublicKey : SignInRefusal.LevelsNotSealed;
+                return false;
+            }
+
             var verified = Verified(unlocked.Levels, levels);
             if (verified.Count == 0)
             {
@@ -109,15 +121,19 @@ public static class SignIn
         }
         catch
         {
-            foreach (var key in unlocked.Values)
-            {
-                key.Dispose();
-            }
-
+            Dispose(unlocked);
             throw;
         }
 
         return verified;
+    }
+
+    private static void Dispose(IReadOnlyDictionary<int, SecretKey> keys)
+    {
+        foreach (var key in keys.Values)
+        {
+            key.Dispose();
+        }
     }
 }
 
@@ -138,4 +154,17 @@ public enum SignInRefusal
 
     /// <summary>The user file has no keys, or none of the keys that unlocked passed the check of its level (design 7.5).</summary>
     NoAccess,
+
+    /// <summary>
+    /// The user file has no public key of the admin key, or it did not unlock with the password, so no seal of
+    /// <c>levels.json</c> can be checked (M4.15). An admin gives a new temporary password, which locks the public key in.
+    /// </summary>
+    NoAdminPublicKey,
+
+    /// <summary>
+    /// The seal of <c>levels.json</c> does not verify with the public key of the user file: someone changed it outside Kiler,
+    /// such as a check planted or a level cut away, so its checks are not taken (M4.15). A sealed version from
+    /// <c>history\levels\</c> is put back.
+    /// </summary>
+    LevelsNotSealed,
 }

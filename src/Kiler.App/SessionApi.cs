@@ -15,12 +15,28 @@ internal sealed record SignInRequest(string? Password)
 /// <param name="SignedIn">Whether there is a session.</param>
 /// <param name="DisplayName">The display name of the session's user file; null without a session.</param>
 /// <param name="Levels">The levels that the page reads: 0 and the levels of the session's keys, 0 alone for a guest, none else.</param>
-/// <param name="CanEdit">Whether the session can edit.</param>
-/// <param name="IsAdmin">Whether the session's user file has <c>isAdmin</c>; the admin actions also need the key of every level.</param>
+/// <param name="CanEdit">Whether the session can edit: its user file has a sealed <c>canEdit</c> (M4.15).</param>
+/// <param name="IsAdmin">
+/// Whether the session is an admin: its user file has a sealed <c>isAdmin</c>, and it holds the private key of the admin key
+/// (M4.15); the admin actions also need the key of every level.
+/// </param>
 /// <param name="MustChangePassword">Whether the session has a temporary password, which it changes before anything else (<see cref="PasswordApi"/>, M4.5a).</param>
 /// <param name="GuestMode">Whether <c>settings.json</c> has guest mode, so the page opens as a guest with "Sign in".</param>
+/// <param name="RightsRefusal">
+/// Why the session does not get the rights that its user file says, which the page shows (M4.15): <c>notSealed</c>, a reader
+/// whose file does not verify, or <c>noAdminKey</c>, a sealed <c>isAdmin</c> without the private key; null without a session
+/// and when it gets them all (<see cref="Session.RightsRefused"/>).
+/// </param>
 internal sealed record SessionResponse(
-    string? Account, bool SignedIn, string? DisplayName, IReadOnlyList<int> Levels, bool CanEdit, bool IsAdmin, bool MustChangePassword, bool GuestMode);
+    string? Account,
+    bool SignedIn,
+    string? DisplayName,
+    IReadOnlyList<int> Levels,
+    bool CanEdit,
+    bool IsAdmin,
+    bool MustChangePassword,
+    bool GuestMode,
+    string? RightsRefusal);
 
 /// <summary>
 /// <c>/api/session</c> (M4.4, steps 3 and 4 of M4): <c>GET</c> gives what the page shows of the session, <c>POST</c> signs in
@@ -51,7 +67,20 @@ internal static class SessionApi
         SignInRefusal.NoUser => "This Windows account has no Kiler user. Contact an admin.",
         SignInRefusal.UserInvalid => "The user file of this account cannot be read. Contact an admin.",
         SignInRefusal.LevelsInvalid => "levels.json cannot be read, so no key can be checked. Contact an admin.",
+        SignInRefusal.NoAdminPublicKey =>
+            "The user file of this account has no public key of the admin key, so Kiler cannot check levels.json. Ask an admin for a new temporary password.",
+        SignInRefusal.LevelsNotSealed =>
+            "levels.json has been changed outside Kiler and does not carry the admin seal, so no key can be checked. Contact an admin.",
         _ => "No access. Contact an admin.",
+    };
+
+    /// <summary>The name of <paramref name="refusal"/> in <see cref="SessionResponse.RightsRefusal"/>.</summary>
+    public static string? NameOf(RightsRefusal? refusal) => refusal switch
+    {
+        null => null,
+        RightsRefusal.NotSealed => "notSealed",
+        RightsRefusal.NoAdminKey => "noAdminKey",
+        _ => throw new ArgumentOutOfRangeException(nameof(refusal), refusal, "A refusal of the rights without a name."),
     };
 
     private static Results<Ok<SessionResponse>, BadRequest<ErrorResponse>, Conflict<ErrorResponse>, JsonHttpResult<ErrorResponse>> Start(
@@ -88,7 +117,7 @@ internal static class SessionApi
     {
         var guestMode = data.Files?.Settings?.Model?.GuestMode == true;
         return sessions.Session is { IsLocked: false } session
-            ? new(account.Name, true, session.DisplayName, session.Levels, session.CanEdit, session.IsAdmin, session.MustChangePassword, guestMode)
-            : new(account.Name, false, null, guestMode ? [0] : [], false, false, false, guestMode);
+            ? new(account.Name, true, session.DisplayName, session.Levels, session.CanEdit, session.IsAdmin, session.MustChangePassword, guestMode, NameOf(session.RightsRefused))
+            : new(account.Name, false, null, guestMode ? [0] : [], false, false, false, guestMode, null);
     }
 }

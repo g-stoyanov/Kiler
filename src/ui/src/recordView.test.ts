@@ -24,6 +24,7 @@ const guest: Session = {
   isAdmin: false,
   mustChangePassword: false,
   guestMode: true,
+  rightsRefusal: null,
 };
 
 const reader: Session = { ...guest, signedIn: true, displayName: 'Demo Reader', levels: [0, 1] };

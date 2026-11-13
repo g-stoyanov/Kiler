@@ -256,41 +256,27 @@ public sealed class AdminApiTests : IDisposable
     }
 
     [Fact]
-    public async Task TheActions_OfASessionWithoutTheAdminKey_AreRefused_AndThoseOfAFileThatIsNotSealed_AreConflicts()
+    public async Task TheAdminEndpoints_RefuseASealedAdminWithoutThePrivateKey_AndTheSessionSaysWhy()
     {
         using var data = NewData(guestMode: false);
 
-        // isAdmin and the keys of every level, as the admin's, but not the private key of the admin key.
+        // A sealed isAdmin and the keys of every level, as the admin's, but not the private key of the admin key: the admin
+        // right is the private key too (M4.15). The actions refuse it themselves as well (AdminOutcome.NoAdminKey, Core tests).
         var keys = MadeUpKiler.UserOf(MadeUpKiler.Admin).Keys;
-        _writer!.Create(UserFile.KeyOf("demo.keyless"), new UserFile("demo.keyless", "Demo Keyless", 2, true, true, false, new(keys.Salt, keys.Keys, keys.AdminPublicKey)).ToContent());
+        var keyless = new UserFile("demo.keyless", "Demo Keyless", 2, true, true, false, new(keys.Salt, keys.Keys, keys.AdminPublicKey));
+        _writer!.Create(keyless.Key, MadeUpKiler.Sealed(keyless).ToContent());
+        await using var server = await StartAsync(data, "demo.keyless");
+        using var client = await SignedInAsync(server);
 
-        // A levels.json that the admin key did not seal, with the checks as they are.
-        _writer.Replace(LevelsFile.Key, 1, new LevelsFile(MadeUpKiler.Levels.Levels, MadeUpKiler.Levels.Recovery).ToContent());
-        await using (var server = await StartAsync(data, "demo.keyless"))
+        var session = await GetAsync(client, "/api/session");
+        Assert.Equal((true, false, "noAdminKey"), ((bool?)session["canEdit"], (bool?)session["isAdmin"], (string?)session["rightsRefusal"]));
+        foreach (var (method, path, body) in Endpoints())
         {
-            using var client = await SignedInAsync(server);
-            foreach (var (method, path, body) in Endpoints().Where(endpoint => endpoint.Method != HttpMethod.Get))
-            {
-                using var response = await SendAsync(client, method, path, body);
+            using var response = await SendAsync(client, method, path, body);
 
-                await AssertErrorAsync(response, HttpStatusCode.Forbidden, AdminApi.Message(AdminOutcome.NoAdminKey));
-            }
-
-            Assert.True((bool?)(await GetAsync(client, "/api/admin/users"))["fewAdmins"]);
+            await AssertErrorAsync(response, HttpStatusCode.Forbidden, AccessRules.Message(AccessRefusal.NotAdmin));
         }
 
-        // The admin's Kiler, on another machine.
-        using var theirs = OpenData("theirs");
-        await using (var server = await StartAsync(theirs, MadeUpKiler.Admin))
-        {
-            using var client = await SignedInAsync(server);
-            using var rename = await SendAsync(client, HttpMethod.Put, "/api/admin/levels/1", new JsonObject { ["name"] = "Staff" });
-
-            await AssertErrorAsync(rename, HttpStatusCode.Conflict, AdminApi.Message(AdminOutcome.LevelsNotSealed));
-        }
-
-        var levels = Assert.IsType<JsonObject>(JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(DataFolder, "levels.json"), Cancel)));
-        Assert.Equal(2, (int?)levels["version"]);
         Assert.False(File.Exists(Path.Combine(DataFolder, "users", "demo.new.json")), "A refused new user was written.");
     }
 

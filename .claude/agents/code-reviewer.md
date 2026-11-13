@@ -27,6 +27,8 @@ The task number, for example `M1.4`. If it is missing, take the first unticked t
    - `git diff HEAD`: including what is not staged yet;
    - the content of new files (`git ls-files --others --exclude-standard`).
 
+   Then list every changed and new file (`git diff --cached --stat` and the new files): each of them is read in step 3, the test files and the docs too, and the report names them under "Read" (Output). A pass that leaves a changed file unread is not done, and its verdict is not "ready to commit" (in M4.15 the first pass read neither the tests nor the docs, though step 3 asked for them, as it had in M4.13 and M4.14).
+
    **A repeat pass** (the brief says so and lists the findings of the last pass) runs other commands instead of these. The main agent staged the state that the last pass reviewed (`git add -A`) before it made the fixes, so the fixes are `git diff` (the working tree against the index) and the files that `git ls-files --others --exclude-standard` lists, which are new since then. Review only them, and read the rest of the code only where a fix depends on it. Check that each finding of the last pass is closed and that the fixes bring no new defect. If `git diff --cached` is empty, or the fixes are empty while the brief lists findings, the staging is wrong: say so, and do not report the findings as closed.
 3. Check:
    - **Scope:** is everything in "What" done, and is nothing outside the task? A task with an "Owns" line (the parallel sessions of M6, `docs/tasks/README.md`, "Parallel sessions") changes only the files it lists; a change of another file is a major finding, as a session that runs at the same time may own it.
@@ -44,6 +46,9 @@ The task number, for example `M1.4`. If it is missing, take the first unticked t
 
 ```
 Task: M<n>.<k>
+
+Read
+- every changed and new file, one per line, or, in a repeat pass, every file of the fixes.
 
 Findings
 - [critical|major|minor] path:line — the problem; why it is a problem; suggestion.

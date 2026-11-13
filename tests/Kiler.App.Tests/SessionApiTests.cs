@@ -27,6 +27,7 @@ public sealed class SessionApiTests : IDisposable
     private readonly TempFolder _folder = new();
     private readonly LineWriter _output = new();
     private readonly LineWriter _errors = new();
+    private MadeUpData? _writer;
 
     private static CancellationToken Cancel => TestContext.Current.CancellationToken;
 
@@ -56,6 +57,8 @@ public sealed class SessionApiTests : IDisposable
             Assert.True((bool?)session["isAdmin"]);
             Assert.False((bool?)session["mustChangePassword"]);
             Assert.False((bool?)session["guestMode"]);
+            Assert.True(session.ContainsKey("rightsRefusal"), "The session has no rightsRefusal.");
+            Assert.Null((string?)session["rightsRefusal"]);
         }
 
         Assert.True((bool?)(await GetSessionAsync(client))["signedIn"]);
@@ -104,7 +107,7 @@ public sealed class SessionApiTests : IDisposable
     }
 
     [Fact]
-    public async Task SignIn_ForAUserWhoRaisedTheirLevelAndIsAdmin_ReadsOnlyTheLevelsOfTheirKeys_AndIsRefusedAsAnAdmin()
+    public async Task SignIn_ForAUserWhoRaisedTheirLevelAndIsAdmin_ReadsOnlyTheLevelsOfTheirKeys_AsAReader_AndSaysWhy()
     {
         using var data = NewData(guestMode: false);
         await using var server = await StartAsync(data, MadeUpKiler.Raised);
@@ -112,12 +115,43 @@ public sealed class SessionApiTests : IDisposable
 
         using var response = await SignInAsync(client, MadeUpKiler.Password);
 
+        // Their own file is not sealed, so it gives no right (M4.15).
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var session = await ReadAsync(response);
         Assert.Equal([0, 1], Levels(session));
-        Assert.True((bool?)session["isAdmin"], "The page does not get the screens of the file.");
-        Assert.Equal([HttpStatusCode.OK, HttpStatusCode.OK, HttpStatusCode.Forbidden], await StatusesAsync(client));
+        Assert.Equal((false, false, "notSealed"), ((bool?)session["canEdit"], (bool?)session["isAdmin"], (string?)session["rightsRefusal"]));
+        Assert.Equal([HttpStatusCode.OK, HttpStatusCode.Forbidden, HttpStatusCode.Forbidden], await StatusesAsync(client));
+        await AssertRefusedAsync(client, Editor, AccessRules.Message(AccessRefusal.CannotEdit));
         await AssertRefusedAsync(client, Admin, AccessRules.Message(AccessRefusal.NotAdmin));
+    }
+
+    [Fact]
+    public async Task SignIn_ToALevelsJsonThatTheAdminKeyDidNotSeal_IsRefused()
+    {
+        // As a check planted in it, or a level cut away (M4.15): here every level as it was, with no seal.
+        using var data = NewData(guestMode: false);
+        _writer!.Replace(LevelsFile.Key, 1, new LevelsFile(MadeUpKiler.Levels.Levels, MadeUpKiler.Levels.Recovery).ToContent());
+        await using var server = await StartAsync(data, MadeUpKiler.Admin);
+        using var client = server.CreateSignedInClient();
+
+        using var response = await SignInAsync(client, MadeUpKiler.Password);
+
+        await AssertErrorAsync(response, HttpStatusCode.Forbidden, SessionApi.Message(SignInRefusal.LevelsNotSealed));
+        Assert.False((bool?)(await GetSessionAsync(client))["signedIn"]);
+    }
+
+    [Fact]
+    public async Task SignIn_OfAUserFileWithoutThePublicKeyOfTheAdminKey_IsRefused()
+    {
+        using var data = NewData(guestMode: false);
+        var user = MadeUpKiler.UserOf(MadeUpKiler.User);
+        _writer!.Replace(user.Key, 1, user.WithKeys(new LockedKeys(user.Keys.Salt, user.Keys.Keys), mustChangePassword: false).ToContent());
+        await using var server = await StartAsync(data, MadeUpKiler.User);
+        using var client = server.CreateSignedInClient();
+
+        using var response = await SignInAsync(client, MadeUpKiler.Password);
+
+        await AssertErrorAsync(response, HttpStatusCode.Forbidden, SessionApi.Message(SignInRefusal.NoAdminPublicKey));
     }
 
     [Theory]
@@ -375,11 +409,11 @@ public sealed class SessionApiTests : IDisposable
 
     private static int[] Levels(JsonObject session) => [.. Assert.IsType<JsonArray>(session["levels"]).Select(level => (int)level!)];
 
-    /// <summary>A data folder with the made-up Kiler, and a local folder of the test.</summary>
+    /// <summary>A data folder with the made-up Kiler, and a local folder of the test; <see cref="_writer"/> writes more into it.</summary>
     private KilerData NewData(bool guestMode)
     {
         var place = DataPlace.For(Path.Combine(_folder.Path, "data"), Path.Combine(_folder.Path, "Kiler"));
-        MadeUpKiler.WriteTo(MadeUpData.Create(place.DataFolder, Path.Combine(_folder.Path, "writer")), guestMode);
+        _writer = MadeUpKiler.WriteTo(MadeUpData.Create(place.DataFolder, Path.Combine(_folder.Path, "writer")), guestMode);
         return new KilerData(place, FileOwner.Instance, TimeProvider.System, _output, _errors);
     }
 

@@ -5,13 +5,18 @@ namespace Kiler.Core;
 /// <summary>
 /// A signed-in user (M4.4, decided at the start of M4): the level keys that unlocked with their password and passed the check
 /// of their level (<see cref="SignIn"/>), and the rights of their user file at the sign-in. What it reads is level 0 and the
-/// levels of its keys, never the <c>level</c> of the file (design 7.8); <see cref="CanEdit"/> and <see cref="IsAdmin"/> give
-/// the screens, and only the keys give the data. A lock disposes the keys (<see cref="Dispose"/>): a use under way ends with
-/// its key, and a use after it is <see cref="SessionLockedException"/>, which the API answers as locked (core.md).
+/// levels of its keys, never the <c>level</c> of the file (design 7.8). A lock disposes the keys (<see cref="Dispose"/>): a
+/// use under way ends with its key, and a use after it is <see cref="SessionLockedException"/>, which the API answers as
+/// locked (core.md).
 /// <para>
 /// With the level keys, the same password unlocks the admin key of the user file (M4.13): its public key, which every user
 /// has, and its private key, which an admin has (<see cref="AdminPublicKey"/>, <see cref="HoldsAdminKey"/>). The session
 /// keeps them until a lock, as the level keys, and a change of password locks them again.
+/// </para>
+/// <para>
+/// The rights come only from a user file whose seal verifies with <see cref="AdminPublicKey"/> (M4.15, docs/tasks/M4.md, "The
+/// seal in the session"): from any other the session is a reader, and <see cref="RightsRefused"/> says why for the screen. The
+/// admin right is also the private key that matches the public key, never <c>isAdmin</c> alone.
 /// </para>
 /// </summary>
 public sealed class Session : IDisposable
@@ -45,8 +50,6 @@ public sealed class Session : IDisposable
     {
         Account = user.Account;
         DisplayName = user.DisplayName;
-        CanEdit = user.CanEdit;
-        IsAdmin = user.IsAdmin;
         _userVersion = userVersion;
         _mustChangePassword = user.MustChangePassword;
         _keys = keys;
@@ -60,15 +63,35 @@ public sealed class Session : IDisposable
         }
 
         _adminKey = adminKey;
+
+        // A right that someone wrote into the file is not sealed (M4.15), and an isAdmin without the private key seals nothing.
+        var rightsSealed = adminPublicKey is not null && user.IsSealedBy(adminPublicKey);
+        CanEdit = rightsSealed && user.CanEdit;
+        IsAdmin = rightsSealed && user.IsAdmin && adminKey is not null;
+        RightsRefused = !rightsSealed ? RightsRefusal.NotSealed
+            : user.IsAdmin && adminKey is null ? RightsRefusal.NoAdminKey
+            : null;
     }
 
     public string Account { get; }
 
     public string DisplayName { get; }
 
+    /// <summary>Whether the user file has <c>canEdit</c>, sealed by the admin key of <see cref="AdminPublicKey"/> (M4.15).</summary>
     public bool CanEdit { get; }
 
+    /// <summary>
+    /// Whether the user file has <c>isAdmin</c>, sealed by the admin key of <see cref="AdminPublicKey"/>, and the session
+    /// holds the private key of that admin key (<see cref="HoldsAdminKey"/>, M4.15).
+    /// </summary>
     public bool IsAdmin { get; }
+
+    /// <summary>
+    /// Why the session does not get the rights that its user file says, for the screen; <c>null</c> when it gets them all
+    /// (M4.15): a file whose seal does not verify gives no right, and a sealed <c>isAdmin</c> without the private key gives no
+    /// admin right.
+    /// </summary>
+    public RightsRefusal? RightsRefused { get; }
 
     /// <summary>
     /// Whether the password of the sign-in is a temporary one: the session can then only change it, and the change clears the
@@ -122,14 +145,17 @@ public sealed class Session : IDisposable
     public bool Reads(int level) => level == 0 || _keys.ContainsKey(level);
 
     /// <summary>
-    /// Whether the session holds the key of every level of <paramref name="levels"/>, each verified at the sign-in against the
-    /// check that <paramref name="levels"/> has now (ordinal). A check planted after the sign-in, which a key of the session
-    /// would not verify, is not written back by an admin action under the admin's name (M4.6, the M4.4 security review).
+    /// Whether the levels 1 to the top level of <paramref name="levels"/> are those of the keys of the session, no more and no
+    /// fewer, each verified at the sign-in against the check that <paramref name="levels"/> has now (ordinal). A check planted
+    /// after the sign-in, which a key of the session would not verify, is not written back by an admin action under the
+    /// admin's name (M4.6, the M4.4 security review), nor is a <c>levels.json</c> cut down below the keys of the session (M4.15,
+    /// the M4.6 security review).
     /// </summary>
     public bool HoldsEvery(LevelsFile levels)
     {
         ArgumentNullException.ThrowIfNull(levels);
-        return Enumerable.Range(1, levels.Top).All(level => _checks.TryGetValue(level, out var check) && string.Equals(check, levels.Levels[level].Check, StringComparison.Ordinal));
+        return _checks.Count == levels.Top
+            && Enumerable.Range(1, levels.Top).All(level => _checks.TryGetValue(level, out var check) && string.Equals(check, levels.Levels[level].Check, StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -265,6 +291,22 @@ public sealed class Session : IDisposable
 
         _adminKey?.Dispose();
     }
+}
+
+/// <summary>Why a session does not get the rights that its user file says (<see cref="Session.RightsRefused"/>, M4.15).</summary>
+public enum RightsRefusal
+{
+    /// <summary>
+    /// The seal of the user file does not verify with the public key of the session: someone changed its rights, or wrote it
+    /// whole, outside Kiler, so the session is a reader. An admin gives a new temporary password, which seals it again.
+    /// </summary>
+    NotSealed,
+
+    /// <summary>
+    /// The user file has a sealed <c>isAdmin</c>, and the private key of the admin key is missing or did not unlock, so the
+    /// session is no admin. Another admin gives a new temporary password.
+    /// </summary>
+    NoAdminKey,
 }
 
 /// <summary>The session was locked before or while a request used its keys (<see cref="Session.Use"/>): the request answers as locked.</summary>

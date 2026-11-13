@@ -55,14 +55,29 @@ export interface Session {
   displayName: string | null;
   /** The levels that the page reads: `[]` with no session and no guest mode, `[0]` for a guest. */
   levels: number[];
+  /** Whether the user file has `canEdit` under the admin seal (M4.15). */
   canEdit: boolean;
-  /** Whether the user file has `isAdmin`; the admin actions also need the key of every level. */
+  /**
+   * Whether the user file has `isAdmin` under the admin seal, and the session holds the private key of the admin key
+   * (M4.15); the admin actions also need the key of every level.
+   */
   isAdmin: boolean;
   /** A temporary password, which is changed before anything else (M4.5a). */
   mustChangePassword: boolean;
   /** Without a session, the page opens as a guest, who reads level 0, with "Sign in". */
   guestMode: boolean;
+  /**
+   * Why the session does not get the rights that its user file says, which the page shows (M4.15): `notSealed`, a reader
+   * whose file does not carry the admin seal, or `noAdminKey`, a sealed admin without the private key; null without a
+   * session and when it gets them all.
+   */
+  rightsRefusal: RightsRefusal | null;
 }
+
+/** The values of `rightsRefusal` (`SessionApi.NameOf` of Kiler.App). */
+export const rightsRefusals = ['notSealed', 'noAdminKey'] as const;
+
+export type RightsRefusal = (typeof rightsRefusals)[number];
 
 /** The states of the data (`DataState` of Kiler.App, host.md, "Data"). */
 export const dataStates = [
@@ -890,7 +905,9 @@ function readHealth(body: unknown): Health {
 
 function readSession(body: unknown): Session {
   if (isObject(body)) {
-    const { account, signedIn, displayName, levels, canEdit, isAdmin, mustChangePassword, guestMode } = body;
+    const { account, signedIn, displayName, levels, canEdit, isAdmin, mustChangePassword, guestMode, rightsRefusal } =
+      body;
+    const refusal = rightsRefusals.find((name) => name === rightsRefusal);
     if (
       isTextOrNull(account) &&
       typeof signedIn === 'boolean' &&
@@ -900,7 +917,8 @@ function readSession(body: unknown): Session {
       typeof canEdit === 'boolean' &&
       typeof isAdmin === 'boolean' &&
       typeof mustChangePassword === 'boolean' &&
-      typeof guestMode === 'boolean'
+      typeof guestMode === 'boolean' &&
+      (rightsRefusal === null || refusal !== undefined)
     ) {
       return {
         account,
@@ -911,6 +929,7 @@ function readSession(body: unknown): Session {
         isAdmin,
         mustChangePassword,
         guestMode,
+        rightsRefusal: refusal ?? null,
       };
     }
   }

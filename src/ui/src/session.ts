@@ -1,6 +1,22 @@
 import { createContext, useContext, useSyncExternalStore } from 'react';
 import { getSession, messageOf, type Session } from './api.ts';
 import type { ConnectionState } from './events.ts';
+import { texts } from './texts.ts';
+
+/**
+ * The banner of a session that does not get the rights that its user file says (M4.15), above every screen, so its user
+ * knows why they only read or see no admin screens; undefined when it gets them all.
+ */
+export function rightsNotice(session: Session): string | undefined {
+  switch (session.rightsRefusal) {
+    case 'notSealed':
+      return texts.frame.rightsNotSealed;
+    case 'noAdminKey':
+      return texts.frame.noAdminKey;
+    case null:
+      return undefined;
+  }
+}
 
 /**
  * What the page knows of the session: `waiting` until the stream connects and after it stops, `reading` while

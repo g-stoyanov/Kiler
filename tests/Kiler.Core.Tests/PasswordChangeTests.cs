@@ -94,17 +94,15 @@ public sealed class PasswordChangeTests : IDisposable
     [InlineData(true)]
     public void Run_WhereAPartOfTheAdminKeyOfTheFileDidNotUnlock_IsRefused_AsItWouldDropOut(bool admin)
     {
-        // A user's public key, or an admin's private key, from another lock with the same password: under another salt it does
-        // not decrypt, as a damaged value. The user's file has no private key, so only the public key refuses it.
+        // An admin's private key from another lock with the same password: under another salt it does not decrypt, as a
+        // damaged value. A user's public key that did not unlock refuses the sign-in (M4.15), so a session without it, which
+        // holds every level key of the file, stands for one; the user's file has no private key, so only the public key refuses it.
         var adminKey = admin ? AdminKeyLock.PublicAndPrivateKey : AdminKeyLock.PublicKey;
         var user = _kiler.User(Account, level: 2, isAdmin: admin, adminKey: adminKey);
         var other = _kiler.User(Account, level: 2, isAdmin: admin, adminKey: adminKey).Keys;
         var keys = user.Keys;
-        var damaged = admin
-            ? new LockedKeys(keys.Salt, keys.Keys, keys.AdminPublicKey, other.AdminPrivateKey)
-            : new LockedKeys(keys.Salt, keys.Keys, other.AdminPublicKey);
-        var team = TeamOf(user.WithKeys(damaged, mustChangePassword: false));
-        using var session = SignInWith(team, TestKiler.Password);
+        var team = TeamOf(admin ? user.WithKeys(new LockedKeys(keys.Salt, keys.Keys, keys.AdminPublicKey, other.AdminPrivateKey), mustChangePassword: false) : user);
+        using var session = admin ? SignInWith(team, TestKiler.Password) : SessionTests.NewSession(top: 2);
         Assert.Equal(admin ? _kiler.AdminKey.PublicKey : null, session.AdminPublicKey);
         Assert.False(session.HoldsAdminKey);
 

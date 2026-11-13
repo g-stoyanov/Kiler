@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError, type Session } from './api.ts';
-import { SessionStore, type SessionSnapshot } from './session.ts';
+import { rightsNotice, SessionStore, type SessionSnapshot } from './session.ts';
+import { texts } from './texts.ts';
 
 const guest: Session = {
   account: 'demo.user',
@@ -11,6 +12,7 @@ const guest: Session = {
   isAdmin: false,
   mustChangePassword: false,
   guestMode: true,
+  rightsRefusal: null,
 };
 
 const admin: Session = {
@@ -245,5 +247,15 @@ describe('SessionStore', () => {
     store.connectionChanged('stopped');
 
     expect(calls).toBe(1);
+  });
+});
+
+describe('rightsNotice', () => {
+  it.each([
+    ['notSealed', texts.frame.rightsNotSealed],
+    ['noAdminKey', texts.frame.noAdminKey],
+    [null, undefined],
+  ] as const)('gives a session whose rightsRefusal is %s its banner (M4.15)', (refusal, notice) => {
+    expect(rightsNotice({ ...admin, rightsRefusal: refusal })).toBe(notice);
   });
 });

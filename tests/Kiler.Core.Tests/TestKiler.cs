@@ -45,8 +45,9 @@ internal sealed class TestKiler : IDisposable
     /// <summary>
     /// A user file of <paramref name="account"/> with the keys of <paramref name="keyLevels"/> (by default 1 to
     /// <paramref name="level"/>) and the keys of <paramref name="own"/>, which are not the keys of their levels, locked
-    /// together with <see cref="Password"/>, and with what <paramref name="adminKey"/> says of <see cref="AdminKey"/>; its
-    /// rights sealed by <see cref="AdminKey"/> with <paramref name="seal"/>, as an admin action seals them (M4.14).
+    /// together with <see cref="Password"/>, and with what <paramref name="adminKey"/> says of <see cref="AdminKey"/>, by
+    /// default its public key, without which the sign-in is refused (M4.15); its rights sealed by <see cref="AdminKey"/> with
+    /// <paramref name="seal"/>, as an admin action seals them (M4.14), else the session is a reader.
     /// </summary>
     public UserFile User(
         string account,
@@ -56,7 +57,7 @@ internal sealed class TestKiler : IDisposable
         bool mustChangePassword = false,
         int[]? keyLevels = null,
         IReadOnlyDictionary<int, SecretKey>? own = null,
-        AdminKeyLock adminKey = AdminKeyLock.None,
+        AdminKeyLock adminKey = AdminKeyLock.PublicKey,
         bool seal = false)
     {
         var keys = (keyLevels ?? Enumerable.Range(1, level).ToArray()).ToDictionary(key => key, key => _keys[key]);
@@ -112,7 +113,7 @@ internal sealed class TestKiler : IDisposable
 /// <summary>What of the admin key a user file of <see cref="TestKiler.User"/> has, locked with its level keys (M4.13).</summary>
 internal enum AdminKeyLock
 {
-    /// <summary>Nothing, as a file that an admin action wrote before M4.14.</summary>
+    /// <summary>Nothing, as a file that an admin action wrote before M4.14: the sign-in refuses it (M4.15).</summary>
     None,
 
     /// <summary>The public key, as a user's file.</summary>

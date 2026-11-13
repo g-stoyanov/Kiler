@@ -17,6 +17,10 @@ export const texts = {
     trash: 'Trash',
     locked: 'Kiler has locked, so this page shows only level 0 again. Sign in to read the rest.',
     version: (version: string) => `Kiler ${version}`,
+    rightsNotSealed:
+      'Your user file was changed outside Kiler, so the rights in it do not count and you can only read. An admin restores them with a new temporary password.',
+    noAdminKey:
+      'Your user file says that you are an admin, but the admin key in it is missing or does not open, so the admin screens are off. Another admin restores it with a new temporary password.',
   },
   theme: {
     label: 'Theme',

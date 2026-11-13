@@ -89,13 +89,14 @@ internal static class MadeUpKiler
 
     /// <summary>
     /// Writes <c>levels.json</c>, <c>settings.json</c> and the user files into the data folder of <paramref name="data"/>:
-    /// the settings with <paramref name="guestMode"/> and 30 minutes of the automatic lock, or <paramref name="settings"/>.
+    /// the settings with <paramref name="guestMode"/> and 30 minutes of the automatic lock, sealed (<see cref="Settings"/>), or
+    /// <paramref name="settings"/>.
     /// </summary>
     public static MadeUpData WriteTo(MadeUpData data, bool guestMode, JsonObject? settings = null)
     {
         var made = Made.Value;
         data.Create(LevelsFile.Key, made.Levels.ToContent());
-        data.Create(SettingsFile.Key, settings ?? new SettingsFile(guestMode, autoLockMinutes: 30).ToContent());
+        data.Create(SettingsFile.Key, settings ?? Settings(guestMode, autoLockMinutes: 30));
         foreach (var user in made.Users)
         {
             data.Create(user.Key, user.ToContent());
@@ -107,14 +108,28 @@ internal static class MadeUpKiler
     /// <summary>The user file of <paramref name="account"/>, one of the accounts above.</summary>
     public static UserFile UserOf(string account) => Made.Value.Users.Single(user => user.Account == account);
 
+    /// <summary>
+    /// The content of <c>settings.json</c>, sealed by the admin key for version 1, its create, as the wizard writes it, so the
+    /// automatic lock takes its minutes (M4.15); with <paramref name="seal"/> false, not sealed, as someone writes it by hand.
+    /// </summary>
+    public static JsonObject Settings(bool guestMode, int autoLockMinutes, bool seal = true)
+    {
+        var settings = new SettingsFile(guestMode, autoLockMinutes);
+        return (seal ? settings.Sealed(Made.Value.AdminKey, 1) : settings).ToContent();
+    }
+
+    /// <summary><paramref name="user"/> sealed by the admin key, as an admin action seals it (M4.15).</summary>
+    public static UserFile Sealed(UserFile user) => user.Sealed(Made.Value.AdminKey);
+
     private static Documents Make()
     {
         using var team = SecretKey.New();
         using var prod = SecretKey.New();
         using var own = SecretKey.New();
 
-        // The admin key seals levels.json for the version of its create, and the files that an admin made (M4.14).
-        using var adminKey = AdminKey.New();
+        // The admin key seals levels.json for the version of its create, and the files that an admin made (M4.14); it is kept
+        // for the run, for the settings and the files that a test seals (M4.15).
+        var adminKey = AdminKey.New();
         var levels = new LevelsFile(
             [new(0, "Guest", null), new(1, "Team", LevelCheck.Create(team, 1)), new(2, "Prod", LevelCheck.Create(prod, 2))],
             new LockedKeys("salt", new Dictionary<int, string>())).Sealed(adminKey, 1);
@@ -161,7 +176,7 @@ internal static class MadeUpKiler
                 new(),
                 (1, """{"db":"zzzzzzzz"}""")),
         ];
-        return new(levels, users, stashes, records);
+        return new(levels, users, stashes, records, adminKey);
     }
 
     /// <summary>
@@ -175,5 +190,5 @@ internal static class MadeUpKiler
         return account is Raised or Stranger ? user : user.Sealed(adminKey);
     }
 
-    private sealed record Documents(LevelsFile Levels, UserFile[] Users, StashFile[] Stashes, RecordFile[] Records);
+    private sealed record Documents(LevelsFile Levels, UserFile[] Users, StashFile[] Stashes, RecordFile[] Records, AdminKey AdminKey);
 }

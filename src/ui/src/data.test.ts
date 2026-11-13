@@ -48,6 +48,7 @@ describe('mayPrecedeOpen', () => {
     isAdmin: false,
     mustChangePassword: false,
     guestMode: true,
+    rightsRefusal: null,
   };
   const noGuestMode: Session = { ...guest, levels: [], guestMode: false };
   const reader: Session = { ...noGuestMode, signedIn: true, displayName: 'Demo Reader', levels: [0, 1] };

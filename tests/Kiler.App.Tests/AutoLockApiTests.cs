@@ -129,11 +129,15 @@ public sealed class AutoLockApiTests : IDisposable
     }
 
     [Theory]
-    [InlineData(5, 5)]
-    [InlineData(0, AutoLock.DefaultMinutes)]
-    public async Task TheMinutes_AreThoseOfTheSettings_OrTheDefaultWithoutSettingsThatFit(int inTheSettings, int minutes)
+    [InlineData(5, true, 5)]
+    [InlineData(5, false, AutoLock.DefaultMinutes)]
+    [InlineData(0, false, AutoLock.DefaultMinutes)]
+    public async Task TheMinutes_AreThoseOfTheSettings_OrTheDefaultWithoutSettingsThatFitAndAreSealed(int inTheSettings, bool seal, int minutes)
     {
-        using var data = NewData(new JsonObject { ["guestMode"] = false, ["autoLockMinutes"] = inTheSettings });
+        // Settings that the admin key did not seal give the default (M4.15); those of 0 minutes do not fit, so none seals them.
+        using var data = NewData(inTheSettings > 0
+            ? MadeUpKiler.Settings(guestMode: false, inTheSettings, seal)
+            : new JsonObject { ["guestMode"] = false, ["autoLockMinutes"] = inTheSettings });
         await using var server = await StartAsync(data);
         var sessions = server.Services.GetRequiredService<CurrentSession>();
         using var page = await EventStream.OpenAsync(server);

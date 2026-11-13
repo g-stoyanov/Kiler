@@ -12,12 +12,13 @@ public enum Need
     /// <summary>A guest, while <c>settings.json</c> has guest mode, who reads level 0; or a session, which reads the levels of its keys.</summary>
     Reader,
 
-    /// <summary>A session whose user file has <c>canEdit</c>.</summary>
+    /// <summary>A session whose user file has a sealed <c>canEdit</c> (<see cref="Session.CanEdit"/>, M4.15).</summary>
     Editor,
 
     /// <summary>
-    /// A session whose user file has <c>isAdmin</c>, and which holds the key of every level of <c>levels.json</c>, verified at
-    /// the sign-in against the checks that it has now (<see cref="Session.HoldsEvery"/>, M4.6).
+    /// A session whose user file has a sealed <c>isAdmin</c> and which holds the private key of the admin key
+    /// (<see cref="Session.IsAdmin"/>, M4.15), and the key of every level of <c>levels.json</c>, verified at the sign-in
+    /// against the checks that it has now (<see cref="Session.HoldsEvery"/>, M4.6).
     /// </summary>
     Admin,
 }
@@ -38,16 +39,17 @@ public enum AccessRefusal
     NotAdmin,
 
     /// <summary>
-    /// An admin whose keys verified at the sign-in against other checks than <c>levels.json</c> has now (M4.6): the session
-    /// signs in again, so no admin action writes a check planted meanwhile back under the admin's name.
+    /// An admin whose keys verified at the sign-in against other checks than <c>levels.json</c> has now, or other levels (M4.6,
+    /// M4.15): the session signs in again, so no admin action writes a check planted meanwhile back under the admin's name.
     /// </summary>
     LevelsChanged,
 }
 
 /// <summary>
 /// The rights of a request (M4.4, design 7.4, decided at the start of M4). <c>canEdit</c> and <c>isAdmin</c> come from the
-/// user file of the sign-in: a user who writes them into their own file gets the screens, not the keys (design 7.8). So an
-/// admin needs the key of every level too, which only an admin's file holds, until the seal after the exam.
+/// user file of the sign-in, only when its seal verifies with the public key of the session (M4.15): a user who writes them
+/// into their own file is a reader. The admin right is also the private key of the admin key, and the key of every level of
+/// <c>levels.json</c> as the sign-in verified them.
 /// </summary>
 public static class Access
 {
