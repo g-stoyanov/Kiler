@@ -8,7 +8,7 @@ namespace Kiler.Core;
 /// each record as one session reads it (<see cref="RecordView"/>), the groups of its keys decrypted; since M5.10 the records
 /// of the trash too. What it has is one <see cref="RecordSet"/>, never changed, which each update replaces whole, as
 /// <see cref="Team"/> does. It follows each load of the watch after <see cref="Team.Follow"/> (<see cref="Follow"/>), whose
-/// templates it reads, and reads the copy again after <see cref="Team.Reload"/> (<see cref="Reload"/>), both on the thread of
+/// templates it reads as the session of the set takes them (<see cref="TeamFiles.TemplatesFor"/>, M4.16b), and reads the copy again after <see cref="Team.Reload"/> (<see cref="Reload"/>), both on the thread of
 /// the watch. It follows <see cref="CurrentSession.Changed"/>: a sign-in decrypts for the new session, and a lock drops what
 /// was decrypted. The updates keep a lock of their own. A write of this Kiler goes through it (<see cref="Create(RecordFile)"/>,
 /// M5.4; <see cref="Replace(RecordFile, int)"/>, M5.8, and the restore of an old version, M5.11; <see cref="Delete"/> and
@@ -24,7 +24,10 @@ public sealed class Records : IDisposable
     private readonly Lock _gate = new();
     private volatile RecordSet _set;
 
-    /// <summary>The templates of the last update, kept under the lock, so a load that changes one reads its records again.</summary>
+    /// <summary>
+    /// The templates of the last update, for the session of the set (<see cref="TeamFiles.TemplatesFor"/>, M4.16b), kept under
+    /// the lock, so a load that changes one reads its records again.
+    /// </summary>
     private ImmutableSortedDictionary<string, TeamFile<TemplateFile>> _templates;
 
     /// <summary>
@@ -48,7 +51,7 @@ public sealed class Records : IDisposable
         _copy = copy;
         _team = team;
         _current = current;
-        _templates = team.Files.Templates;
+        _templates = team.Files.TemplatesFor(null);
         _set = ReadAll(copy.Documents(), copy.Trash(), _templates, null);
         current.Changed += OnSessionChanged;
     }
@@ -97,7 +100,7 @@ public sealed class Records : IDisposable
         lock (_gate)
         {
             var set = _set;
-            var templates = _team.Files.Templates;
+            var templates = _team.Files.TemplatesFor(set.Session);
             var stashes = set.Stashes;
             var records = set.Records;
             var trash = load.TrashChanged ? ReadTrash(_copy.Trash(), templates, set.Session) : set.Trash;
@@ -282,7 +285,7 @@ public sealed class Records : IDisposable
     {
         lock (_gate)
         {
-            _templates = _team.Files.Templates;
+            _templates = _team.Files.TemplatesFor(_set.Session);
             _set = ReadAll(_copy.Documents(), _copy.Trash(), _templates, _set.Session);
         }
     }
@@ -374,7 +377,7 @@ public sealed class Records : IDisposable
 
     private RecordSet WithSession(RecordSet set, Session? session)
     {
-        _templates = _team.Files.Templates;
+        _templates = _team.Files.TemplatesFor(session);
         return new RecordSet(session, set.Stashes, ReadAgain(set.Records, _templates, session, _ => true), ReadAgain(set.Trash, _templates, session, _ => true));
     }
 

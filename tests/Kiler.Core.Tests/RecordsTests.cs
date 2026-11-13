@@ -73,19 +73,19 @@ public class RecordsTests : IDisposable
     }
 
     [Fact]
-    public void ASecretMarkedInItsGroup_StaysASecret_WhenTheTemplateOnTheShareSaysText()
+    public void ASecretMarkedInItsGroup_StaysASecret_WhenItsTemplateSaysText()
     {
         _kiler.Write(_kiler.Database());
         using var records = _kiler.Open();
         var session = _kiler.Reader(3);
         Follow(records, _kiler.Data.Copy.Load());
 
-        // Anyone who can write the share makes the password a text in the template.
+        // An admin makes the password a text in the template: a template that is not sealed is not taken either (M4.16b).
         var db = InitialTemplates.For(3)[0];
         var other = _kiler.Data.OpenCopy();
         other.Load();
-        var forged = new TemplateFile("db", db.Name, db.Icon, [.. db.Fields.Select(field => field.Key == "password" ? new TemplateField("password", "Password", FieldType.Text, levelByEnv: field.LevelByEnv) : field)]);
-        Assert.Equal(WriteOutcome.Written, other.Replace(db.Key, 1, forged.ToContent()).Outcome);
+        var text = new TemplateFile("db", db.Name, db.Icon, [.. db.Fields.Select(field => field.Key == "password" ? new TemplateField("password", "Password", FieldType.Text, levelByEnv: field.LevelByEnv) : field)]);
+        Assert.Equal(WriteOutcome.Written, other.Replace(db.Key, 1, text.Sealed(_kiler.AdminKey, 2).ToContent()).Outcome);
         Follow(records, _kiler.Data.Copy.Load());
 
         var view = Read(records, session);
@@ -334,12 +334,12 @@ public class RecordsTests : IDisposable
         Follow(records, _kiler.Data.Copy.Load());
         var note = records.Read(session).Records["m4n5p6q7"];
 
-        // The host becomes a secret, and the port leaves the template.
+        // The host becomes a secret, and the port leaves the template, in a version that an admin sealed (M4.16b).
         var db = InitialTemplates.For(3)[0];
         var other = _kiler.Data.OpenCopy();
         other.Load();
         var changed = new TemplateFile("db", db.Name, db.Icon, [.. db.Fields.Where(field => field.Key is not "host" and not "port"), new("host", "Host", FieldType.Secret, level: 1)]);
-        Assert.Equal(WriteOutcome.Written, other.Replace(db.Key, 1, changed.ToContent()).Outcome);
+        Assert.Equal(WriteOutcome.Written, other.Replace(db.Key, 1, changed.Sealed(_kiler.AdminKey, 2).ToContent()).Outcome);
         var load = _kiler.Data.Copy.Load();
         Assert.False(load.TrashChanged, "The load of the template saw the trash change.");
         Follow(records, load);

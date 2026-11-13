@@ -362,6 +362,69 @@ public sealed partial class RecordsApiTests
         Assert.Equal(["monitoring", "payments", "Reports"], await TagsAsync(client), StringComparer.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// A template changed on the share without the seal, the host at level 0 (M4.16b): a Kiler whose copy saw the sealed
+    /// version gives it to a session, sealed, and a new record puts the host at its level 1, while a guest gets the file on
+    /// the share, not sealed; a Kiler whose copy never saw it, as a new machine, gives the file on the share, not sealed, reads
+    /// the records of it, and refuses a new record and an edit (409).
+    /// </summary>
+    [Fact]
+    public async Task ATemplateChangedOnTheShare_IsTakenAsSealed_AndWithoutASealedVersionTakesNoNewRecordOrEdit()
+    {
+        using (var first = NewData(guestMode: true))
+        {
+            await using var started = await StartAsync(first, MadeUpKiler.Admin);
+        }
+
+        var db = InitialTemplates.For(2)[0];
+        var forged = new TemplateFile("db", "Forged / database", db.Icon, [.. db.Fields.Select(field => field.Key == "host" ? new TemplateField("host", "Host", FieldType.Text, level: 0, list: true) : field)]);
+        WriteNewFile(Path.Combine("templates", "db.json"), "db", 2, forged.ToContent());
+        const string NewDatabase = """{"template":"db","stash":["a1b2c3d4"],"name":"Billing database","fields":{"env":"dev","host":"db02.example.test"}}""";
+
+        using (var data = OpenData())
+        {
+            await using var server = await StartAsync(data, MadeUpKiler.Editor, NewClock());
+
+            // Before the sign-in, as the session is the one of the process.
+            using (var guest = server.CreateSignedInClient())
+            {
+                Assert.Equal(("Forged / database", false), DbOf((await GetAsync(guest, "/api/templates")).Answer));
+            }
+
+            using var editor = await SignedInAsync(server);
+            Assert.Equal(("Server / database", true), DbOf((await GetAsync(editor, "/api/templates")).Answer));
+            using var created = await SendAsync(editor, HttpMethod.Post, "/api/records", NewDatabase);
+            Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+            Assert.Equal(1, (int?)(await ReadAsync(created))["fields"]!.AsArray().Single(field => (string?)field!["key"] == "host")!["level"]);
+        }
+
+        using (var data = OpenData("Kiler on a new machine"))
+        {
+            await using var server = await StartAsync(data, MadeUpKiler.Admin, NewClock());
+            using var admin = await SignedInAsync(server);
+
+            Assert.Equal(("Forged / database", false), DbOf((await GetAsync(admin, "/api/templates")).Answer));
+            var (record, _) = await GetAsync(admin, $"/api/records/{MadeUpKiler.Database}");
+            Assert.Equal("db01.example.test", (string?)record["fields"]!.AsArray().Single(field => (string?)field!["key"] == "host")!["value"]);
+
+            using var created = await SendAsync(admin, HttpMethod.Post, "/api/records", NewDatabase);
+            using var edited = await SendAsync(admin, HttpMethod.Put, $"/api/records/{MadeUpKiler.Database}", AdminEdit(1, "db03.example.test"));
+            foreach (var response in new[] { created, edited })
+            {
+                Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+                Assert.Equal(RecordsApi.TemplateNotSealed, (string?)(await ReadAsync(response))["error"]);
+            }
+
+            Assert.Equal(1, (int?)(await GetAsync(admin, $"/api/records/{MadeUpKiler.Database}")).Answer["version"]);
+        }
+
+        static (string?, bool?) DbOf(JsonObject answer)
+        {
+            var template = answer["templates"]!.AsArray().Single(template => (string?)template!["id"] == "db")!;
+            return ((string?)template["name"], (bool?)template["sealed"]);
+        }
+    }
+
     [Theory]
     [InlineData(Guest, AccessRefusal.NotSignedIn)]
     [InlineData(NoGuestMode, AccessRefusal.NotSignedIn)]

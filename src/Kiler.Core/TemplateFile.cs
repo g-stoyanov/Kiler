@@ -11,9 +11,10 @@ namespace Kiler.Core;
 /// wizard writes the initial ones (<see cref="InitialTemplates"/>), and an admin changes them after it (decided at the start
 /// of M5). It is on the share, so a content that does not fit is invalid, with a reason
 /// (<see cref="TryRead(Document, out TemplateFile?, out string?)"/>), and a record of it shows only its header (docs/api.md).
-/// Its <c>stamp</c> is the admin seal of the whole file, with its id and version (M4.11, <see cref="IsSealedBy"/>).
+/// Its <c>stamp</c> is the admin seal of the whole file, with its id and version (M4.11, <see cref="IsSealedBy"/>): a session
+/// takes the newest version of each template that an admin sealed (M4.16b, <see cref="TeamFiles.TemplatesFor"/>).
 /// </summary>
-public sealed class TemplateFile
+public sealed class TemplateFile : ISealedFile
 {
     public const int MaxNameLength = 100;
 
@@ -64,6 +65,8 @@ public sealed class TemplateFile
     /// <summary>The <c>stamp</c> of the file, or <c>null</c>; it may not be a seal at all (<see cref="IsSealedBy"/>).</summary>
     public string? Stamp => _seal?.Stamp;
 
+    FileSeal? ISealedFile.Seal => _seal;
+
     /// <summary>The template of <paramref name="id"/>, which must pass <see cref="StorageName"/>.</summary>
     public static DocumentKey KeyOf(string id) => DocumentKey.InFolder(DataFolder.Templates, id);
 
@@ -84,6 +87,12 @@ public sealed class TemplateFile
         ArgumentNullException.ThrowIfNull(publicKey);
         return _seal?.IsBy(publicKey) == true;
     }
+
+    /// <summary>
+    /// Whether the public key of <paramref name="session"/> verifies the seal (<see cref="IsSealedBy"/>): a new record and an
+    /// edit take only such a template (M4.16b). A guest, <c>null</c>, has no key, nor does a session without it.
+    /// </summary>
+    public bool IsSealedFor(Session? session) => session?.AdminPublicKey is { } publicKey && IsSealedBy(publicKey);
 
     /// <summary>The file sealed by <paramref name="adminKey"/> for <paramref name="version"/>, as <see cref="LevelsFile.Sealed"/>.</summary>
     /// <exception cref="ObjectDisposedException">The admin key is disposed.</exception>

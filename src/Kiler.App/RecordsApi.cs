@@ -235,6 +235,10 @@ internal static class RecordsApi
     /// <summary>The 409 of a secret of the top level whose view could not be recorded in the audit, without the value (M6.18).</summary>
     public const string NotRecorded = "The view could not be recorded in the shared folder, so the value is not given. Try again once the shared folder can be reached.";
 
+    /// <summary>The 409 of a new record or an edit whose template has no version that an admin sealed (M4.16b).</summary>
+    public const string TemplateNotSealed =
+        "The template has been changed outside Kiler and does not carry the admin seal, so no record of it can be added or changed. Contact an admin.";
+
     /// <summary>The 400 of a value of <c>fields</c> that has no shape of a value, with its key.</summary>
     public const string NoShape = "The value is not a text, a number or a code.";
 
@@ -276,6 +280,7 @@ internal static class RecordsApi
         RecordOutcome.Conflict => "The record has been changed meanwhile.",
         RecordOutcome.Missing => NotThere,
         RecordOutcome.NoTemplate => "The template of this record is not there, or cannot be used, so the record cannot be changed.",
+        RecordOutcome.TemplateNotSealed => TemplateNotSealed,
         RecordOutcome.Unreadable => "A part of this record cannot be read, so it cannot be changed. An admin restores it from the history.",
         RecordOutcome.NotHeld => "A part of this record is at a level that you do not hold.",
         RecordOutcome.NoVersion => NotInHistory,

@@ -45,6 +45,9 @@ public sealed class TemplatesApiTests : IDisposable
         Assert.Equal("database", (string?)db["icon"]);
         Assert.Equal(["env", "host", "port", "tns", "user", "password"], db["fields"]!.AsArray().Select(field => (string?)field!["key"]));
 
+        // An admin sealed each (M4.16b); a guest has no key to check a seal with, so none is sealed for it.
+        Assert.All(templates, template => Assert.Equal(caller != Guest, (bool?)template!["sealed"]));
+
         // Every member is there, null when it does not apply (docs/api.md, "Conventions"); the levels stop at the top level, 2.
         Assert.Equal(
             """{"key":"password","label":"Password","type":"secret","level":null,"levelByEnv":{"prod":2,"test":2,"dev":1},"required":false,"filter":false,"list":false,"options":null,"language":null,"dialect":null,"languages":null,"refTemplate":null}""",
@@ -147,7 +150,7 @@ public sealed class TemplatesApiTests : IDisposable
     {
         var dataFolder = Path.Combine(_folder.Path, "data");
         var writer = MadeUpKiler.WriteTo(MadeUpData.Create(dataFolder, Path.Combine(_folder.Path, "writer")), guestMode);
-        foreach (var template in InitialTemplates.For(2))
+        foreach (var template in MadeUpKiler.Templates())
         {
             writer.Create(template.Key, template.ToContent());
         }

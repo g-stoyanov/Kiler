@@ -6,9 +6,10 @@ using Kiler.Storage;
 namespace Kiler.Core.Tests;
 
 /// <summary>
-/// A data folder with the initial templates of a Kiler of three levels, and a key of each level (M5.3): it makes the files of
-/// records with their groups encrypted as Kiler does, sessions over its keys, and the records in memory over its copy. The
-/// sessions share its keys, so a lock of one disposes them for all: a test locks only at its end.
+/// A data folder with the initial templates of a Kiler of three levels, sealed by its admin key for version 1 (M4.16b), and a
+/// key of each level (M5.3): it makes the files of records with their groups encrypted as Kiler does, sessions over its keys
+/// with the public key of its admin key, and the records in memory over its copy. The sessions share its keys, so a lock of
+/// one disposes them for all: a test locks only at its end.
 /// </summary>
 internal sealed class TestRecords : IDisposable
 {
@@ -25,7 +26,7 @@ internal sealed class TestRecords : IDisposable
     {
         foreach (var template in InitialTemplates.For(3))
         {
-            Data.WriteAndRead(template.Key, template.ToContent());
+            Data.WriteAndRead(template.Key, template.Sealed(AdminKey, 1).ToContent());
         }
 
         Team = new Team(Data.Copy);
@@ -39,16 +40,27 @@ internal sealed class TestRecords : IDisposable
 
     public TestData Data { get; } = new();
 
+    /// <summary>The admin key that seals the templates; the sessions have its public key, as every user file has it (M4.15).</summary>
+    public AdminKey AdminKey { get; } = AdminKey.New();
+
     public Team Team { get; }
 
     public CurrentSession Current { get; } = new();
 
-    /// <summary>A session that holds the keys of the levels 1 to <paramref name="level"/>.</summary>
+    /// <summary>A session that holds the keys of the levels 1 to <paramref name="level"/>, with the public key of <see cref="AdminKey"/>.</summary>
     public Session Reader(int level) => new(
         new UserFile("demo.user", "Demo User", level, canEdit: false, isAdmin: false, mustChangePassword: false, new LockedKeys("salt", new Dictionary<int, string>())),
         userVersion: 1,
         _keys.Where(key => key.Key <= level).ToDictionary(),
-        _keys.Where(key => key.Key <= level).ToDictionary(key => key.Key, key => $"made-up check {key.Key}"));
+        _keys.Where(key => key.Key <= level).ToDictionary(key => key.Key, key => $"made-up check {key.Key}"),
+        AdminKey.PublicKey);
+
+    /// <summary>Writes <paramref name="template"/> through the copy, sealed by <see cref="AdminKey"/> for version 1, and reads the team again.</summary>
+    public void WriteTemplate(TemplateFile template)
+    {
+        Data.WriteAndRead(template.Key, template.Sealed(AdminKey, 1).ToContent());
+        Team.Reload();
+    }
 
     /// <summary>The group of <paramref name="json"/> encrypted with the key of <paramref name="level"/> for the record <paramref name="id"/>.</summary>
     public string Group(string id, int level, string json) => Group(id, level, Encoding.UTF8.GetBytes(json));
@@ -98,6 +110,7 @@ internal sealed class TestRecords : IDisposable
     {
         Current.Dispose();
         Data.Dispose();
+        AdminKey.Dispose();
         foreach (var key in _keys.Values)
         {
             key.Dispose();

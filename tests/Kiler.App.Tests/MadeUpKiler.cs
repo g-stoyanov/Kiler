@@ -62,14 +62,14 @@ internal static class MadeUpKiler
     public static LevelsFile Levels => Made.Value.Levels;
 
     /// <summary>
-    /// Writes the initial templates of a Kiler of two levels, the stashes <see cref="Payments"/> and <see cref="Prod"/>, and
+    /// Writes the initial templates of a Kiler of two levels, sealed (<see cref="Templates"/>), the stashes <see cref="Payments"/> and <see cref="Prod"/>, and
     /// five records (M5.6, M5.7): <see cref="Database"/>, the database of prod, with its host and port at level 1, and at 2
     /// its user, <see cref="SecretValue"/> and its TNS, raised from 1 and written as a code with its language; a link at
     /// level 0; a note in Cyrillic at level 1; and two queries at level 1, <see cref="Query"/> and <see cref="GoneQuery"/>.
     /// </summary>
     public static MadeUpData WriteRecords(MadeUpData data)
     {
-        foreach (var template in InitialTemplates.For(2))
+        foreach (var template in Templates())
         {
             data.Create(template.Key, template.ToContent());
         }
@@ -117,6 +117,12 @@ internal static class MadeUpKiler
         var settings = new SettingsFile(guestMode, autoLockMinutes);
         return (seal ? settings.Sealed(Made.Value.AdminKey, 1) : settings).ToContent();
     }
+
+    /// <summary>The initial templates of a Kiler of two levels, sealed by the admin key for version 1, their create, as the wizard writes them (M4.16b).</summary>
+    public static IEnumerable<TemplateFile> Templates() => InitialTemplates.For(2).Select(template => template.Sealed(Made.Value.AdminKey, 1));
+
+    /// <summary><paramref name="template"/> sealed by the admin key for <paramref name="version"/>, as an admin would seal it (M4.16b).</summary>
+    public static TemplateFile Sealed(TemplateFile template, int version) => template.Sealed(Made.Value.AdminKey, version);
 
     /// <summary><paramref name="user"/> sealed by the admin key, as an admin action seals it (M4.15).</summary>
     public static UserFile Sealed(UserFile user) => user.Sealed(Made.Value.AdminKey);

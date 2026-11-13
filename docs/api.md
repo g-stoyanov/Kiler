@@ -146,6 +146,7 @@ The answer of `GET /api/records/{id}` and of the writes: the list item without i
 - `levels`: the levels of the groups of the record, the keys of `protected` in its file; a record whose `fields` names other levels does not fit (M5.3). By them the page tells whether to offer the delete and the restores ("Decided in M5.1"). Kiler decides the right itself, from the record on the share at the version that the request writes, never from what the page sends.
 - `fields`: every field of the template, in its order. A field in the file that the template does not have is not shown.
 - A record whose template is missing or does not fit has only its header. Its `fields` is `[]`, as Kiler cannot tell which of its fields is a `secret`. The search does not look into its fields, and an edit is refused (409). It can be deleted.
+- A record whose template has no version that an admin sealed is read with the template on the shared folder ("Template"), but an edit is refused (409). It can be deleted and restored, as these read no template.
 
 ### Trash item
 
@@ -173,12 +174,15 @@ An item of `GET /api/records/{id}/history`:
       "options": ["prod", "test", "dev"], "language": null, "dialect": null, "languages": null, "refTemplate": null },
     { "key": "password", "label": "Password", "type": "secret", "level": null, "levelByEnv": { "prod": 3, "test": 2, "dev": 1 }, "required": false, "filter": false, "list": false,
       "options": null, "language": null, "dialect": null, "languages": null, "refTemplate": null }
-  ]
+  ],
+  "sealed": true
 }
 ```
 
 - The members are those of design 6.2 to 6.5. `required`, `filter` and `list` are `false` when the file leaves them out. `level` is `null` when the field has only `levelByEnv`. The settings that do not belong to the type of the field are `null`.
 - A template that does not fit is not used (`core.md`, "Models"). Besides the rules of M5.2 (`core.md`, "Templates, stashes and records"), it does not fit when a `secret` is below level 1 (design 7.1: passwords are at level 1 or higher) or has `list` or `filter`.
+- **The template that a request takes** (M4.16b, `tasks/M4.md`, "A seal that fails"). For a session, each template is the newest version that the public key of its user file verifies, on the shared folder or in the local copy, as `levels.json` is ("Conventions"), so a template changed, damaged or gone outside Kiler is taken as an admin sealed it last, for the list, the records, the writes and `GET /api/templates` alike. A template without such a version is the file on the shared folder as it is, with `sealed` `false`: its records are read with it, but a new record of it and an edit of one of its records are 409 ("`POST /api/records`"), as its levels could put a new value lower than an admin set. A guest has no key to check a seal with, so it takes the files on the shared folder as they are, each with `sealed` `false` (decided by the user in M4.16b), as it reads level 0 only, which is in clear there, and writes nothing.
+- `sealed`: whether the public key of the session verifies the seal of the version given; always `false` for a guest.
 
 ### Conflict
 
@@ -236,8 +240,8 @@ Each endpoint can also give the 403s of "Rights" and the 409 without data; they 
 { "templates": [ { "id": "db", "name": "Server / database", "icon": "database", "fields": [] } ], "invalid": [ { "id": "old", "reason": "The template has no fields." } ] }
 ```
 
-- `templates`: the templates that fit, by name.
-- `invalid`: the files of `templates\` that do not fit, each with its reason, which names a JSON member and never repeats a value of the share (`core.md`, "Models").
+- `templates`: the templates that fit, by name, each as the request takes it ("Template"): for a session, the newest version that its public key verifies, with `sealed` `true`, else the file on the shared folder as it is, with `sealed` `false`; for a guest, the files on the shared folder as they are.
+- `invalid`: the files of `templates\` that do not fit, each with its reason, which names a JSON member and never repeats a value of the share (`core.md`, "Models"); for a session, only those without a version that the public key of its user file verifies, which is given in `templates` instead (every session has that key, as the sign-in refuses a user file without it, M4.15).
 
 ### `GET /api/levels`
 
@@ -326,7 +330,7 @@ A new record:
 - The answer is 201 with the record, and `Location: /api/records/<id>`.
 - 400, with `field`: a value that does not fit, and a field with a value at a level above the author's. A value of `fields` that is not a text, a number, `null` or a code object is 400 with its key (M5.9).
 - 404: the record was written, but a load took it away before the answer, as another Kiler deleted it at once (decided in M5.9). The page reads the list again.
-- 409: offline; the slot of another write; the other outcomes of a write.
+- 409: a template without a version that an admin sealed ("Template"): "The template has been changed outside Kiler and does not carry the admin seal, so no record of it can be added or changed. Contact an admin." (`RecordsApi.TemplateNotSealed`, M4.16b); offline; the slot of another write; the other outcomes of a write.
 
 ### `PUT /api/records/{id}`
 
@@ -348,7 +352,7 @@ The request holds the record as the editor wants it at the levels that they hold
 - The answer is 200 with the record.
 - 400, with `field`: as for a new record, and the cases above. A request without `version` is 400 with `field` `null` (decided in M5.9).
 - 404: the record is not there, its file does not fit (as for `GET /api/records/{id}`), or it has gone meanwhile, also right after the write, as for a new record. At a conflict on the share whose file there does not fit, the record has no `current` to give, so it is 404 too (decided in M5.9).
-- 409: the conflict, with `current`; offline; the slot of another write; a template that cannot be used ("Record"): "The template of this record is not there, or cannot be used, so the record cannot be changed." (decided in M5.9); a group at a level of the editor that does not decrypt, as the edit would write over what it cannot read: "A part of this record cannot be read, so it cannot be changed. An admin restores it from the history."
+- 409: the conflict, with `current`; offline; the slot of another write; a template that cannot be used ("Record"): "The template of this record is not there, or cannot be used, so the record cannot be changed." (decided in M5.9); a template without a version that an admin sealed, with the sentence of a new record (M4.16b); a group at a level of the editor that does not decrypt, as the edit would write over what it cannot read: "A part of this record cannot be read, so it cannot be changed. An admin restores it from the history."
 - The conflict is found twice: against the version that this Kiler has, and against the share, where another Kiler may have written a version that no load has brought yet. Then `current` is the record on the share, read for this session (M5.8).
 
 ### `GET /api/stashes`

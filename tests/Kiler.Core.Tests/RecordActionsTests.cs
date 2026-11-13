@@ -52,8 +52,7 @@ public class RecordActionsTests : IDisposable
             new("db", "Database", FieldType.Ref, level: 1, refTemplate: "db"),
             new("password", "Password", FieldType.Secret, levelByEnv: new Dictionary<string, int> { ["prod"] = 3, ["test"] = 2, ["dev"] = 1 }),
         ]);
-        _kiler.Data.WriteAndRead(every.Key, every.ToContent());
-        _kiler.Team.Reload();
+        _kiler.WriteTemplate(every);
 
         _kiler.WriteStash(TestRecords.StashId, "Payments");
         _kiler.WriteStash(Prod, "Prod");

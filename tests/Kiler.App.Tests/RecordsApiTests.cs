@@ -417,9 +417,12 @@ public sealed partial class RecordsApiTests : IDisposable
         return OpenData();
     }
 
-    /// <summary>The data folder of the test with the local folder of the test, whose copy keeps what an earlier start of the test saw.</summary>
-    private KilerData OpenData() =>
-        new(DataPlace.For(Path.Combine(_folder.Path, "data"), Path.Combine(_folder.Path, "Kiler")), FileOwner.Instance, TimeProvider.System, TextWriter.Null, TextWriter.Null);
+    /// <summary>
+    /// The data folder of the test with the local folder of the test, whose copy keeps what an earlier start of the test saw;
+    /// or with the local folder <paramref name="local"/>, as of another machine.
+    /// </summary>
+    private KilerData OpenData(string local = "Kiler") =>
+        new(DataPlace.For(Path.Combine(_folder.Path, "data"), Path.Combine(_folder.Path, local)), FileOwner.Instance, TimeProvider.System, TextWriter.Null, TextWriter.Null);
 
     /// <summary>
     /// Writes version 2 of <c>levels.json</c> as a new file of the share, as someone outside Kiler can, without the seal: level
@@ -434,16 +437,22 @@ public sealed partial class RecordsApiTests : IDisposable
         levels[2]!["name"] = "Live";
         levels.Add(new JsonObject { ["level"] = 3, ["name"] = "Above", ["check"] = "made-up-check-3" });
         content["recovery"]!["keys"]!["3"] = "made-up-key-3";
-        var document = new JsonObject { ["id"] = "levels", ["version"] = 2 };
+        WriteNewFile("levels.json", "levels", 2, content);
+    }
+
+    /// <summary>Writes <paramref name="content"/> as version <paramref name="version"/> of a new file of the share at <paramref name="path"/>, as someone outside Kiler can.</summary>
+    private void WriteNewFile(string path, string id, int version, JsonObject content)
+    {
+        var document = new JsonObject { ["id"] = id, ["version"] = version };
         foreach (var (name, value) in content)
         {
             document[name] = value?.DeepClone();
         }
 
-        var path = Path.Combine(_folder.Path, "data", "levels.json");
-        File.Delete(path);
-        File.WriteAllText(path, document.ToJsonString());
-        File.SetCreationTimeUtc(path, File.GetLastWriteTimeUtc(path));
+        var file = Path.Combine(_folder.Path, "data", path);
+        File.Delete(file);
+        File.WriteAllText(file, document.ToJsonString());
+        File.SetCreationTimeUtc(file, File.GetLastWriteTimeUtc(file));
     }
 
     /// <summary>The name of the level of a locked field of a record as the page gets it.</summary>

@@ -16,7 +16,7 @@ namespace Kiler.Core;
 public sealed record SealedFile<T>(T Model, int Version, bool OnShare)
     where T : class;
 
-/// <summary>A model of a whole file that the admin seal covers with its version (M4.11): <c>levels.json</c>, <c>settings.json</c>.</summary>
+/// <summary>A model of a whole file that the admin seal covers with its version (M4.11): <c>levels.json</c>, <c>settings.json</c> and a template (M4.16b).</summary>
 internal interface ISealedFile
 {
     /// <summary>The seal of the file as it was read, or as it was sealed; <c>null</c> without a <c>stamp</c>.</summary>

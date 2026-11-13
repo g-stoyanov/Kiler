@@ -29,13 +29,13 @@ internal sealed class TestData : IDisposable
 
     /// <summary>
     /// Another local copy of the same data folder (M4.2), as the Kiler of another user has: what the test writes through
-    /// <see cref="Copy"/> reaches it with its next <see cref="DataCopy.Load"/>.
+    /// <see cref="Copy"/> reaches it with its next <see cref="DataCopy.Load"/>; on the clock <paramref name="time"/>, by default the system's.
     /// </summary>
-    public DataCopy OpenCopy()
+    public DataCopy OpenCopy(TimeProvider? time = null)
     {
         var copy = Path.Combine(_folder, $"copy{++_copies}");
         Directory.CreateDirectory(copy);
-        return DataCopy.Open(DataFolder.Open(Folder, new NoOwners()), copy, TimeProvider.System);
+        return DataCopy.Open(DataFolder.Open(Folder, new NoOwners()), copy, time ?? TimeProvider.System);
     }
 
     /// <summary>Writes <paramref name="content"/> as a new document and gives it as the local copy reads it.</summary>

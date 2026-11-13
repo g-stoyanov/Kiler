@@ -36,7 +36,11 @@ internal sealed record TemplateFieldResponse(
 /// <param name="Name">The name of the kind of record.</param>
 /// <param name="Icon">The name of the icon; the page takes it from its own set.</param>
 /// <param name="Fields">The fields, in the order of the template.</param>
-internal sealed record TemplateResponse(string Id, string Name, string Icon, IReadOnlyList<TemplateFieldResponse> Fields);
+/// <param name="Sealed">
+/// Whether the public key of the session verifies its seal (M4.16b): without it, its records are read, but a new record or an
+/// edit of one is refused (409). Always false for a guest, who has no key to check it with and writes nothing.
+/// </param>
+internal sealed record TemplateResponse(string Id, string Name, string Icon, IReadOnlyList<TemplateFieldResponse> Fields, bool Sealed);
 
 /// <param name="Id">The id of the file in <c>templates\</c>.</param>
 /// <param name="Reason">Why it does not fit; it names a JSON member and never repeats a value of the share.</param>
@@ -67,25 +71,32 @@ internal static class TemplatesApi
 {
     public static void Map(IEndpointRouteBuilder endpoints, KilerData data)
     {
-        endpoints.MapGet("/api/templates", () => Templates(data)).Needs(Need.Reader);
+        endpoints.MapGet("/api/templates", (HttpContext context) => Templates(context, data)).Needs(Need.Reader);
         endpoints.MapGet("/api/levels", (HttpContext context) => Levels(context, data)).Needs(Need.Reader);
     }
 
-    private static Results<Ok<TemplatesResponse>, Conflict<ErrorResponse>> Templates(KilerData data)
+    /// <summary>
+    /// The templates that the request takes (<see cref="TeamFiles.TemplatesFor"/>, M4.16b): for a session, the newest version
+    /// of each that its public key verifies, else the file on the share as it is, with <c>sealed</c> false; for a guest, the
+    /// files on the share as they are.
+    /// </summary>
+    private static Results<Ok<TemplatesResponse>, Conflict<ErrorResponse>> Templates(HttpContext context, KilerData data)
     {
         if (data.Files is not { } files)
         {
             return TypedResults.Conflict(new ErrorResponse(SessionApi.NoData));
         }
 
-        var templates = files.Templates.Values
+        var session = AccessRules.SessionOf(context);
+        var taken = files.TemplatesFor(session);
+        var templates = taken.Values
             .Select(file => file.Model)
             .OfType<TemplateFile>()
-            .Select(Describe)
+            .Select(template => Describe(template, template.IsSealedFor(session)))
             .OrderBy(template => template.Name, StringComparer.OrdinalIgnoreCase)
             .ThenBy(template => template.Id, StringComparer.Ordinal)
             .ToList();
-        var invalid = files.Templates
+        var invalid = taken
             .Select(pair => pair.Value.IsValid ? null : new InvalidTemplate(pair.Key, pair.Value.Invalid))
             .OfType<InvalidTemplate>()
             .ToList();
@@ -102,7 +113,7 @@ internal static class TemplatesApi
             ? TypedResults.Ok(LevelsResponse.Of(levels))
             : TypedResults.Conflict(new ErrorResponse(SessionApi.NoData));
 
-    private static TemplateResponse Describe(TemplateFile template) => new(
+    private static TemplateResponse Describe(TemplateFile template, bool isSealed) => new(
         template.Id,
         template.Name,
         template.Icon,
@@ -119,5 +130,6 @@ internal static class TemplatesApi
             field.Language,
             field.Dialect,
             field.Languages,
-            field.RefTemplate))]);
+            field.RefTemplate))],
+        isSealed);
 }

@@ -41,7 +41,9 @@ public static class RecordActions
 
     /// <summary>
     /// A new record of <paramref name="author"/> from <paramref name="draft"/>, with its template in <paramref name="files"/>,
-    /// which the request read once, and the stashes and records of <paramref name="records"/> as the author reads them. The
+    /// which the request read once, as the author takes it (<see cref="TeamFiles.TemplatesFor"/>): one without a version that
+    /// an admin sealed is <see cref="RecordOutcome.TemplateNotSealed"/> (M4.16b). The stashes and records are those of
+    /// <paramref name="records"/> as the author reads them. The
     /// result has the record as the set of the author has it after the write.
     /// </summary>
     /// <exception cref="SessionLockedException">The session was locked before the write, or after it, before its record was read.</exception>
@@ -67,9 +69,15 @@ public static class RecordActions
         ArgumentNullException.ThrowIfNull(draft);
         ArgumentNullException.ThrowIfNull(time);
         var set = records.Read(author);
-        if (draft.Template is null || files.Templates.GetValueOrDefault(draft.Template)?.Model is not { } template)
+        if (draft.Template is null || files.TemplatesFor(author).GetValueOrDefault(draft.Template)?.Model is not { } template)
         {
             return Refused(null, TemplateMissing);
+        }
+
+        // A template without a version that an admin sealed gives its levels to no new value (M4.16b).
+        if (!template.IsSealedFor(author))
+        {
+            return new(RecordOutcome.TemplateNotSealed);
         }
 
         var name = draft.Name?.Trim() ?? "";
@@ -124,6 +132,12 @@ public static class RecordActions
         if (view.Template is null)
         {
             return new(RecordOutcome.NoTemplate);
+        }
+
+        // The view is read with the newest template that the editor's key verifies, so this one has no sealed version (M4.16b).
+        if (!view.Template.IsSealedFor(editor))
+        {
+            return new(RecordOutcome.TemplateNotSealed);
         }
 
         if (view.HeldSecrets(editor) is not { } held)
@@ -854,6 +868,12 @@ public enum RecordOutcome
 
     /// <summary>The template of the record of an edit is missing or does not fit, so its fields cannot be told apart (M5.8).</summary>
     NoTemplate,
+
+    /// <summary>
+    /// The template of a new record or of the record of an edit has no version that the admin key of the session sealed, on
+    /// the share or in the local copy, so its levels are not taken (M4.16b, <see cref="TeamFiles.TemplatesFor"/>).
+    /// </summary>
+    TemplateNotSealed,
 
     /// <summary>A group of a level of the editor does not decrypt, or what it decrypts to does not fit, so an edit would write over it (M5.8).</summary>
     Unreadable,
