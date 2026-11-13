@@ -4,12 +4,14 @@ import {
   checkLevelName,
   checkNewUser,
   hasAdminProblems,
+  isSealedAdmin,
   keysGiven,
   levelChoices,
   levelLabel,
   newUserForm,
   newUserRequest,
   newUsersState,
+  rightsRequest,
   usersReducer,
   type NewUserForm,
   type UsersState,
@@ -32,6 +34,7 @@ const user: AdminUser = {
   isAdmin: false,
   mustChangePassword: true,
   keysMatchLevel: true,
+  sealed: true,
   invalid: null,
 };
 
@@ -77,6 +80,24 @@ describe('the levels', () => {
   it('offers a user the levels 1 to the top level, and an admin only the top level', () => {
     expect(levelChoices(levels, false).map((entry) => entry.level)).toEqual([1, 2, 3]);
     expect(levelChoices(levels, true).map((entry) => entry.level)).toEqual([3]);
+  });
+
+  it('takes as an admin only a user whose isAdmin is sealed, so a forged isAdmin gets every level (M4.14)', () => {
+    expect(isSealedAdmin({ ...user, isAdmin: true })).toBe(true);
+    expect(isSealedAdmin({ ...user, isAdmin: true, sealed: false })).toBe(false);
+    expect(isSealedAdmin({ ...user, isAdmin: false })).toBe(false);
+  });
+});
+
+describe('rightsRequest', () => {
+  it('sends the rights of the panel with the rights that the list showed, which Kiler compares with the file (M4.14)', () => {
+    const forged = { ...user, canEdit: false, isAdmin: true, sealed: false };
+
+    expect(rightsRequest(forged, { canEdit: true, isAdmin: true })).toEqual({
+      canEdit: true,
+      isAdmin: true,
+      shown: { canEdit: false, isAdmin: true },
+    });
   });
 });
 

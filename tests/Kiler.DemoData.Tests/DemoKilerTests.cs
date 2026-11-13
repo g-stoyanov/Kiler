@@ -45,6 +45,13 @@ public sealed class DemoKilerTests(DemoKilerTests.Made made) : IClassFixture<Dem
         // Level 0 has no key, and every session reads it.
         Assert.Equal(Enumerable.Range(0, user.Level + 1), session.Levels);
         Assert.Equal((user.DisplayName, user.CanEdit, user.IsAdmin, false), (session.DisplayName, session.CanEdit, session.IsAdmin, session.MustChangePassword));
+
+        // The admin key that sealed levels.json sealed the user file too, the wizard's or an admin action's (M4.14), and only
+        // the admin holds its private key.
+        var publicKey = Assert.IsType<string>(session.AdminPublicKey);
+        Assert.True(made.Files.Levels!.Model!.IsSealedBy(publicKey), "The public key of the session is not the one that sealed levels.json.");
+        Assert.True(made.Files.Users[account].Model!.IsSealedBy(publicKey), "The demo user file is not sealed.");
+        Assert.Equal(user.IsAdmin, session.HoldsAdminKey);
     }
 
     [Fact]

@@ -170,12 +170,28 @@ public sealed class AdminApiTests : IDisposable
         var password = await ActAsync(client, HttpMethod.Put, $"/api/admin/users/{MadeUpKiler.Editor}/level", new JsonObject { ["level"] = 1 });
         Assert.True(password["temporaryPassword"] is not null, "A new temporary password is not in the answer.");
 
-        var rights = await ActAsync(client, HttpMethod.Put, $"/api/admin/users/{MadeUpKiler.Editor}/rights", new JsonObject { ["canEdit"] = false, ["isAdmin"] = false });
+        var rights = await ActAsync(client, HttpMethod.Put, $"/api/admin/users/{MadeUpKiler.Editor}/rights", Rights(false, false, shownCanEdit: true, shownIsAdmin: false));
         Assert.Null(rights["temporaryPassword"]);
         Assert.False((bool?)rights["user"]!["canEdit"]);
+        Assert.True((bool?)rights["user"]!["sealed"]);
 
+        // The isAdmin that Raised wrote into their own file is not sealed, so it does not count, nor are its rights changed (M4.14).
+        Assert.True((bool?)(await GetAsync(client, "/api/admin/users"))["fewAdmins"]);
+        using (var forged = await SendAsync(client, HttpMethod.Put, $"/api/admin/users/{MadeUpKiler.Raised}/rights", Rights(true, false, shownCanEdit: true, shownIsAdmin: true)))
+        {
+            await AssertErrorAsync(forged, HttpStatusCode.Conflict, AdminApi.Message(AdminOutcome.UserNotSealed));
+        }
+
+        // What the panel sends when the editor right is taken from Raised, as the list shows them: isAdmin stays as it is.
+        using (var editor = await SendAsync(client, HttpMethod.Put, $"/api/admin/users/{MadeUpKiler.Raised}/rights", Rights(false, true, shownCanEdit: true, shownIsAdmin: true)))
+        {
+            await AssertErrorAsync(editor, HttpStatusCode.Conflict, AdminApi.Message(AdminOutcome.UserNotSealed));
+        }
+
+        var admin = await ActAsync(client, HttpMethod.Put, $"/api/admin/users/{MadeUpKiler.User}/rights", Rights(true, true, shownCanEdit: false, shownIsAdmin: false));
+        Assert.True(admin["temporaryPassword"] is not null, "Making an admin gave no temporary password.");
         Assert.False((bool?)(await GetAsync(client, "/api/admin/users"))["fewAdmins"]);
-        await ActAsync(client, HttpMethod.Put, $"/api/admin/users/{MadeUpKiler.Raised}/rights", new JsonObject { ["canEdit"] = true, ["isAdmin"] = false });
+        await ActAsync(client, HttpMethod.Put, $"/api/admin/users/{MadeUpKiler.User}/rights", Rights(true, false, shownCanEdit: true, shownIsAdmin: true));
         Assert.True((bool?)(await GetAsync(client, "/api/admin/users"))["fewAdmins"]);
 
         using (var own = await SendAsync(client, HttpMethod.Put, $"/api/admin/users/{MadeUpKiler.Admin}/level", new JsonObject { ["level"] = 1 }))
@@ -205,7 +221,77 @@ public sealed class AdminApiTests : IDisposable
         Assert.Equal("level is missing.", (string?)users["demo.bad"]["invalid"]);
         Assert.Null(users["demo.bad"]["displayName"]);
         Assert.Null(users[MadeUpKiler.User]["invalid"]);
-        Assert.False((bool?)list["fewAdmins"]);
+
+        // The admin is the one whose isAdmin is sealed: that of Raised is their own (M4.14).
+        Assert.True((bool?)list["fewAdmins"]);
+        Assert.Equal((true, true, false, false, false), ((bool?)users[MadeUpKiler.Admin]["sealed"], (bool?)users[MadeUpKiler.User]["sealed"], (bool?)users[MadeUpKiler.Raised]["sealed"], (bool?)users["demo.gap"]["sealed"], (bool?)users["demo.bad"]["sealed"]));
+    }
+
+    [Fact]
+    public async Task SetRights_WithoutTheRightsThatTheListShowed_IsAValueThatDoesNotFit_AndWithOthersThanTheFiles_IsAConflict()
+    {
+        using var data = NewData(guestMode: false);
+        await using var server = await StartAsync(data, MadeUpKiler.Admin);
+        using var client = await SignedInAsync(server);
+        var path = $"/api/admin/users/{MadeUpKiler.User}/rights";
+
+        using (var without = await SendAsync(client, HttpMethod.Put, path, new JsonObject { ["canEdit"] = true, ["isAdmin"] = false }))
+        {
+            await AssertErrorAsync(without, HttpStatusCode.BadRequest, AdminApi.ShownMissing);
+        }
+
+        using (var half = await SendAsync(client, HttpMethod.Put, path, new JsonObject { ["canEdit"] = true, ["isAdmin"] = true, ["shown"] = new JsonObject { ["canEdit"] = false } }))
+        {
+            await AssertErrorAsync(half, HttpStatusCode.BadRequest, AdminApi.ShownMissing);
+        }
+
+        // A list that showed the reader as an admin: the click on the editor right makes no admin (M4.14 security review, pass 2).
+        using (var behind = await SendAsync(client, HttpMethod.Put, path, Rights(true, true, shownCanEdit: false, shownIsAdmin: true)))
+        {
+            await AssertErrorAsync(behind, HttpStatusCode.Conflict, AdminApi.Message(AdminOutcome.Changed));
+        }
+
+        var user = (await GetAsync(client, "/api/admin/users"))["users"]!.AsArray().Single(entry => (string?)entry!["account"] == MadeUpKiler.User)!;
+        Assert.Equal((false, false, 1), ((bool?)user["canEdit"], (bool?)user["isAdmin"], (int?)user["level"]));
+    }
+
+    [Fact]
+    public async Task TheActions_OfASessionWithoutTheAdminKey_AreRefused_AndThoseOfAFileThatIsNotSealed_AreConflicts()
+    {
+        using var data = NewData(guestMode: false);
+
+        // isAdmin and the keys of every level, as the admin's, but not the private key of the admin key.
+        var keys = MadeUpKiler.UserOf(MadeUpKiler.Admin).Keys;
+        _writer!.Create(UserFile.KeyOf("demo.keyless"), new UserFile("demo.keyless", "Demo Keyless", 2, true, true, false, new(keys.Salt, keys.Keys, keys.AdminPublicKey)).ToContent());
+
+        // A levels.json that the admin key did not seal, with the checks as they are.
+        _writer.Replace(LevelsFile.Key, 1, new LevelsFile(MadeUpKiler.Levels.Levels, MadeUpKiler.Levels.Recovery).ToContent());
+        await using (var server = await StartAsync(data, "demo.keyless"))
+        {
+            using var client = await SignedInAsync(server);
+            foreach (var (method, path, body) in Endpoints().Where(endpoint => endpoint.Method != HttpMethod.Get))
+            {
+                using var response = await SendAsync(client, method, path, body);
+
+                await AssertErrorAsync(response, HttpStatusCode.Forbidden, AdminApi.Message(AdminOutcome.NoAdminKey));
+            }
+
+            Assert.True((bool?)(await GetAsync(client, "/api/admin/users"))["fewAdmins"]);
+        }
+
+        // The admin's Kiler, on another machine.
+        using var theirs = OpenData("theirs");
+        await using (var server = await StartAsync(theirs, MadeUpKiler.Admin))
+        {
+            using var client = await SignedInAsync(server);
+            using var rename = await SendAsync(client, HttpMethod.Put, "/api/admin/levels/1", new JsonObject { ["name"] = "Staff" });
+
+            await AssertErrorAsync(rename, HttpStatusCode.Conflict, AdminApi.Message(AdminOutcome.LevelsNotSealed));
+        }
+
+        var levels = Assert.IsType<JsonObject>(JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(DataFolder, "levels.json"), Cancel)));
+        Assert.Equal(2, (int?)levels["version"]);
+        Assert.False(File.Exists(Path.Combine(DataFolder, "users", "demo.new.json")), "A refused new user was written.");
     }
 
     [Fact]
@@ -239,10 +325,14 @@ public sealed class AdminApiTests : IDisposable
         (HttpMethod.Get, "/api/admin/users", null),
         (HttpMethod.Post, "/api/admin/users", new JsonObject { ["account"] = "demo.new", ["displayName"] = "Demo New", ["level"] = 1, ["canEdit"] = false }),
         (HttpMethod.Put, $"/api/admin/users/{MadeUpKiler.User}/level", new JsonObject { ["level"] = 2 }),
-        (HttpMethod.Put, $"/api/admin/users/{MadeUpKiler.User}/rights", new JsonObject { ["canEdit"] = true, ["isAdmin"] = true }),
+        (HttpMethod.Put, $"/api/admin/users/{MadeUpKiler.User}/rights", Rights(true, true, shownCanEdit: false, shownIsAdmin: false)),
         (HttpMethod.Get, "/api/admin/levels", null),
         (HttpMethod.Put, "/api/admin/levels/1", new JsonObject { ["name"] = "Staff" }),
     ];
+
+    /// <summary>The body of a change of the rights, with the rights that the list showed (M4.14).</summary>
+    private static JsonObject Rights(bool canEdit, bool isAdmin, bool shownCanEdit, bool shownIsAdmin) =>
+        new() { ["canEdit"] = canEdit, ["isAdmin"] = isAdmin, ["shown"] = new JsonObject { ["canEdit"] = shownCanEdit, ["isAdmin"] = shownIsAdmin } };
 
     private static string Names(JsonObject levels) => string.Join(",", levels["levels"]!.AsArray().Select(level => (string?)level!["name"]));
 

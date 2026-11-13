@@ -204,19 +204,26 @@ public sealed class Session : IDisposable
 
     /// <summary>
     /// The keys of the levels 1 to <paramref name="top"/> locked with <paramref name="password"/>, for an admin action that
-    /// gives them to a user with a temporary password (M4.6, design 7.6). PBKDF2 runs once. A lock before or during it is
-    /// <see cref="SessionLockedException"/>, as for <see cref="Use"/>.
+    /// gives them to a user with a temporary password (M4.6, design 7.6): with <see cref="AdminPublicKey"/>, which every user
+    /// gets, and with the admin key when <paramref name="withAdminKey"/>, for an admin (M4.14). PBKDF2 runs once. A lock
+    /// before or during it is <see cref="SessionLockedException"/>, as for <see cref="Use"/>.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">The session has no key of a level up to <paramref name="top"/>; the caller checks <see cref="HoldsEvery"/>.</exception>
+    /// <exception cref="InvalidOperationException">The session has no admin key; the caller checks <see cref="HoldsAdminKey"/>.</exception>
     /// <exception cref="SessionLockedException">The session is locked.</exception>
-    internal LockedKeys LockKeys(int top, ReadOnlySpan<char> password)
+    internal LockedKeys LockKeys(int top, bool withAdminKey, ReadOnlySpan<char> password)
     {
         if (!Enumerable.Range(1, top).All(_keys.ContainsKey))
         {
             throw new ArgumentOutOfRangeException(nameof(top), top, "The session has no key of a level up to it.");
         }
 
-        return Lock(_keys.Where(key => key.Key <= top).ToDictionary(), adminPublicKey: null, adminKey: null, password);
+        if (_adminKey is null)
+        {
+            throw new InvalidOperationException("The session has no admin key.");
+        }
+
+        return Lock(_keys.Where(key => key.Key <= top).ToDictionary(), AdminPublicKey, withAdminKey ? _adminKey : null, password);
     }
 
     /// <summary>A change of password wrote the user file at <paramref name="userVersion"/>: the password is no longer a temporary one.</summary>

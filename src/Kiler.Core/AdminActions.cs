@@ -1,20 +1,32 @@
 using System.Diagnostics.CodeAnalysis;
+using Kiler.Crypto;
 using Kiler.Storage;
 
 namespace Kiler.Core;
 
 /// <summary>
-/// The admin actions (M4.6, design 7.6, step 7 of M4 without the seal): a new user, a new temporary password with a level (a
-/// change of level, or a forgotten password), the editor and admin rights, and the rename of a level. An action that gives
-/// keys gives those of a level that the admin chose, never of the level of a user file, and locks the admin's keys of the
-/// levels 1 to the user's level with a temporary password that Kiler makes (<see cref="Password.NewTemporary"/>), sets
-/// <c>mustChangePassword</c>, and gives the password once, in its result. Each writes through the team, over the version that
-/// the team has (<see cref="Team.Create"/>, <see cref="Team.Replace(UserFile, int)"/>, <see cref="Team.Replace(LevelsFile, int)"/>).
+/// The admin actions (M4.6, design 7.6, step 7 of M4): a new user, a new temporary password with a level (a change of level,
+/// or a forgotten password), the editor and admin rights, and the rename of a level. An action that gives keys gives those of
+/// a level that the admin chose, never of the level of a user file, and locks the admin's keys of the levels 1 to the user's
+/// level with a temporary password that Kiler makes (<see cref="Password.NewTemporary"/>), sets <c>mustChangePassword</c>,
+/// and gives the password once, in its result. Each writes through the team, over the version that the team has
+/// (<see cref="Team.Create"/>, <see cref="Team.Replace(UserFile, int)"/>, <see cref="Team.Replace(LevelsFile, int)"/>).
 /// The caller has checked <see cref="Need.Admin"/>; an action checks again that the admin holds every level of
 /// <c>levels.json</c> as the team has it now (<see cref="Session.HoldsEvery"/>), as it may have changed since. Decided by the
 /// user in M4.6: no action changes the admin's own user file, an admin's level is not lowered below the top level, and a user
 /// has a level from 1, as a file without keys cannot sign in (M4.4). A change that the admin makes reaches a signed-in user at
 /// their next sign-in, and makes their change of password ask for one (M4.5a).
+/// <para>
+/// The seal (M4.14, docs/tasks/M3.md, "What the seal covers"): each action seals what it writes with the admin key of the
+/// session, so it refuses a session without one (<see cref="AdminOutcome.NoAdminKey"/>). A temporary password locks the
+/// public key of the admin key, which every user gets, and its private key for an admin; taking the admin right away drops
+/// the private key from the file. An action keeps a right or a level of a user file only from a file that the admin key
+/// sealed, so it never seals what someone wrote into a file (decided by the user in M4.14): from a file whose seal fails it
+/// keeps only the display name, a new temporary password makes the user a reader without the admin right, and a change of
+/// the rights that keeps the level and the keys is <see cref="AdminOutcome.UserNotSealed"/>, as is making an admin of a
+/// file that says <c>isAdmin</c> itself (M4.14 security review). A rename seals only a
+/// <c>levels.json</c> that the admin key sealed (<see cref="AdminOutcome.LevelsNotSealed"/>, decided by the user in M4.14).
+/// </para>
 /// </summary>
 public static class AdminActions
 {
@@ -32,18 +44,22 @@ public static class AdminActions
         return user.Keys.Keys.Keys.Order().SequenceEqual(Enumerable.Range(1, user.Level));
     }
 
-    /// <summary>Whether the team has fewer than two admins, user files that fit with <c>isAdmin</c>: the list warns then (design 7.7).</summary>
-    public static bool FewAdmins(TeamFiles files)
+    /// <summary>
+    /// Whether the team has fewer than two admins, user files with <c>isAdmin</c> sealed by the admin key of
+    /// <paramref name="adminPublicKey"/>, the public key of the admin's session: the list warns then (design 7.7). A forged
+    /// <c>isAdmin</c> does not count (M4.14), nor does any file without a public key.
+    /// </summary>
+    public static bool FewAdmins(TeamFiles files, string? adminPublicKey)
     {
         ArgumentNullException.ThrowIfNull(files);
-        return files.Users.Values.Count(file => file.IsValid && file.Model.IsAdmin) < 2;
+        return adminPublicKey is null || files.Users.Values.Count(file => file.IsValid && file.Model.IsAdmin && file.Model.IsSealedBy(adminPublicKey)) < 2;
     }
 
     /// <summary>
     /// A new user (design 7.6): the user file of <paramref name="account"/> with the admin's keys of the levels 1 to
-    /// <paramref name="level"/>, locked with a new temporary password. The account is a Windows user name, made the account as
-    /// a Kiler makes its own (<see cref="AccountName.From"/>). An account with a user file, or one that had one, is
-    /// <see cref="AdminOutcome.Exists"/>. PBKDF2 runs once.
+    /// <paramref name="level"/> and the public key of the admin key, locked with a new temporary password, and sealed. The
+    /// account is a Windows user name, made the account as a Kiler makes its own (<see cref="AccountName.From"/>). An account
+    /// with a user file, or one that had one, is <see cref="AdminOutcome.Exists"/>. PBKDF2 runs once.
     /// </summary>
     /// <exception cref="SessionLockedException">The session was locked before or while its keys were locked.</exception>
     public static AdminResult NewUser(Session admin, Team team, string? account, string? displayName, int level, bool canEdit)
@@ -76,16 +92,17 @@ public static class AdminActions
         }
 
         var temporary = Password.NewTemporary();
-        var user = new UserFile(name, displayName, level, canEdit, isAdmin: false, mustChangePassword: true, admin.LockKeys(level, temporary));
+        var user = Seal(admin, new UserFile(name, displayName, level, canEdit, isAdmin: false, mustChangePassword: true, admin.LockKeys(level, withAdminKey: false, temporary)));
         return Write(() => team.Create(user), null, new(AdminOutcome.Done, User: user, TemporaryPassword: temporary));
     }
 
     /// <summary>
     /// A new temporary password with the level that the admin gives (design 7.6), for a change of level and for a forgotten
-    /// password alike: the admin's keys of the levels 1 to <paramref name="level"/> only, locked with it. Never the level of
-    /// the user file, which its user can write: a user who wrote a higher level into their own file would get its keys from
-    /// the admin (security review, decided by the user in M4.6). An admin's level is not lowered below the top level
-    /// (<see cref="AdminOutcome.AdminLevel"/>).
+    /// password alike: the admin's keys of the levels 1 to <paramref name="level"/> only, locked with it, with the public key
+    /// of the admin key, and its private key for an admin. Never the level of the user file, which its user can write: a user
+    /// who wrote a higher level into their own file would get its keys from the admin (security review, decided by the user in
+    /// M4.6). An admin's level is not lowered below the top level (<see cref="AdminOutcome.AdminLevel"/>). The rights are kept
+    /// only from a file that the admin key sealed; from any other the user becomes a reader without the admin right (M4.14).
     /// </summary>
     /// <exception cref="SessionLockedException">The session was locked before or while its keys were locked.</exception>
     public static AdminResult ChangeLevel(Session admin, Team team, string account, int level)
@@ -102,23 +119,41 @@ public static class AdminActions
             return new(AdminOutcome.Invalid, invalid);
         }
 
-        if (user.IsAdmin && level < levels.Top)
+        // A forged canEdit or isAdmin is not sealed again under the admin key, nor does it get the private key.
+        var sealedByAdmin = IsSealed(admin, user);
+        var isAdmin = sealedByAdmin && user.IsAdmin;
+        if (isAdmin && level < levels.Top)
         {
             return new(AdminOutcome.AdminLevel);
         }
 
         var temporary = Password.NewTemporary();
-        var changed = new UserFile(user.Account, user.DisplayName, level, user.CanEdit, user.IsAdmin, mustChangePassword: true, admin.LockKeys(level, temporary));
+        var keys = admin.LockKeys(level, withAdminKey: isAdmin, temporary);
+        var changed = Seal(admin, new UserFile(user.Account, user.DisplayName, level, sealedByAdmin && user.CanEdit, isAdmin, mustChangePassword: true, keys));
         return Write(() => team.Replace(changed, version), version, new(AdminOutcome.Done, User: changed, TemporaryPassword: temporary));
     }
 
     /// <summary>
-    /// The editor and admin rights. Making someone an admin gives them the top level, with the admin's keys of every level
-    /// locked with a new temporary password, as an admin holds them all (decided at the start of M4); the other changes keep
-    /// the keys, the level and the password. Rights that are as they are already write nothing.
+    /// The editor and admin rights. Making someone an admin gives them the top level, with the admin's keys of every level and
+    /// the admin key locked with a new temporary password, as an admin holds them all (decided at the start of M4); the other
+    /// changes keep the keys, the level and the password, and taking the admin right away drops the private key of the admin
+    /// key from the file (M4.14: the user knew it, and an untrusted one is item 5 of PLAN section 10). Those keep what only
+    /// a file that the admin key sealed may give, so they refuse any other (<see cref="AdminOutcome.UserNotSealed"/>), and a
+    /// new temporary password seals it first. Only a file that does not say <c>isAdmin</c> itself is made an admin, sealed or
+    /// not: on a file that says it without a seal, <c>isAdmin</c> in the request is what the list showed, not a choice of the
+    /// admin, so it is <see cref="AdminOutcome.UserNotSealed"/> too (M4.14 security review, decided by the user). Rights that
+    /// are as they are already write nothing.
+    /// <para>
+    /// <paramref name="shownCanEdit"/> and <paramref name="shownIsAdmin"/> are the rights as the admin's list showed them:
+    /// when the file has others now, the change was chosen on a list that is behind, and it is
+    /// <see cref="AdminOutcome.Changed"/>, so the page reads the list again. They are compared by value, not by the version,
+    /// as a user can write their file back as it was. Otherwise a user who wrote <c>isAdmin</c>, waited for the list, and took
+    /// it back would be made an admin by a change of the editor right, which sends <c>isAdmin</c> as the list showed it
+    /// (M4.14 security review, pass 2, decided by the user); and another admin's change would be undone without a word.
+    /// </para>
     /// </summary>
     /// <exception cref="SessionLockedException">The session was locked before or while its keys were locked.</exception>
-    public static AdminResult SetRights(Session admin, Team team, string account, bool canEdit, bool isAdmin)
+    public static AdminResult SetRights(Session admin, Team team, string account, bool canEdit, bool isAdmin, bool shownCanEdit, bool shownIsAdmin)
     {
         ArgumentNullException.ThrowIfNull(team);
         var files = team.Files;
@@ -127,11 +162,24 @@ public static class AdminActions
             return new(refusal);
         }
 
+        if (user.CanEdit != shownCanEdit || user.IsAdmin != shownIsAdmin)
+        {
+            return new(AdminOutcome.Changed);
+        }
+
+        // Only a file that does not say isAdmin itself is made an admin: the page sends the rights whole, so isAdmin as the
+        // list showed it is no request to make an admin (M4.14 security review).
         if (isAdmin && !user.IsAdmin)
         {
             var temporary = Password.NewTemporary();
-            var raised = new UserFile(user.Account, user.DisplayName, levels.Top, canEdit, isAdmin: true, mustChangePassword: true, admin.LockKeys(levels.Top, temporary));
+            var keys = admin.LockKeys(levels.Top, withAdminKey: true, temporary);
+            var raised = Seal(admin, new UserFile(user.Account, user.DisplayName, levels.Top, canEdit, isAdmin: true, mustChangePassword: true, keys));
             return Write(() => team.Replace(raised, version), version, new(AdminOutcome.Done, User: raised, TemporaryPassword: temporary));
+        }
+
+        if (!IsSealed(admin, user))
+        {
+            return new(AdminOutcome.UserNotSealed);
         }
 
         if (canEdit == user.CanEdit && isAdmin == user.IsAdmin)
@@ -139,13 +187,17 @@ public static class AdminActions
             return new(AdminOutcome.Done, User: user);
         }
 
-        var changed = new UserFile(user.Account, user.DisplayName, user.Level, canEdit, isAdmin, user.MustChangePassword, user.Keys);
+        // Only an admin's file keeps the private key: the user's own password locks it, so it is dropped, not locked again.
+        var kept = isAdmin ? user.Keys : new LockedKeys(user.Keys.Salt, user.Keys.Keys, user.Keys.AdminPublicKey);
+        var changed = Seal(admin, new UserFile(user.Account, user.DisplayName, user.Level, canEdit, isAdmin, user.MustChangePassword, kept));
         return Write(() => team.Replace(changed, version), version, new(AdminOutcome.Done, User: changed));
     }
 
     /// <summary>
-    /// Renames <paramref name="level"/> in <c>levels.json</c> (decided at the start of M4: the levels screen only renames). The
-    /// checks and the recovery set stay as they are. A name as it is already writes nothing.
+    /// Renames <paramref name="level"/> in <c>levels.json</c> (decided at the start of M4: the levels screen only renames), and
+    /// seals it for its next version (M4.14). The checks and the recovery set stay as they are. A name as it is already writes
+    /// nothing. Only a <c>levels.json</c> that the admin key sealed is renamed, so a rename never seals what someone changed
+    /// in it, such as a level cut away or another recovery set (<see cref="AdminOutcome.LevelsNotSealed"/>).
     /// </summary>
     /// <exception cref="SessionLockedException">The session was locked before it.</exception>
     public static AdminResult RenameLevel(Session admin, Team team, int level, string? name)
@@ -154,6 +206,12 @@ public static class AdminActions
         if (!TryLevels(admin, team.Files, out var levels, out var version, out var refusal))
         {
             return new(refusal);
+        }
+
+        // HoldsAdminKey, which TryLevels checked, means a public key.
+        if (!levels.IsSealedBy(admin.AdminPublicKey!))
+        {
+            return new(AdminOutcome.LevelsNotSealed);
         }
 
         if (level < 0 || level > levels.Top)
@@ -177,13 +235,14 @@ public static class AdminActions
             return new(AdminOutcome.Done, Levels: levels);
         }
 
-        var renamed = new LevelsFile(entries, levels.Recovery);
+        var renamed = admin.UseAdminKey(adminKey => new LevelsFile(entries, levels.Recovery).Sealed(adminKey, version + 1));
         return Write(() => team.Replace(renamed, version), version, new(AdminOutcome.Done, Levels: renamed));
     }
 
     /// <summary>
-    /// <c>levels.json</c> of <paramref name="files"/> and its version, when the admin holds every level of it, verified against
-    /// its checks now; else <see cref="AdminOutcome.LevelsChanged"/>, and the admin signs in again.
+    /// <c>levels.json</c> of <paramref name="files"/> and its version, when the admin holds the admin key (M4.14) and every
+    /// level of it, verified against its checks now; else <see cref="AdminOutcome.NoAdminKey"/>, or
+    /// <see cref="AdminOutcome.LevelsChanged"/>, and the admin signs in again.
     /// </summary>
     /// <exception cref="SessionLockedException">The session is locked.</exception>
     private static bool TryLevels(Session admin, TeamFiles files, [NotNullWhen(true)] out LevelsFile? levels, out int version, out AdminOutcome refusal)
@@ -194,6 +253,14 @@ public static class AdminActions
         if (admin.IsLocked)
         {
             throw new SessionLockedException();
+        }
+
+        levels = null;
+        version = 0;
+        if (!admin.HoldsAdminKey)
+        {
+            refusal = AdminOutcome.NoAdminKey;
+            return false;
         }
 
         levels = files.Levels?.Model;
@@ -244,6 +311,13 @@ public static class AdminActions
     /// <summary>Why <paramref name="level"/> cannot be the level of a user: level 0 has no key, so its file could not sign in.</summary>
     private static string? LevelInvalid(int level, LevelsFile levels) =>
         level >= 1 && level <= levels.Top ? null : $"level is not from 1 to {levels.Top}.";
+
+    /// <summary>Whether the admin key of the session sealed the rights of <paramref name="user"/>; <see cref="TryLevels"/> has checked that it holds one.</summary>
+    private static bool IsSealed(Session admin, UserFile user) => user.IsSealedBy(admin.AdminPublicKey!);
+
+    /// <summary><paramref name="user"/> sealed by the admin key of the session.</summary>
+    /// <exception cref="SessionLockedException">The session was locked before or while it sealed.</exception>
+    private static UserFile Seal(Session admin, UserFile user) => admin.UseAdminKey(user.Sealed);
 
     private static AdminResult Write(Func<WriteResult> write, int? version, AdminResult done)
     {
@@ -301,6 +375,25 @@ public enum AdminOutcome
 
     /// <summary><c>levels.json</c> is missing, does not fit, or has other checks than the keys of the admin verified against: the admin signs in again.</summary>
     LevelsChanged,
+
+    /// <summary>
+    /// The session holds no admin key, the private key that seals what an admin action writes (M4.14): the user file of the
+    /// sign-in has none, or it did not unlock. Another admin gives a new temporary password.
+    /// </summary>
+    NoAdminKey,
+
+    /// <summary>
+    /// A change of the rights that keeps the level and the keys of a user file whose seal does not verify by the admin key,
+    /// or the admin right for such a file that says <c>isAdmin</c> itself (M4.14): a new temporary password, which sets the
+    /// level and makes the user a reader, seals the file first.
+    /// </summary>
+    UserNotSealed,
+
+    /// <summary>
+    /// A rename of a <c>levels.json</c> whose seal does not verify by the admin key (M4.14): its sealed version is put back
+    /// first, so the rename does not seal what someone changed in it.
+    /// </summary>
+    LevelsNotSealed,
 
     /// <summary>The file has changed on the share, and the team has not followed it yet: the page reads it again.</summary>
     Changed,

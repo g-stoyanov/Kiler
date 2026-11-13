@@ -10,19 +10,21 @@ import {
   type AdminUser,
   type AdminUserAnswer,
   type NewUserRequest,
-  type RightsRequest,
+  type Rights,
   type Session,
 } from './api.ts';
 import {
   afterAdminRefusal,
   checkNewUser,
   hasAdminProblems,
+  isSealedAdmin,
   keysGiven,
   levelChoices,
   levelLabel,
   newUserForm,
   newUsersState,
   newUserRequest,
+  rightsRequest,
   usersReducer,
   type NewUserProblems,
   type TemporaryPassword,
@@ -168,13 +170,14 @@ export function Users({ session }: { session: Session }) {
       )}
       {chosen !== undefined && chosen.level !== null && (
         <UserPanel
-          key={chosen.account}
+          // A file read again with other rights starts the panel again, so it sends no box as the old list had it (M4.14).
+          key={`${chosen.account}:${String(chosen.canEdit)}:${String(chosen.isAdmin)}:${String(chosen.sealed)}`}
           user={chosen}
           level={chosen.level}
           levels={levels}
           sending={state.sending}
           onLevel={(level) => act(() => changeLevel(chosen.account, level))}
-          onRights={(rights) => act(() => setRights(chosen.account, rights))}
+          onRights={(rights) => act(() => setRights(chosen.account, rightsRequest(chosen, rights)))}
           onClose={close}
         />
       )}
@@ -411,16 +414,17 @@ function UserPanel({
   levels: AdminLevel[];
   sending: boolean;
   onLevel: (level: number) => void;
-  onRights: (rights: RightsRequest) => void;
+  onRights: (rights: Rights) => void;
   onClose: () => void;
 }) {
   const id = useId();
   const t = texts.users;
-  const choices = levelChoices(levels, user.isAdmin);
+  const sealedAdmin = isSealedAdmin(user);
+  const choices = levelChoices(levels, sealedAdmin);
   const [chosenLevel, setChosenLevel] = useState(() =>
     choices.some((entry) => entry.level === level) ? level : (choices[0]?.level ?? level),
   );
-  const [rights, setRightsForm] = useState<RightsRequest>({ canEdit: user.canEdit, isAdmin: user.isAdmin });
+  const [rights, setRightsForm] = useState<Rights>({ canEdit: user.canEdit, isAdmin: user.isAdmin });
   const rightsChanged = rights.canEdit !== user.canEdit || rights.isAdmin !== user.isAdmin;
 
   const sendLevel = (event: FormEvent) => {
@@ -440,7 +444,7 @@ function UserPanel({
         <fieldset className="stack" disabled={sending}>
           <legend>{t.passwordTitle}</legend>
           <p className="muted">{t.passwordIntro}</p>
-          {user.isAdmin && <p className="muted">{t.adminLevel}</p>}
+          {sealedAdmin && <p className="muted">{t.adminLevel}</p>}
           <LevelField
             id={`${id}-level`}
             levels={levels}

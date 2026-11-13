@@ -339,9 +339,17 @@ describe('the admin actions', () => {
     isAdmin: false,
     mustChangePassword: true,
     keysMatchLevel: true,
+    sealed: true,
     invalid: null,
   };
-  const damaged = { ...user, displayName: null, level: null, canEdit: false, invalid: 'The file is damaged.' };
+  const damaged = {
+    ...user,
+    displayName: null,
+    level: null,
+    canEdit: false,
+    sealed: false,
+    invalid: 'The file is damaged.',
+  };
   const levels = [
     { level: 0, name: 'Guest' },
     { level: 1, name: 'Team' },
@@ -377,14 +385,21 @@ describe('the admin actions', () => {
     const fetch = stubFetch(() => json({ user, temporaryPassword: null }));
 
     expect(await changeLevel('demo.user', 2)).toEqual({ user, temporaryPassword: null });
-    expect(await setRights('demo.user', { canEdit: true, isAdmin: false })).toEqual({ user, temporaryPassword: null });
+    const shown = { canEdit: false, isAdmin: false };
+    expect(await setRights('demo.user', { canEdit: true, isAdmin: false, shown })).toEqual({
+      user,
+      temporaryPassword: null,
+    });
 
     const [levelPath, levelInit] = fetch.mock.calls[0] ?? [];
     expect(levelPath).toBe('/api/admin/users/demo.user/level');
     expect(levelInit).toMatchObject({ method: 'PUT', body: '{"level":2}' });
     const [rightsPath, rightsInit] = fetch.mock.calls[1] ?? [];
     expect(rightsPath).toBe('/api/admin/users/demo.user/rights');
-    expect(rightsInit).toMatchObject({ method: 'PUT', body: '{"canEdit":true,"isAdmin":false}' });
+    expect(rightsInit).toMatchObject({
+      method: 'PUT',
+      body: '{"canEdit":true,"isAdmin":false,"shown":{"canEdit":false,"isAdmin":false}}',
+    });
   });
 
   it('puts the account into the path as one segment', async () => {
@@ -503,6 +518,7 @@ describe('the admin actions', () => {
       () => getAdminUsers(),
       { users: [{ ...user, keysMatchLevel: undefined }], fewAdmins: false },
     ],
+    ['a user without sealed', () => getAdminUsers(), { users: [{ ...user, sealed: undefined }], fewAdmins: false }],
     ['users without fewAdmins', () => getAdminUsers(), { users: [user] }],
     ['a level that is not a whole number', () => getAdminLevels(), { levels: [{ level: '0', name: 'Guest' }] }],
     [

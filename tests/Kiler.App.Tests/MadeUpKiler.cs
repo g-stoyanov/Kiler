@@ -7,16 +7,17 @@ namespace Kiler.App.Tests;
 
 /// <summary>
 /// The documents of a made-up Kiler for the sign-in (M4.4): the levels Guest, Team and Prod, and user files locked with
-/// <see cref="Password"/>; and stashes and records for the API of the records (M5.6, <see cref="WriteRecords"/>), their
-/// groups encrypted with the keys of the levels. They are made once per run, as each lock runs PBKDF2, and a test writes
-/// copies of them into a data folder of its own (<see cref="WriteTo"/>).
+/// <see cref="Password"/>, with the public key of an admin key, which seals <c>levels.json</c> and the files that an admin
+/// made (M4.14); and stashes and records for the API of the records (M5.6, <see cref="WriteRecords"/>), their groups
+/// encrypted with the keys of the levels. They are made once per run, as each lock runs PBKDF2, and a test writes copies of
+/// them into a data folder of its own (<see cref="WriteTo"/>).
 /// </summary>
 internal static class MadeUpKiler
 {
     /// <summary>Made up, and compared only with <c>Assert.True</c> (SKILL.md, "Tests").</summary>
     public const string Password = "demo-password-1";
 
-    /// <summary>The top level, its key, isAdmin and canEdit.</summary>
+    /// <summary>The top level, its key, isAdmin and canEdit, and the private key of the admin key.</summary>
     public const string Admin = "demo.admin";
 
     /// <summary>Level 1.</summary>
@@ -28,7 +29,7 @@ internal static class MadeUpKiler
     /// <summary>Level 1, with a temporary password.</summary>
     public const string Temporary = "demo.temp";
 
-    /// <summary>A user of level 1 who wrote the top level, isAdmin and canEdit into their own file.</summary>
+    /// <summary>A user of level 1 who wrote the top level, isAdmin and canEdit into their own file, so it is not sealed.</summary>
     public const string Raised = "demo.raised";
 
     /// <summary>A user who added themselves, with keys of their own locked with <see cref="Password"/>.</summary>
@@ -56,6 +57,9 @@ internal static class MadeUpKiler
 
     /// <summary>The check of level 1 in <c>levels.json</c>.</summary>
     public static string CheckOfLevel1 => Made.Value.Levels.Levels[1].Check!;
+
+    /// <summary><c>levels.json</c>, sealed for version 1 (M4.14).</summary>
+    public static LevelsFile Levels => Made.Value.Levels;
 
     /// <summary>
     /// Writes the initial templates of a Kiler of two levels, the stashes <see cref="Payments"/> and <see cref="Prod"/>, and
@@ -108,18 +112,21 @@ internal static class MadeUpKiler
         using var team = SecretKey.New();
         using var prod = SecretKey.New();
         using var own = SecretKey.New();
+
+        // The admin key seals levels.json for the version of its create, and the files that an admin made (M4.14).
+        using var adminKey = AdminKey.New();
         var levels = new LevelsFile(
             [new(0, "Guest", null), new(1, "Team", LevelCheck.Create(team, 1)), new(2, "Prod", LevelCheck.Create(prod, 2))],
-            new LockedKeys("salt", new Dictionary<int, string>()));
+            new LockedKeys("salt", new Dictionary<int, string>())).Sealed(adminKey, 1);
         var one = new Dictionary<int, SecretKey> { [1] = team };
         UserFile[] users =
         [
-            NewUser(Admin, 2, canEdit: true, isAdmin: true, mustChangePassword: false, new Dictionary<int, SecretKey> { [1] = team, [2] = prod }),
-            NewUser(User, 1, canEdit: false, isAdmin: false, mustChangePassword: false, one),
-            NewUser(Editor, 1, canEdit: true, isAdmin: false, mustChangePassword: false, one),
-            NewUser(Temporary, 1, canEdit: false, isAdmin: false, mustChangePassword: true, one),
-            NewUser(Raised, 2, canEdit: true, isAdmin: true, mustChangePassword: false, new Dictionary<int, SecretKey> { [1] = team, [2] = own }),
-            NewUser(Stranger, 1, canEdit: false, isAdmin: false, mustChangePassword: false, new Dictionary<int, SecretKey> { [1] = own }),
+            NewUser(adminKey, Admin, 2, canEdit: true, isAdmin: true, mustChangePassword: false, new Dictionary<int, SecretKey> { [1] = team, [2] = prod }),
+            NewUser(adminKey, User, 1, canEdit: false, isAdmin: false, mustChangePassword: false, one),
+            NewUser(adminKey, Editor, 1, canEdit: true, isAdmin: false, mustChangePassword: false, one),
+            NewUser(adminKey, Temporary, 1, canEdit: false, isAdmin: false, mustChangePassword: true, one),
+            NewUser(adminKey, Raised, 2, canEdit: true, isAdmin: true, mustChangePassword: false, new Dictionary<int, SecretKey> { [1] = team, [2] = own }),
+            NewUser(adminKey, Stranger, 1, canEdit: false, isAdmin: false, mustChangePassword: false, new Dictionary<int, SecretKey> { [1] = own }),
         ];
 
         var authors = new Authorship(Admin, new DateTime(2026, 9, 30, 8, 10, 0, DateTimeKind.Utc), Editor, new DateTime(2026, 10, 21, 11, 32, 0, DateTimeKind.Utc));
@@ -157,8 +164,16 @@ internal static class MadeUpKiler
         return new(levels, users, stashes, records);
     }
 
-    private static UserFile NewUser(string account, int level, bool canEdit, bool isAdmin, bool mustChangePassword, Dictionary<int, SecretKey> keys) =>
-        new(account, $"Demo {account}", level, canEdit, isAdmin, mustChangePassword, LevelKeys.Lock(keys, Password));
+    /// <summary>
+    /// A user file with the public key of <paramref name="adminKey"/>, and its private key for <see cref="Admin"/> only; sealed
+    /// by it, as an admin makes it, but for <see cref="Raised"/> and <see cref="Stranger"/>, who wrote their own files.
+    /// </summary>
+    private static UserFile NewUser(AdminKey adminKey, string account, int level, bool canEdit, bool isAdmin, bool mustChangePassword, Dictionary<int, SecretKey> keys)
+    {
+        var locked = LevelKeys.Lock(keys, adminKey.PublicKey, account == Admin ? adminKey : null, Password);
+        var user = new UserFile(account, $"Demo {account}", level, canEdit, isAdmin, mustChangePassword, locked);
+        return account is Raised or Stranger ? user : user.Sealed(adminKey);
+    }
 
     private sealed record Documents(LevelsFile Levels, UserFile[] Users, StashFile[] Stashes, RecordFile[] Records);
 }

@@ -141,6 +141,11 @@ export interface AdminUser {
   mustChangePassword: boolean;
   /** False is the mark: the file has a level without its key, or a key above it. */
   keysMatchLevel: boolean;
+  /**
+   * The admin key of the session sealed the rights of the file (M4.14): its `isAdmin` is an admin's only then, and an
+   * action keeps its rights only then. False for a file that does not fit.
+   */
+  sealed: boolean;
   /** Why the file does not fit or is damaged; null when it fits. */
   invalid: string | null;
 }
@@ -170,10 +175,19 @@ export interface NewUserRequest {
   canEdit: boolean;
 }
 
-/** The editor and admin rights, sent whole: a member left out would take that right away (M4.6). */
-export interface RightsRequest {
+/** The editor and admin rights of a user file. */
+export interface Rights {
   canEdit: boolean;
   isAdmin: boolean;
+}
+
+/**
+ * The editor and admin rights, sent whole: a member left out would take that right away (M4.6). With them the rights
+ * as the list showed them, so Kiler refuses a change made on a list that is behind the file (409, M4.14 security review):
+ * an `isAdmin` that the user wrote and took back meanwhile would otherwise make them an admin.
+ */
+export interface RightsRequest extends Rights {
+  shown: Rights;
 }
 
 /** The answer of an action on a user: the user file as it left it, and the temporary password that only it gives. */
@@ -620,7 +634,10 @@ export function changeLevel(account: string, level: number): Promise<AdminUserAn
   return requestJson('PUT', `${userPath(account)}/level`, { level }, readAdminUserAnswer);
 }
 
-/** The editor and admin rights; making an admin gives the top level with a new temporary password. */
+/**
+ * The editor and admin rights, with the rights that the list showed (`rightsRequest` of `admin.ts`); making an admin gives
+ * the top level with a new temporary password.
+ */
 export function setRights(account: string, rights: RightsRequest): Promise<AdminUserAnswer> {
   return requestJson('PUT', `${userPath(account)}/rights`, rights, readAdminUserAnswer);
 }
@@ -923,7 +940,7 @@ function readRecoveryKey(body: unknown): string {
 
 function readAdminUser(body: unknown): AdminUser {
   if (isObject(body)) {
-    const { account, displayName, level, canEdit, isAdmin, mustChangePassword, keysMatchLevel, invalid } = body;
+    const { account, displayName, level, canEdit, isAdmin, mustChangePassword, keysMatchLevel, sealed, invalid } = body;
     if (
       typeof account === 'string' &&
       isTextOrNull(displayName) &&
@@ -932,6 +949,7 @@ function readAdminUser(body: unknown): AdminUser {
       typeof isAdmin === 'boolean' &&
       typeof mustChangePassword === 'boolean' &&
       typeof keysMatchLevel === 'boolean' &&
+      typeof sealed === 'boolean' &&
       isTextOrNull(invalid)
     ) {
       return {
@@ -942,6 +960,7 @@ function readAdminUser(body: unknown): AdminUser {
         isAdmin,
         mustChangePassword,
         keysMatchLevel,
+        sealed,
         invalid,
       };
     }

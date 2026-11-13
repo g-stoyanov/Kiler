@@ -2,9 +2,12 @@ import {
   ApiError,
   levelsChanged,
   type AdminLevel,
+  type AdminUser,
   type AdminUserAnswer,
   type AdminUsers,
   type NewUserRequest,
+  type Rights,
+  type RightsRequest,
 } from './api.ts';
 import { texts } from './texts.ts';
 import { limits } from './wizard.ts';
@@ -52,6 +55,20 @@ export function keysGiven(level: number, levels: AdminLevel[]): AdminLevel[] {
 export function levelChoices(levels: AdminLevel[], isAdmin: boolean): AdminLevel[] {
   const top = topLevel(levels);
   return keysGiven(top, levels).filter((entry) => !isAdmin || entry.level === top);
+}
+
+/**
+ * Whether the user is an admin by a sealed `isAdmin` (M4.14): only then is the level of a new temporary password the
+ * top level. A user who wrote `isAdmin` into their own file is no admin for Kiler, which makes them a reader of the
+ * level that the admin chooses, so the panel offers every level (M4.14 security review).
+ */
+export function isSealedAdmin(user: AdminUser): boolean {
+  return user.isAdmin && user.sealed;
+}
+
+/** The rights of the panel as Kiler takes them: with the rights that the list showed, which Kiler compares with the file. */
+export function rightsRequest(user: AdminUser, rights: Rights): RightsRequest {
+  return { canEdit: rights.canEdit, isAdmin: rights.isAdmin, shown: { canEdit: user.canEdit, isAdmin: user.isAdmin } };
 }
 
 /** The fields of a new user as the admin typed them. */
