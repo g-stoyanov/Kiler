@@ -68,7 +68,7 @@ internal static class TemplatesApi
     public static void Map(IEndpointRouteBuilder endpoints, KilerData data)
     {
         endpoints.MapGet("/api/templates", () => Templates(data)).Needs(Need.Reader);
-        endpoints.MapGet("/api/levels", () => Levels(data)).Needs(Need.Reader);
+        endpoints.MapGet("/api/levels", (HttpContext context) => Levels(context, data)).Needs(Need.Reader);
     }
 
     private static Results<Ok<TemplatesResponse>, Conflict<ErrorResponse>> Templates(KilerData data)
@@ -92,9 +92,13 @@ internal static class TemplatesApi
         return TypedResults.Ok(new TemplatesResponse(templates, invalid));
     }
 
-    /// <summary>409 also when <c>levels.json</c> cannot be read, as the admin's screen of the levels answers; <c>GET /api/data</c> says why.</summary>
-    private static Results<Ok<LevelsResponse>, Conflict<ErrorResponse>> Levels(KilerData data) =>
-        data.Files?.Levels?.Model is { } levels
+    /// <summary>
+    /// The <c>levels.json</c> that the request takes (<see cref="TeamFiles.LevelsFor"/>, M4.16a): for a session, the newest
+    /// that its public key verifies; for a guest, the file as it is. 409 also when there is none, as the admin's screen of the
+    /// levels answers; <c>GET /api/data</c> says why.
+    /// </summary>
+    private static Results<Ok<LevelsResponse>, Conflict<ErrorResponse>> Levels(HttpContext context, KilerData data) =>
+        data.Files?.LevelsFor(AccessRules.SessionOf(context)) is { } levels
             ? TypedResults.Ok(LevelsResponse.Of(levels))
             : TypedResults.Conflict(new ErrorResponse(SessionApi.NoData));
 

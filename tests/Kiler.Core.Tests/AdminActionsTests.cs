@@ -466,16 +466,19 @@ public sealed class AdminActionsTests : IDisposable
         var team = TeamOf(AdminFile(), _kiler.User(User, level: 1));
         using var admin = SignInWith(team.Files, Admin, TestKiler.Password);
 
-        // The top level cut away after the sign-in, with the other checks as they were: the admin signs in again, and the sign-in
-        // refuses it (M4.15, the M4.6 finding on Session.HoldsEvery).
+        // The top level cut away after the sign-in, with the other checks as they were (M4.15, the M4.6 finding on
+        // Session.HoldsEvery), and not sealed: the admin goes on with the sealed version that the copy keeps (M4.16a), but the
+        // rename, which writes over the share, refuses it until that version is put back (decided by the user in M4.16).
         var levels = team.Files.Levels!.Model!;
         var other = _data.OpenCopy();
         other.Load();
         Assert.Equal(WriteOutcome.Written, other.Replace(LevelsFile.Key, 1, new LevelsFile([.. levels.Levels.Take(3)], levels.Recovery).ToContent()).Outcome);
         team.Follow(_data.Copy.Load());
         Assert.False(admin.HoldsEvery(team.Files.Levels!.Model!));
+        Assert.Null(Access.Check(Need.Admin, admin, team.Files));
+        Assert.Equal((1, false), (team.Files.SealedLevels(PublicKey)!.Version, team.Files.SealedLevels(PublicKey)!.OnShare));
 
-        Assert.Equal(AdminOutcome.LevelsChanged, AdminActions.RenameLevel(admin, team, 1, "Team").Outcome);
+        Assert.Equal(AdminOutcome.LevelsNotSealed, AdminActions.RenameLevel(admin, team, 1, "Team").Outcome);
         Assert.Equal(2, team.Files.Levels!.Version);
 
         // Every level and check as they were, but not sealed: the rename does not seal it under the admin's name.
@@ -517,12 +520,14 @@ public sealed class AdminActionsTests : IDisposable
     }
 
     [Fact]
-    public void Actions_WhereLevelsJsonHasACheckOtherThanTheSignIns_AskForANewSignIn_AndWriteNothing()
+    public void Actions_WhereLevelsJsonHasACheckOtherThanTheSignIns_TakeTheSealedVersion_OrAskForANewSignIn()
     {
         var team = TeamOf(AdminFile(), _kiler.User(User, level: 1));
         using var admin = SignInWith(team.Files, Admin, TestKiler.Password);
 
-        // A check of a key of someone else's, planted after the sign-in (the M4.4 security review).
+        // A check of a key of someone else's, planted after the sign-in (the M4.4 security review), without the seal: the admin
+        // goes on with the sealed version that the copy keeps (M4.16a), so no action takes the planted check, and the rename,
+        // which writes over the share, refuses it.
         using var planted = SecretKey.New();
         var levels = team.Files.Levels!.Model!;
         var entries = levels.Levels.Select(entry => entry.Level == 3 ? entry with { Check = LevelCheck.Create(planted, 3) } : entry).ToList();
@@ -531,12 +536,21 @@ public sealed class AdminActionsTests : IDisposable
         Assert.Equal(WriteOutcome.Written, other.Replace(LevelsFile.Key, 1, new LevelsFile(entries, levels.Recovery).ToContent()).Outcome);
         team.Follow(_data.Copy.Load());
 
+        Assert.Null(Access.Check(Need.Admin, admin, team.Files));
+        Assert.Equal(AdminOutcome.LevelsNotSealed, AdminActions.RenameLevel(admin, team, 1, "Team").Outcome);
+        Assert.Equal(2, team.Files.Levels!.Version);
+
+        // The same check under the admin seal, which only a fault of an admin's Kiler would write: the keys of the session
+        // verified against other checks, so the admin signs in again, and no action writes anything.
+        Assert.Equal(WriteOutcome.Written, other.Replace(LevelsFile.Key, 2, new LevelsFile(entries, levels.Recovery).Sealed(_kiler.AdminKey, 3).ToContent()).Outcome);
+        team.Follow(_data.Copy.Load());
+
         Assert.Equal(AccessRefusal.LevelsChanged, Access.Check(Need.Admin, admin, team.Files));
         Assert.Equal(AdminOutcome.LevelsChanged, AdminActions.RenameLevel(admin, team, 1, "Team").Outcome);
         Assert.Equal(AdminOutcome.LevelsChanged, AdminActions.ChangeLevel(admin, team, User, 1).Outcome);
         Assert.Equal(AdminOutcome.LevelsChanged, AdminActions.NewUser(admin, team, "demo.new", "Demo New", level: 1, canEdit: false).Outcome);
 
-        Assert.Equal(2, team.Files.Levels!.Version);
+        Assert.Equal(3, team.Files.Levels!.Version);
         Assert.Equal(1, team.Files.Users[User].Version);
     }
 

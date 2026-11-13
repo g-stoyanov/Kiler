@@ -95,7 +95,7 @@ internal static class AdminApi
                 ? AdminActions.SetRights(admin, team, account, request.CanEdit, request.IsAdmin, shownCanEdit, shownIsAdmin)
                 : new AdminResult(AdminOutcome.Invalid, ShownMissing)))
             .Needs(Need.Admin);
-        endpoints.MapGet("/api/admin/levels", () => Levels(data)).Needs(Need.Admin);
+        endpoints.MapGet("/api/admin/levels", (HttpContext context) => Levels(context, data)).Needs(Need.Admin);
         endpoints.MapPut("/api/admin/levels/{level}", (HttpContext context, int level, RenameRequest request) => Rename(context, data, level, request))
             .Needs(Need.Admin);
     }
@@ -113,7 +113,7 @@ internal static class AdminApi
         AdminOutcome.UserNotSealed =>
             "The user file is not sealed by an admin, so its rights are not changed. Give the user a new temporary password first: it seals the file as a reader, whose rights can then be set.",
         AdminOutcome.LevelsNotSealed =>
-            "levels.json is not sealed by an admin, so a rename would seal a change that someone made in it. Put back its sealed version first.",
+            "levels.json in the shared folder is not the version that an admin sealed last, so a rename would build on a change that someone made in it. Put back its sealed version first.",
         AdminOutcome.Changed => "The file has changed meanwhile. Read it again and try once more.",
         AdminOutcome.Busy => "The file is being written now. Try again in a moment.",
         AdminOutcome.Offline => "The shared folder cannot be reached. The change can be made once it is back.",
@@ -135,8 +135,9 @@ internal static class AdminApi
         return TypedResults.Ok(new AdminUsersResponse(users, AdminActions.FewAdmins(files, admin.AdminPublicKey)));
     }
 
-    private static Results<Ok<LevelsResponse>, Conflict<ErrorResponse>> Levels(KilerData data) =>
-        data.Files?.Levels?.Model is { } levels
+    /// <summary>The newest <c>levels.json</c> that the admin key of the session sealed, on the share or in the local copy (M4.16a), as the admin actions take it.</summary>
+    private static Results<Ok<LevelsResponse>, Conflict<ErrorResponse>> Levels(HttpContext context, KilerData data) =>
+        data.Files?.LevelsFor(AccessRules.SessionOf(context)) is { } levels
             ? TypedResults.Ok(LevelsResponse.Of(levels))
             : TypedResults.Conflict(new ErrorResponse(SessionApi.NoData));
 

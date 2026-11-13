@@ -305,6 +305,43 @@ public sealed class AdminApiTests : IDisposable
         await AssertErrorAsync(above, HttpStatusCode.BadRequest, "level is not from 0 to 2.");
     }
 
+    /// <summary>
+    /// A <c>levels.json</c> changed on the share without the seal, after the copy of this Kiler saw the sealed one (M4.16a): the
+    /// admin signs in, the lists of the levels and the admin actions take the sealed version that the copy keeps, and the
+    /// rename, which writes over the share, refuses it until it is put back (decided by the user in M4.16). It came back here
+    /// from M4.15, which took it out as no admin could sign in then.
+    /// </summary>
+    [Fact]
+    public async Task RenameLevel_WhileTheShareHasALevelsJsonWithoutTheSeal_IsRefused_AndTheAdminWorksWithTheSealedVersionOfTheCopy()
+    {
+        using (var first = NewData(guestMode: false))
+        {
+            await using var started = await StartAsync(first, MadeUpKiler.Admin);
+        }
+
+        var levels = MadeUpKiler.Levels;
+        _writer!.Replace(LevelsFile.Key, 1, new LevelsFile([.. levels.Levels.Select(entry => entry.Level == 1 ? entry with { Name = "Mine" } : entry)], levels.Recovery).ToContent());
+        using var data = OpenData("Kiler");
+        await using var server = await StartAsync(data, MadeUpKiler.Admin);
+        using var client = await SignedInAsync(server);
+
+        Assert.Equal("Guest,Team,Prod", Names(await GetAsync(client, "/api/admin/levels")));
+        Assert.Equal("Guest,Team,Prod", Names(await GetAsync(client, "/api/levels")));
+        using (var renamed = await SendAsync(client, HttpMethod.Put, "/api/admin/levels/1", new JsonObject { ["name"] = "Staff" }))
+        {
+            await AssertErrorAsync(renamed, HttpStatusCode.Conflict, AdminApi.Message(AdminOutcome.LevelsNotSealed));
+        }
+
+        using (var made = await NewUserAsync(client, "demo.new", 1))
+        {
+            Assert.Equal(HttpStatusCode.OK, made.StatusCode);
+        }
+
+        var onShare = Assert.IsType<JsonObject>(JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(DataFolder, "levels.json"), Cancel)));
+        Assert.Equal(2, (int?)onShare["version"]);
+        Assert.Equal("Mine", (string?)onShare["levels"]![1]!["name"]);
+    }
+
     /// <summary>Every admin endpoint, with a body that would be done.</summary>
     private static IEnumerable<(HttpMethod Method, string Path, JsonObject? Body)> Endpoints() =>
     [

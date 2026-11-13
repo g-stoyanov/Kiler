@@ -32,6 +32,13 @@ internal sealed class FileSeal
 
     private readonly byte[] _digest;
 
+    /// <summary>
+    /// The last public key that <see cref="IsBy"/> checked, and its answer, as the versions of a file that the copy keeps are
+    /// checked at each new <see cref="TeamFiles"/>, and anyone who can write the share can plant thousands of them (M4.16a
+    /// security review). The digest and the stamp never change, so the answer for a key does not either.
+    /// </summary>
+    private volatile Checked? _checked;
+
     private FileSeal(byte[] digest, string stamp)
     {
         _digest = digest;
@@ -42,7 +49,25 @@ internal sealed class FileSeal
     public string Stamp { get; }
 
     /// <summary>Whether <see cref="Stamp"/> is a seal of the text by the admin key of <paramref name="publicKey"/>.</summary>
-    public bool IsBy(string publicKey) => AdminSeal.VerifyDigest(publicKey, _digest, Stamp);
+    public bool IsBy(string publicKey)
+    {
+        ArgumentNullException.ThrowIfNull(publicKey);
+        if (_checked is { } last && string.Equals(last.PublicKey, publicKey, StringComparison.Ordinal))
+        {
+            return last.Sealed;
+        }
+
+        var sealedBy = AdminSeal.VerifyDigest(publicKey, _digest, Stamp);
+        _checked = new Checked(publicKey, sealedBy);
+        return sealedBy;
+    }
+
+    /// <summary>Whether <paramref name="other"/> has the same stamp over the same text, so that every check gives it the same answer (M4.16a).</summary>
+    public bool SameAs(FileSeal other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+        return string.Equals(Stamp, other.Stamp, StringComparison.Ordinal) && _digest.AsSpan().SequenceEqual(other._digest);
+    }
 
     /// <summary>
     /// The seal of a file as it is read, every member of <paramref name="content"/> but <c>stamp</c> as
@@ -109,6 +134,8 @@ internal sealed class FileSeal
         writer.WriteBoolean("canEdit", canEdit);
         writer.WriteBoolean("isAdmin", isAdmin);
     });
+
+    private sealed record Checked(string PublicKey, bool Sealed);
 
     private static byte[] Write(Action<Utf8JsonWriter> members)
     {

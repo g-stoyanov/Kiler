@@ -106,6 +106,12 @@ public sealed class AccessTests
             session!.Dispose();
         }
 
+        // An admin signs in only with a levels.json that its admin key sealed (M4.15), and Need.Admin takes that one (M4.16a).
+        if (caller == Caller.Admin)
+        {
+            files = SealedBy(session!, levels);
+        }
+
         Assert.Equal(expected, Access.Check(need, session, files));
     }
 
@@ -124,7 +130,7 @@ public sealed class AccessTests
     {
         using var admin = SessionTests.NewSealedSession(top: 2, canEdit: true, isAdmin: true);
 
-        Assert.Equal(NotAdmin, Access.Check(Need.Admin, admin, Teams.Value.Closed));
+        Assert.Equal(NotAdmin, Access.Check(Need.Admin, admin, SealedBy(admin, Levels)));
     }
 
     [Fact]
@@ -133,10 +139,11 @@ public sealed class AccessTests
         // As a check planted after the sign-in (M4.4 security review): the keys of the session verified against others.
         using var admin = SessionTests.NewSealedSession(top: 3, canEdit: true, isAdmin: true);
         using var user = SessionTests.NewSealedSession(top: 1);
+        var files = SealedBy(admin, Levels);
 
-        Assert.Equal(AccessRefusal.LevelsChanged, Access.Check(Need.Admin, admin, Teams.Value.Closed));
-        Assert.Null(Access.Check(Need.Editor, admin, Teams.Value.Closed));
-        Assert.Equal(NotAdmin, Access.Check(Need.Admin, user, Teams.Value.Closed));
+        Assert.Equal(AccessRefusal.LevelsChanged, Access.Check(Need.Admin, admin, files));
+        Assert.Null(Access.Check(Need.Editor, admin, files));
+        Assert.Equal(NotAdmin, Access.Check(Need.Admin, user, files));
     }
 
     [Fact]
@@ -144,13 +151,20 @@ public sealed class AccessTests
     {
         // M4.15, the M4.6 security review: the top level and its check cut away after the sign-in, the other checks equal.
         using var admin = SessionTests.NewSealedSession(top: 3, canEdit: true, isAdmin: true, levels: Levels);
-        var cut = TestKiler.Files(new LevelsFile([.. Levels.Levels.Take(3)], Levels.Recovery).ToContent(), null, []);
+        var cut = new LevelsFile([.. Levels.Levels.Take(3)], Levels.Recovery);
 
-        Assert.Null(Access.Check(Need.Admin, admin, Teams.Value.Closed));
-        Assert.Equal(AccessRefusal.LevelsChanged, Access.Check(Need.Admin, admin, cut));
+        Assert.Null(Access.Check(Need.Admin, admin, SealedBy(admin, Levels)));
+        Assert.Equal(AccessRefusal.LevelsChanged, Access.Check(Need.Admin, admin, SealedBy(admin, cut)));
+
+        // Cut and not sealed, with no sealed version in the copy, as a Kiler that never saw one: there are no levels to hold.
+        Assert.Equal(NotAdmin, Access.Check(Need.Admin, admin, TestKiler.Files(cut.ToContent(), null, [])));
     }
 
     private static LevelsFile Levels => Teams.Value.Closed.Levels!.Model!;
+
+    /// <summary>The files of a team whose <c>levels.json</c> has the levels and checks of <paramref name="levels"/>, sealed by the admin key of <paramref name="admin"/> for version 1.</summary>
+    private static TeamFiles SealedBy(Session admin, LevelsFile levels) =>
+        admin.UseAdminKey(adminKey => TestKiler.Files(new LevelsFile(levels.Levels, levels.Recovery).Sealed(adminKey, 1).ToContent(), null, []));
 
     private static TeamFiles Team(TestKiler kiler, bool guestMode) =>
         TestKiler.Files(kiler.Levels.ToContent(), new SettingsFile(guestMode, autoLockMinutes: 30).ToContent(), []);

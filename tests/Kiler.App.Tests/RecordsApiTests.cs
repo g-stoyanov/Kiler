@@ -219,6 +219,51 @@ public sealed partial class RecordsApiTests : IDisposable
         Assert.Contains($"\"use\":\"{use}\",\"level\":2}}\n", File.ReadAllText(file), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A <c>levels.json</c> written on the share without the seal after the copy of this Kiler saw the sealed one, with other
+    /// names and a level 3 above the top level (M4.16a): a session takes the sealed version that the copy keeps, so the view of
+    /// a secret of level 2 is still recorded as one of the top level, and a locked level has its sealed name; a guest, which
+    /// has no key to check a seal with, gets the names of the share.
+    /// </summary>
+    [Fact]
+    public async Task TheTopLevelOfTheAudit_AndTheNamesOfTheLevels_OfASession_AreThoseOfTheSealedVersionThatTheCopyKeeps()
+    {
+        using (var first = NewData(guestMode: true))
+        {
+            await using var started = await StartAsync(first, MadeUpKiler.Admin);
+        }
+
+        WriteLevelsWithoutTheSeal();
+        using (var data = OpenData())
+        {
+            await using var server = await StartAsync(data, MadeUpKiler.Admin);
+
+            // Before the sign-in, as the session is the one of the process.
+            using (var guest = server.CreateSignedInClient())
+            {
+                var (shown, _) = await GetAsync(guest, $"/api/records/{MadeUpKiler.Database}");
+                Assert.Equal(("Mine", "Live"), (LevelNameOf(shown, "host"), LevelNameOf(shown, "password")));
+            }
+
+            using var admin = await SignedInAsync(server);
+            using (var response = await PostSecretAsync(admin, MadeUpKiler.Database, "password", "show"))
+            {
+                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            }
+
+            var file = Assert.Single(Directory.GetFiles(Path.Combine(_folder.Path, "data", "audit"), "*.jsonl", SearchOption.AllDirectories));
+            Assert.Contains("\"use\":\"show\",\"level\":2}\n", File.ReadAllText(file), StringComparison.Ordinal);
+        }
+
+        using (var data = OpenData())
+        {
+            await using var server = await StartAsync(data, MadeUpKiler.User);
+            using var user = await SignedInAsync(server);
+            var (shown, _) = await GetAsync(user, $"/api/records/{MadeUpKiler.Database}");
+            Assert.Equal("Prod", LevelNameOf(shown, "password"));
+        }
+    }
+
     [Fact]
     public async Task TheValueOfASecretOfTheTopLevel_IsNotGiven_WhenItsViewCannotBeRecorded()
     {
@@ -369,6 +414,39 @@ public sealed partial class RecordsApiTests : IDisposable
         var dataFolder = Path.Combine(_folder.Path, "data");
         var made = MadeUpKiler.WriteRecords(MadeUpKiler.WriteTo(MadeUpData.Create(dataFolder, Path.Combine(_folder.Path, "writer")), guestMode));
         more?.Invoke(made);
-        return new(DataPlace.For(dataFolder, Path.Combine(_folder.Path, "Kiler")), FileOwner.Instance, TimeProvider.System, TextWriter.Null, TextWriter.Null);
+        return OpenData();
     }
+
+    /// <summary>The data folder of the test with the local folder of the test, whose copy keeps what an earlier start of the test saw.</summary>
+    private KilerData OpenData() =>
+        new(DataPlace.For(Path.Combine(_folder.Path, "data"), Path.Combine(_folder.Path, "Kiler")), FileOwner.Instance, TimeProvider.System, TextWriter.Null, TextWriter.Null);
+
+    /// <summary>
+    /// Writes version 2 of <c>levels.json</c> as a new file of the share, as someone outside Kiler can, without the seal: level
+    /// 1 named Mine, level 2 Live, and a level 3 above the top level of the made-up Kiler.
+    /// </summary>
+    private void WriteLevelsWithoutTheSeal()
+    {
+        var content = MadeUpKiler.Levels.ToContent();
+        content.Remove("stamp");
+        var levels = content["levels"]!.AsArray();
+        levels[1]!["name"] = "Mine";
+        levels[2]!["name"] = "Live";
+        levels.Add(new JsonObject { ["level"] = 3, ["name"] = "Above", ["check"] = "made-up-check-3" });
+        content["recovery"]!["keys"]!["3"] = "made-up-key-3";
+        var document = new JsonObject { ["id"] = "levels", ["version"] = 2 };
+        foreach (var (name, value) in content)
+        {
+            document[name] = value?.DeepClone();
+        }
+
+        var path = Path.Combine(_folder.Path, "data", "levels.json");
+        File.Delete(path);
+        File.WriteAllText(path, document.ToJsonString());
+        File.SetCreationTimeUtc(path, File.GetLastWriteTimeUtc(path));
+    }
+
+    /// <summary>The name of the level of a locked field of a record as the page gets it.</summary>
+    private static string? LevelNameOf(JsonObject record, string key) =>
+        (string?)record["fields"]!.AsArray().Single(field => (string?)field!["key"] == key)!["levelName"];
 }

@@ -18,7 +18,9 @@ public enum Need
     /// <summary>
     /// A session whose user file has a sealed <c>isAdmin</c> and which holds the private key of the admin key
     /// (<see cref="Session.IsAdmin"/>, M4.15), and the key of every level of <c>levels.json</c>, verified at the sign-in
-    /// against the checks that it has now (<see cref="Session.HoldsEvery"/>, M4.6).
+    /// against the checks that it has now (<see cref="Session.HoldsEvery"/>, M4.6): the newest version that the public key of
+    /// the session verifies, on the share or in the local copy (<see cref="TeamFiles.SealedLevels"/>, M4.16a), as the sign-in
+    /// takes it.
     /// </summary>
     Admin,
 }
@@ -49,7 +51,7 @@ public enum AccessRefusal
 /// The rights of a request (M4.4, design 7.4, decided at the start of M4). <c>canEdit</c> and <c>isAdmin</c> come from the
 /// user file of the sign-in, only when its seal verifies with the public key of the session (M4.15): a user who writes them
 /// into their own file is a reader. The admin right is also the private key of the admin key, and the key of every level of
-/// <c>levels.json</c> as the sign-in verified them.
+/// the newest sealed <c>levels.json</c> as the sign-in verified them (M4.16a).
 /// </summary>
 public static class Access
 {
@@ -84,7 +86,7 @@ public static class Access
         {
             Need.Reader => null,
             Need.Editor => session.CanEdit ? null : AccessRefusal.CannotEdit,
-            Need.Admin => !session.IsAdmin || files?.Levels?.Model is not { } levels || !Enumerable.Range(1, levels.Top).All(session.Reads)
+            Need.Admin => !session.IsAdmin || files?.LevelsFor(session) is not { } levels || !Enumerable.Range(1, levels.Top).All(session.Reads)
                 ? AccessRefusal.NotAdmin
                 : session.HoldsEvery(levels) ? null : AccessRefusal.LevelsChanged,
             _ => throw new ArgumentOutOfRangeException(nameof(need), need, "An endpoint needs one of the values of Need."),

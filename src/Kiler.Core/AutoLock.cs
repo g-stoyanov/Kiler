@@ -50,12 +50,13 @@ public sealed class AutoLock : IDisposable
     }
 
     /// <summary>
-    /// The minutes of the automatic lock in <paramref name="files"/>: those of <c>settings.json</c> when its seal verifies with
-    /// <paramref name="adminPublicKey"/>, the public key of the session, else <see cref="DefaultMinutes"/> (M4.15). So whoever
-    /// can write the share does not set the lock of every session to a day or to a minute (the M4.5b security review).
+    /// The minutes of the automatic lock in <paramref name="files"/>: those of the newest <c>settings.json</c> whose seal
+    /// verifies with <paramref name="adminPublicKey"/>, the public key of the session, on the share or in the local copy
+    /// (<see cref="TeamFiles.SealedSettings"/>, M4.16a), else <see cref="DefaultMinutes"/> (M4.15). So whoever can write the
+    /// share does not set the lock of every session to a day or to a minute (the M4.5b security review).
     /// </summary>
     public static int MinutesOf(TeamFiles? files, string? adminPublicKey) =>
-        adminPublicKey is not null && files?.Settings?.Model is { } settings && settings.IsSealedBy(adminPublicKey) ? settings.AutoLockMinutes : DefaultMinutes;
+        adminPublicKey is not null && files?.SealedSettings(adminPublicKey)?.Model is { } settings ? settings.AutoLockMinutes : DefaultMinutes;
 
     /// <summary>A request of a page: the lock is put off until the minutes have passed from now.</summary>
     public void Activity()

@@ -4,7 +4,11 @@ namespace Kiler.App;
 
 /// <param name="State">The state of the data.</param>
 /// <param name="Folder">The full path of the data folder; null when none was chosen.</param>
-/// <param name="Levels">Why <c>levels.json</c> of the local copy cannot be used; null when it can, and while the copy is not open or watched.</param>
+/// <param name="Levels">
+/// Why <c>levels.json</c> of the local copy cannot be used; null when it can, also when the share's file is damaged or gone
+/// and the copy keeps a version of it that fits, as the sign-in takes the newest sealed one (M4.16a), and while the copy is
+/// not open or watched.
+/// </param>
 /// <param name="Settings">The same for <c>settings.json</c>.</param>
 internal sealed record DataResponse(DataState State, string? Folder, string? Levels, string? Settings);
 
@@ -30,7 +34,7 @@ internal static class DataApi
     {
         var state = data.State;
         var files = state is DataState.Open or DataState.Offline ? data.Team?.Files : null;
-        return new(state, data.Folder, Problem(files, files?.Levels), Problem(files, files?.Settings));
+        return new(state, data.Folder, files?.HasLevels == true ? null : Problem(files, files?.Levels), Problem(files, files?.Settings));
     }
 
     private static string? Problem<T>(TeamFiles? files, TeamFile<T>? file)

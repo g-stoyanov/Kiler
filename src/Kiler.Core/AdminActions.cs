@@ -66,7 +66,7 @@ public static class AdminActions
     {
         ArgumentNullException.ThrowIfNull(team);
         var files = team.Files;
-        if (!TryLevels(admin, files, out var levels, out _, out var refusal))
+        if (!TryLevels(admin, files, out var levels, out var refusal))
         {
             return new(refusal);
         }
@@ -81,7 +81,7 @@ public static class AdminActions
             return new(AdminOutcome.Invalid, AccountInvalid);
         }
 
-        if ((LevelInvalid(level, levels) ?? UserFile.Invalid(displayName, level)) is { } invalid)
+        if ((LevelInvalid(level, levels.Model) ?? UserFile.Invalid(displayName, level)) is { } invalid)
         {
             return new(AdminOutcome.Invalid, invalid);
         }
@@ -109,12 +109,12 @@ public static class AdminActions
     {
         ArgumentNullException.ThrowIfNull(team);
         var files = team.Files;
-        if (!TryLevels(admin, files, out var levels, out _, out var refusal) || !TryUser(admin, files, account, out var user, out var version, out refusal))
+        if (!TryLevels(admin, files, out var levels, out var refusal) || !TryUser(admin, files, account, out var user, out var version, out refusal))
         {
             return new(refusal);
         }
 
-        if (LevelInvalid(level, levels) is { } invalid)
+        if (LevelInvalid(level, levels.Model) is { } invalid)
         {
             return new(AdminOutcome.Invalid, invalid);
         }
@@ -122,7 +122,7 @@ public static class AdminActions
         // A forged canEdit or isAdmin is not sealed again under the admin key, nor does it get the private key.
         var sealedByAdmin = IsSealed(admin, user);
         var isAdmin = sealedByAdmin && user.IsAdmin;
-        if (isAdmin && level < levels.Top)
+        if (isAdmin && level < levels.Model.Top)
         {
             return new(AdminOutcome.AdminLevel);
         }
@@ -157,7 +157,7 @@ public static class AdminActions
     {
         ArgumentNullException.ThrowIfNull(team);
         var files = team.Files;
-        if (!TryLevels(admin, files, out var levels, out _, out var refusal) || !TryUser(admin, files, account, out var user, out var version, out refusal))
+        if (!TryLevels(admin, files, out var levels, out var refusal) || !TryUser(admin, files, account, out var user, out var version, out refusal))
         {
             return new(refusal);
         }
@@ -172,8 +172,8 @@ public static class AdminActions
         if (isAdmin && !user.IsAdmin)
         {
             var temporary = Password.NewTemporary();
-            var keys = admin.LockKeys(levels.Top, withAdminKey: true, temporary);
-            var raised = Seal(admin, new UserFile(user.Account, user.DisplayName, levels.Top, canEdit, isAdmin: true, mustChangePassword: true, keys));
+            var keys = admin.LockKeys(levels.Model.Top, withAdminKey: true, temporary);
+            var raised = Seal(admin, new UserFile(user.Account, user.DisplayName, levels.Model.Top, canEdit, isAdmin: true, mustChangePassword: true, keys));
             return Write(() => team.Replace(raised, version), version, new(AdminOutcome.Done, User: raised, TemporaryPassword: temporary));
         }
 
@@ -197,22 +197,27 @@ public static class AdminActions
     /// Renames <paramref name="level"/> in <c>levels.json</c> (decided at the start of M4: the levels screen only renames), and
     /// seals it for its next version (M4.14). The checks and the recovery set stay as they are. A name as it is already writes
     /// nothing. Only a <c>levels.json</c> that the admin key sealed is renamed, so a rename never seals what someone changed
-    /// in it, such as a level cut away or another recovery set (<see cref="AdminOutcome.LevelsNotSealed"/>).
+    /// in it, such as a level cut away or another recovery set (<see cref="AdminOutcome.LevelsNotSealed"/>). It is the newest
+    /// sealed version (M4.16a), and only while that is the file on the share: a write through the copy makes only the version
+    /// of the share plus one, which a Kiler that keeps a higher sealed version would not take, so the sealed version is put
+    /// back first (decided by the user in M4.16).
     /// </summary>
     /// <exception cref="SessionLockedException">The session was locked before it.</exception>
     public static AdminResult RenameLevel(Session admin, Team team, int level, string? name)
     {
         ArgumentNullException.ThrowIfNull(team);
-        if (!TryLevels(admin, team.Files, out var levels, out var version, out var refusal))
+        if (!TryLevels(admin, team.Files, out var newest, out var refusal))
         {
             return new(refusal);
         }
 
-        // HoldsAdminKey, which TryLevels checked, means a public key.
-        if (!levels.IsSealedBy(admin.AdminPublicKey!))
+        if (!newest.OnShare)
         {
             return new(AdminOutcome.LevelsNotSealed);
         }
+
+        var levels = newest.Model;
+        var version = newest.Version;
 
         if (level < 0 || level > levels.Top)
         {
@@ -240,12 +245,13 @@ public static class AdminActions
     }
 
     /// <summary>
-    /// <c>levels.json</c> of <paramref name="files"/> and its version, when the admin holds the admin key (M4.14) and every
+    /// The newest <c>levels.json</c> of <paramref name="files"/> that the admin key sealed, on the share or in the copy
+    /// (<see cref="TeamFiles.SealedLevels"/>, M4.16a), with its version, when the admin holds the admin key (M4.14) and every
     /// level of it, verified against its checks now; else <see cref="AdminOutcome.NoAdminKey"/>, or
     /// <see cref="AdminOutcome.LevelsChanged"/>, and the admin signs in again.
     /// </summary>
     /// <exception cref="SessionLockedException">The session is locked.</exception>
-    private static bool TryLevels(Session admin, TeamFiles files, [NotNullWhen(true)] out LevelsFile? levels, out int version, out AdminOutcome refusal)
+    private static bool TryLevels(Session admin, TeamFiles files, [NotNullWhen(true)] out SealedFile<LevelsFile>? levels, out AdminOutcome refusal)
     {
         ArgumentNullException.ThrowIfNull(admin);
 
@@ -256,18 +262,15 @@ public static class AdminActions
         }
 
         levels = null;
-        version = 0;
         if (!admin.HoldsAdminKey)
         {
             refusal = AdminOutcome.NoAdminKey;
             return false;
         }
 
-        levels = files.Levels?.Model;
-
-        // A file that fits its model is not damaged, so it has a version.
-        version = files.Levels?.Version ?? 0;
-        if (levels is null || !admin.HoldsEvery(levels))
+        // HoldsAdminKey means a public key.
+        levels = files.SealedLevels(admin.AdminPublicKey!);
+        if (levels is null || !admin.HoldsEvery(levels.Model))
         {
             levels = null;
             refusal = AdminOutcome.LevelsChanged;
@@ -390,8 +393,9 @@ public enum AdminOutcome
     UserNotSealed,
 
     /// <summary>
-    /// A rename of a <c>levels.json</c> whose seal does not verify by the admin key (M4.14): its sealed version is put back
-    /// first, so the rename does not seal what someone changed in it.
+    /// A rename of a <c>levels.json</c> whose seal does not verify by the admin key (M4.14), or while the newest sealed version
+    /// is not the file on the share (M4.16a): its sealed version is put back first, so the rename does not seal what someone
+    /// changed in it, and every Kiler takes it.
     /// </summary>
     LevelsNotSealed,
 

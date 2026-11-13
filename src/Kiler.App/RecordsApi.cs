@@ -387,7 +387,7 @@ internal static class RecordsApi
             return TypedResults.NotFound(new ErrorResponse(NotThere));
         }
 
-        var outcome = Audit.Secret(view, request.Field ?? string.Empty, use, session, files.Levels?.Model, copy, time, out var value);
+        var outcome = Audit.Secret(view, request.Field ?? string.Empty, use, session, files.LevelsFor(session), copy, time, out var value);
         return outcome switch
         {
             SecretOutcome.Value => TypedResults.Ok(new SecretResponse(value!)),
@@ -763,8 +763,9 @@ internal static class RecordsApi
             _ when type == FieldType.Ref => new JsonObject { ["id"] = read.Text, ["name"] = set.RecordName(read.Text!) },
             _ => (JsonNode)JsonValue.Create(read.Text!),
         };
+        // The levels.json of the session of the set, as the sign-in took it (M4.16a).
         var levelName = field.Kind == FieldKind.Locked
-            ? files.Levels?.Model?.Levels.FirstOrDefault(level => level.Level == field.Level)?.Name
+            ? files.LevelsFor(set.Session)?.Levels.FirstOrDefault(level => level.Level == field.Level)?.Name
             : null;
         return new(field.Key, field.Level, KindOf(field.Kind), value, levelName);
     }

@@ -149,7 +149,9 @@ public sealed class Session : IDisposable
     /// fewer, each verified at the sign-in against the check that <paramref name="levels"/> has now (ordinal). A check planted
     /// after the sign-in, which a key of the session would not verify, is not written back by an admin action under the
     /// admin's name (M4.6, the M4.4 security review), nor is a <c>levels.json</c> cut down below the keys of the session (M4.15,
-    /// the M4.6 security review).
+    /// the M4.6 security review). The callers give the newest version that the public key of the session verifies
+    /// (<see cref="TeamFiles.SealedLevels"/>, M4.16a), as the sign-in took it, so a session that signed in with the sealed
+    /// version from the local copy holds every level of it while the share has another.
     /// </summary>
     public bool HoldsEvery(LevelsFile levels)
     {

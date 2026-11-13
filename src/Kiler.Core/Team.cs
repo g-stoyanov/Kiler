@@ -11,7 +11,9 @@ namespace Kiler.Core;
 /// each update replaces whole, so a request reads it without a lock and finds the files of one moment. The updates come on
 /// the thread of the watch; they keep a lock of their own, so one from a request too (M4.3) never interleaves with them. A
 /// write of this Kiler goes through the team (<see cref="Replace(UserFile, int)"/>, M4.5a; <see cref="Create"/> and
-/// <see cref="Replace(LevelsFile, int)"/>, M4.6), as no load gives it.
+/// <see cref="Replace(LevelsFile, int)"/>, M4.6), as no load gives it. With <c>levels.json</c> and <c>settings.json</c> it
+/// keeps the versions of them that the copy keeps, from which <see cref="TeamFiles.SealedLevels"/> and
+/// <see cref="TeamFiles.SealedSettings"/> take the newest that an admin sealed (M4.16a).
 /// </summary>
 public sealed class Team
 {
@@ -32,16 +34,27 @@ public sealed class Team
     {
         ArgumentNullException.ThrowIfNull(copy);
         _copy = copy;
-        _files = Read(copy.Documents());
+        _files = Read(copy);
     }
 
     /// <summary>What the team has now.</summary>
     public TeamFiles Files => _files;
 
-    /// <summary>Takes what a load changed of the team: a file new, changed, damaged or gone. A load that changed none of them leaves <see cref="Files"/> as it is.</summary>
+    /// <summary>
+    /// Takes what a load changed of the team: a file new, changed, damaged or gone. A load that changed none of them leaves
+    /// <see cref="Files"/> as it is. The versions that the copy keeps of <c>levels.json</c> and <c>settings.json</c> are read
+    /// again only for a file that the load gave, took away or reported changed outside Kiler (M4.16a), and outside the lock, as
+    /// the copy can wait for a write under way. The limit: a slot that a later load takes from the history of the share, as
+    /// the caps of a load put it off (storage.md), is seen at the next change of the file, or at <see cref="Reload"/>.
+    /// </summary>
     public void Follow(LoadResult load)
     {
         ArgumentNullException.ThrowIfNull(load);
+
+        // The writes of this Kiler keep the kept versions as they are, so those of any later TeamFiles are as good.
+        var before = _files;
+        var keptLevels = Touches(load, LevelsFile.Key) ? Kept(_copy, LevelsFile.Key, LevelsFile.TryRead, before.KeptLevels) : (ImmutableArray<TeamFile<LevelsFile>>?)null;
+        var keptSettings = Touches(load, SettingsFile.Key) ? Kept(_copy, SettingsFile.Key, SettingsFile.TryRead, before.KeptSettings) : (ImmutableArray<TeamFile<SettingsFile>>?)null;
         lock (_gate)
         {
             var files = _files;
@@ -81,9 +94,10 @@ public sealed class Team
             }
 
             _written.Clear();
-            if (levels != files.Levels || settings != files.Settings || users != files.Users || templates != files.Templates)
+            if (levels != files.Levels || settings != files.Settings || users != files.Users || templates != files.Templates
+                || keptLevels is not null || keptSettings is not null)
             {
-                _files = new TeamFiles(levels, settings, users, templates);
+                _files = new TeamFiles(levels, settings, users, templates, keptLevels ?? files.KeptLevels, keptSettings ?? files.KeptSettings);
             }
         }
     }
@@ -122,7 +136,7 @@ public sealed class Team
             _copy.Replace(LevelsFile.Key, version, levels.ToContent()),
             (files, written) => files.Levels?.Version > written
                 ? null
-                : new TeamFiles(TeamFile<LevelsFile>.Written(written, levels.AsRead(written)), files.Settings, files.Users, files.Templates));
+                : new TeamFiles(TeamFile<LevelsFile>.Written(written, levels.AsRead(written)), files.Settings, files.Users, files.Templates, files.KeptLevels, files.KeptSettings));
     }
 
     /// <summary>
@@ -134,7 +148,7 @@ public sealed class Team
     {
         lock (_gate)
         {
-            _files = Read(_copy.Documents());
+            _files = Read(_copy);
         }
     }
 
@@ -165,21 +179,64 @@ public sealed class Team
     private static TeamFiles? WithUser(TeamFiles files, UserFile user, int version) =>
         files.Users.TryGetValue(user.Account, out var had) && had.Version > version
             ? null
-            : new TeamFiles(files.Levels, files.Settings, files.Users.SetItem(user.Account, TeamFile<UserFile>.Written(version, user)), files.Templates);
+            : new TeamFiles(files.Levels, files.Settings, files.Users.SetItem(user.Account, TeamFile<UserFile>.Written(version, user)), files.Templates, files.KeptLevels, files.KeptSettings);
 
-    private static TeamFiles Read(IReadOnlyList<LoadedDocument> documents)
+    private static TeamFiles Read(DataCopy copy)
     {
         TeamFile<LevelsFile>? levels = null;
         TeamFile<SettingsFile>? settings = null;
         var users = TeamFiles.Empty.Users;
         var templates = TeamFiles.Empty.Templates;
-        foreach (var loaded in documents)
+        foreach (var loaded in copy.Documents())
         {
             Take(loaded, ref levels, ref settings, ref users, ref templates);
         }
 
-        return new TeamFiles(levels, settings, users, templates);
+        return new TeamFiles(
+            levels,
+            settings,
+            users,
+            templates,
+            Kept<LevelsFile>(copy, LevelsFile.Key, LevelsFile.TryRead, []),
+            Kept<SettingsFile>(copy, SettingsFile.Key, SettingsFile.TryRead, []));
     }
+
+    /// <summary>
+    /// The versions of a document of the root that the copy keeps and that fit their model, the newest first (M4.16a): the old
+    /// versions of its history (<see cref="DataCopy.History"/>) and the last good bytes that it keeps apart for a change outside
+    /// Kiler (<see cref="DataCopy.KeptApart"/>), each that <paramref name="before"/> has as it is in its place (<see cref="KeepKnown"/>).
+    /// The share is not touched.
+    /// </summary>
+    private static ImmutableArray<TeamFile<T>> Kept<T>(DataCopy copy, DocumentKey key, TeamFile<T>.TryRead tryRead, ImmutableArray<TeamFile<T>> before)
+        where T : class, ISealedFile
+    {
+        var kept = copy.History(key).ToList();
+        if (copy.KeptApart(key) is { } apart)
+        {
+            kept.Add(apart);
+        }
+
+        return KeepKnown(kept.Select(document => TeamFile<T>.Of(document, tryRead)).Where(file => file.IsValid), before);
+    }
+
+    /// <summary>
+    /// The versions <paramref name="read"/> again, the newest first, each that <paramref name="before"/> has at the same version
+    /// and with the same seal (<see cref="FileSeal.SameAs"/>) in its place, so its model keeps the answers of its seal checks
+    /// and only a new version is checked again: anyone who can write the share can plant thousands of versions in its history,
+    /// each checked once per key (M4.16a security review).
+    /// </summary>
+    internal static ImmutableArray<TeamFile<T>> KeepKnown<T>(IEnumerable<TeamFile<T>> read, ImmutableArray<TeamFile<T>> before)
+        where T : class, ISealedFile
+    {
+        var known = before.ToLookup(file => file.Version);
+        return [.. read
+            .Select(file => known[file.Version].FirstOrDefault(old => old.Model?.Seal is { } seal && file.Model?.Seal is { } now && seal.SameAs(now)) ?? file)
+            .OrderByDescending(file => file.Version)];
+    }
+
+    /// <summary>Whether a load gave <paramref name="key"/>, took it away, or reported it changed outside Kiler in its folder.</summary>
+    private static bool Touches(LoadResult load, DocumentKey key) =>
+        load.Changed.Any(loaded => loaded.Key == key) || load.Gone.Contains(key) || load.Outside.Any(change => change.Key == key && !change.InTrash);
 
     private static void Take(
         LoadedDocument loaded,
@@ -220,23 +277,32 @@ public sealed class Team
 /// </summary>
 public sealed class TeamFiles
 {
+    /// <summary>The newest sealed versions for the last public key that asked, as the automatic lock asks at each request.</summary>
+    private volatile SealedBy? _sealed;
+
     internal TeamFiles(
         TeamFile<LevelsFile>? levels,
         TeamFile<SettingsFile>? settings,
         ImmutableSortedDictionary<string, TeamFile<UserFile>> users,
-        ImmutableSortedDictionary<string, TeamFile<TemplateFile>> templates)
+        ImmutableSortedDictionary<string, TeamFile<TemplateFile>> templates,
+        ImmutableArray<TeamFile<LevelsFile>> keptLevels,
+        ImmutableArray<TeamFile<SettingsFile>> keptSettings)
     {
         Levels = levels;
         Settings = settings;
         Users = users;
         Templates = templates;
+        KeptLevels = keptLevels;
+        KeptSettings = keptSettings;
     }
 
     public static TeamFiles Empty { get; } = new(
         null,
         null,
         ImmutableSortedDictionary.Create<string, TeamFile<UserFile>>(StringComparer.Ordinal),
-        ImmutableSortedDictionary.Create<string, TeamFile<TemplateFile>>(StringComparer.Ordinal));
+        ImmutableSortedDictionary.Create<string, TeamFile<TemplateFile>>(StringComparer.Ordinal),
+        [],
+        []);
 
     /// <summary><c>levels.json</c>; <c>null</c> when the copy does not have it.</summary>
     public TeamFile<LevelsFile>? Levels { get; }
@@ -249,6 +315,78 @@ public sealed class TeamFiles
 
     /// <summary>The templates of <c>templates\</c> (M5.2), by id, in the order of the ids; read only until the exam (decided at the start of M5).</summary>
     public ImmutableSortedDictionary<string, TeamFile<TemplateFile>> Templates { get; }
+
+    /// <summary>
+    /// Whether a version of <c>levels.json</c> fits its model, on the share or in the copy (M4.16a), so a sign-in can check its
+    /// seal: one damaged or gone on the share is taken from the copy.
+    /// </summary>
+    public bool HasLevels => Levels is { IsValid: true } || !KeptLevels.IsEmpty;
+
+    /// <summary>The versions of <c>levels.json</c> that the copy keeps and that fit, the newest first (M4.16a).</summary>
+    internal ImmutableArray<TeamFile<LevelsFile>> KeptLevels { get; }
+
+    /// <summary>The versions of <c>settings.json</c> that the copy keeps and that fit, the newest first.</summary>
+    internal ImmutableArray<TeamFile<SettingsFile>> KeptSettings { get; }
+
+    /// <summary>
+    /// The newest version of <c>levels.json</c> that <paramref name="publicKey"/> verifies (<see cref="SealedFile{T}"/>), or
+    /// <c>null</c> when neither the share nor the copy has one: the sign-in, the rights of an admin and the admin actions take
+    /// it (decided by the user in M4.16).
+    /// </summary>
+    public SealedFile<LevelsFile>? SealedLevels(string publicKey) => SealedFor(publicKey).Levels;
+
+    /// <summary>The newest version of <c>settings.json</c> that <paramref name="publicKey"/> verifies, or <c>null</c>: the automatic lock takes its minutes.</summary>
+    public SealedFile<SettingsFile>? SealedSettings(string publicKey) => SealedFor(publicKey).Settings;
+
+    /// <summary>
+    /// The <c>levels.json</c> that a request of <paramref name="session"/> takes, for the names, the levels of a form and the
+    /// top level of the audit: the newest that the public key of the session verifies (<see cref="SealedLevels"/>). A guest,
+    /// a request without a session, has no key to check a seal with, so it takes the file on the share as it is, as guest mode
+    /// follows <c>settings.json</c> as it is (limit (4) of the seal, M3.md): it reads level 0, which is in clear on the share.
+    /// <c>null</c> when there is none.
+    /// </summary>
+    public LevelsFile? LevelsFor(Session? session) =>
+        session is null ? Levels?.Model : session.AdminPublicKey is { } publicKey ? SealedLevels(publicKey)?.Model : null;
+
+    /// <summary>
+    /// The highest version that <paramref name="publicKey"/> verifies, among the file on the share and the versions that the
+    /// copy keeps, the newest first; at the same version, the file on the share.
+    /// </summary>
+    private static SealedFile<T>? Newest<T>(TeamFile<T>? onShare, ImmutableArray<TeamFile<T>> kept, string publicKey)
+        where T : class, ISealedFile
+    {
+        // A file that fits its model is not damaged, so it has a version.
+        var newest = onShare is { IsValid: true } && onShare.Model.IsSealedBy(publicKey) ? new SealedFile<T>(onShare.Model, onShare.Version!.Value, OnShare: true) : null;
+        foreach (var file in kept)
+        {
+            if (file.Version <= newest?.Version)
+            {
+                break;
+            }
+
+            if (file.Model!.IsSealedBy(publicKey))
+            {
+                return new SealedFile<T>(file.Model, file.Version!.Value, OnShare: false);
+            }
+        }
+
+        return newest;
+    }
+
+    private SealedBy SealedFor(string publicKey)
+    {
+        ArgumentNullException.ThrowIfNull(publicKey);
+        if (_sealed is { } known && string.Equals(known.PublicKey, publicKey, StringComparison.Ordinal))
+        {
+            return known;
+        }
+
+        var made = new SealedBy(publicKey, Newest(Levels, KeptLevels, publicKey), Newest(Settings, KeptSettings, publicKey));
+        _sealed = made;
+        return made;
+    }
+
+    private sealed record SealedBy(string PublicKey, SealedFile<LevelsFile>? Levels, SealedFile<SettingsFile>? Settings);
 }
 
 /// <summary>

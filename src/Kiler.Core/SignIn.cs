@@ -11,7 +11,9 @@ namespace Kiler.Core;
 /// <para>
 /// The checks come only from a <c>levels.json</c> whose seal verifies with that public key (M4.15, docs/tasks/M4.md, "A seal
 /// that fails"): a check planted in it, or a level cut away, refuses the sign-in, an admin's too, rather than verify a key of
-/// someone else's. Without the public key nothing can be checked, so a file without one is refused too.
+/// someone else's. Without the public key nothing can be checked, so a file without one is refused too. It is the newest
+/// version that the public key verifies, on the share or in the local copy (M4.16a, <see cref="TeamFiles.SealedLevels"/>), so
+/// a <c>levels.json</c> changed on the share signs in with the sealed version that the copy keeps.
 /// </para>
 /// </summary>
 public static class SignIn
@@ -44,7 +46,7 @@ public static class SignIn
             return false;
         }
 
-        if (files.Levels is not { IsValid: true } levelsFile)
+        if (!files.HasLevels)
         {
             refusal = SignInRefusal.LevelsInvalid;
             return false;
@@ -69,8 +71,8 @@ public static class SignIn
                 return false;
             }
 
-            var levels = levelsFile.Model;
-            if (unlocked.AdminPublicKey is not { } publicKey || !levels.IsSealedBy(publicKey))
+            // The newest levels.json that an admin sealed, on the share or in the copy (M4.16a).
+            if (unlocked.AdminPublicKey is not { } publicKey || files.SealedLevels(publicKey)?.Model is not { } levels)
             {
                 Dispose(unlocked.Levels);
                 refusal = unlocked.AdminPublicKey is null ? SignInRefusal.NoAdminPublicKey : SignInRefusal.LevelsNotSealed;
@@ -146,7 +148,7 @@ public enum SignInRefusal
     /// <summary>The user file of the account is damaged or does not fit its model.</summary>
     UserInvalid,
 
-    /// <summary><c>levels.json</c> is missing, damaged or does not fit, so no key can be checked.</summary>
+    /// <summary><c>levels.json</c> is missing, damaged or does not fit, and the local copy keeps no version of it that fits, so no key can be checked (M4.16a).</summary>
     LevelsInvalid,
 
     /// <summary>The user file has keys, and the password unlocks none of them.</summary>
@@ -163,8 +165,8 @@ public enum SignInRefusal
 
     /// <summary>
     /// The seal of <c>levels.json</c> does not verify with the public key of the user file: someone changed it outside Kiler,
-    /// such as a check planted or a level cut away, so its checks are not taken (M4.15). A sealed version from
-    /// <c>history\levels\</c> is put back.
+    /// such as a check planted or a level cut away, so its checks are not taken (M4.15), and the local copy keeps no version
+    /// of it that the key verifies (M4.16a), as on a new machine. A sealed version from <c>history\levels\</c> is put back.
     /// </summary>
     LevelsNotSealed,
 }

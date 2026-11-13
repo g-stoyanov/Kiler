@@ -63,6 +63,37 @@ public sealed partial class DataCopy
     }
 
     /// <summary>
+    /// The last good bytes that the copy keeps apart for a change outside Kiler of a document in its folder, as a document
+    /// (M4.16a): one damaged, edited in place, at a version out of order, or gone otherwise than to the trash, also before a
+    /// load has reported it, until a write of this Kiler, a write back or <see cref="Forget"/> lets them go. So Kiler.Core can
+    /// take the newest version that an admin sealed, as the share's file is not a version that Kiler made. They are read anew
+    /// from the copy and checked against their hash and their version, as <see cref="History"/> reads a slot; <c>null</c>
+    /// when there are none, they are not the bytes of their entry, or cannot be read now. Those of a document in the trash are
+    /// not given. A key of the private folder of another user is an <see cref="ArgumentException"/>, as the copy gives none of
+    /// its documents (M2.7c). The share is not touched.
+    /// </summary>
+    public Document? KeptApart(DocumentKey key)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        if (!IsOwn(key.Account))
+        {
+            throw new ArgumentException("The local copy gives the documents of the data folder and of the private folder of its user only.", nameof(key));
+        }
+
+        lock (_gate)
+        {
+            var spot = new Spot(key, InTrash: false);
+            return _index.TryGetValue(spot, out var entry)
+                && entry.Kept is { } kept
+                && ReadLastGood(KeptPath(spot), kept, out var bytes) == Keep.Done
+                && DocumentFormat.Read(key, bytes) is { Document: { } document }
+                && document.Version == kept.Version
+                ? document
+                : null;
+        }
+    }
+
+    /// <summary>
     /// Forgets the last good bytes of the changes outside Kiler in <paramref name="changes"/>, as <see cref="ToRestore"/> gave
     /// them, which should not come back (M2.9, decided by the user). A gone document leaves the copy with its last good bytes
     /// and the slots of its history in the copy, as junk that someone kept on the share for a day and took away blocks the

@@ -32,7 +32,7 @@ The limits accepted so far are in the decisions at the top of the module file, f
    - the task in `docs/tasks/M<n>.md` (its notes, and the decisions of the module at the top of the file; the other tasks are not needed) and its module in `docs/PLAN.md`;
    - `.claude/skills/kiler-crypto/SKILL.md` if the task touches encryption, keys, passwords or tokens;
    - sections 7 and 12 of `KILER_DESIGN.md` if the file exists. It is local and not in git. Do not quote internal names from it in the report.
-2. Collect the changes: `git status --short`, `git diff --cached`, `git diff HEAD` and the new files (`git ls-files --others --exclude-standard`).
+2. Collect the changes: `git status --short`, `git diff --cached`, `git diff HEAD` and the new files (`git ls-files --others --exclude-standard`). In a change of more than a few files, read the diff of each file with a command of its own (`git diff HEAD -- <file>`), as the output of one command over many files is cut off (M4.16a).
 
    **A repeat pass** (the brief says so and lists the findings of the last pass) runs other commands instead of these. The main agent staged the state that the last pass reviewed (`git add -A`) before it made the fixes, so the fixes are `git diff` (the working tree against the index) and the files that `git ls-files --others --exclude-standard` lists, which are new since then. Review only them, and read the rest of the code only where a fix depends on it. Check that each finding of the last pass is closed and that the fixes open no new hole. If `git diff --cached` is empty, or the fixes are empty while the brief lists findings, the staging is wrong: say so, and do not report the findings as closed.
 

@@ -10,7 +10,7 @@ namespace Kiler.Core;
 /// locks. The wizard sets them; their screen comes after the exam. <c>id</c> and <c>version</c> are the document's. Its
 /// <c>stamp</c> is the admin seal of the whole file, with its id and version (M4.11, <see cref="IsSealedBy"/>).
 /// </summary>
-public sealed class SettingsFile
+public sealed class SettingsFile : ISealedFile
 {
     /// <summary>The longest wait of the automatic locking: a day (decided by the user in M4.1).</summary>
     public const int MaxAutoLockMinutes = 1440;
@@ -44,6 +44,8 @@ public sealed class SettingsFile
 
     /// <summary>The <c>stamp</c> of the file, or <c>null</c>; it may not be a seal at all (<see cref="IsSealedBy"/>).</summary>
     public string? Stamp => _seal?.Stamp;
+
+    FileSeal? ISealedFile.Seal => _seal;
 
     /// <summary>The model of the document, or why its content does not fit.</summary>
     /// <exception cref="ArgumentException">The document is not <see cref="Key"/>.</exception>

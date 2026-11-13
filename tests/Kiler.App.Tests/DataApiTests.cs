@@ -82,6 +82,28 @@ public sealed class DataApiTests : IDisposable
         Assert.Equal(DataApi.MissingFile, (string?)data["settings"]);
     }
 
+    /// <summary>
+    /// A <c>levels.json</c> damaged on the share, whose last good version the local copy keeps, is no problem for the page,
+    /// so it shows the sign-in, which takes the newest sealed version (M4.16a); a copy that never saw one says why.
+    /// </summary>
+    [Fact]
+    public async Task Data_WithALevelsJsonDamagedOnTheShare_ThatTheCopyKeeps_HasNoReasonForTheLevels()
+    {
+        var made = MadeUpData.Create(_place.DataFolder, Path.Combine(_folder.Path, "writer"));
+        made.Create(LevelsFile.Key, new LevelsFile([new(0, "Guest", null), new(1, "Team", "check-1")], new LockedKeys("salt", new Dictionary<int, string> { [1] = "locked-1" })).ToContent());
+        made.Create(SettingsFile.Key, new SettingsFile(guestMode: false, autoLockMinutes: 30).ToContent());
+        Assert.Null((await GetAsync())["levels"]);
+        File.WriteAllText(Path.Combine(_place.DataFolder, "levels.json"), "Not JSON.");
+
+        var data = await GetAsync();
+
+        Assert.Equal("open", (string?)data["state"]);
+        Assert.Null(data["levels"]);
+        Assert.Null(data["settings"]);
+        Directory.Delete(_place.CopyFolder, recursive: true);
+        Assert.Equal("The file is not valid JSON.", (string?)(await GetAsync())["levels"]);
+    }
+
     [Fact]
     public void EachState_HasItsNameInCamelCase_ForThePage()
     {

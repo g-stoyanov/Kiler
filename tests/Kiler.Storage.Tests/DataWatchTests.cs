@@ -53,6 +53,7 @@ public sealed class DataWatchTests : IDisposable
         Documents,
         Trash,
         History,
+        KeptApart,
         CopyOthers,
         CreatePrivate,
         AcceptPrivateFolder,
@@ -281,6 +282,7 @@ public sealed class DataWatchTests : IDisposable
     [InlineData(Member.Documents)]
     [InlineData(Member.Trash)]
     [InlineData(Member.History)]
+    [InlineData(Member.KeptApart)]
     [InlineData(Member.CopyOthers)]
     [InlineData(Member.CreatePrivate)]
     [InlineData(Member.AcceptPrivateFolder)]
@@ -433,6 +435,9 @@ public sealed class DataWatchTests : IDisposable
                 break;
             case Member.History:
                 _copy.History(Record);
+                break;
+            case Member.KeptApart:
+                _copy.KeptApart(Record);
                 break;
             case Member.CopyOthers:
                 _copy.CopyOthers(["demo.other"]);

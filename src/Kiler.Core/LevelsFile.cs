@@ -18,7 +18,7 @@ public sealed record LevelEntry(int Level, string Name, string? Check);
 /// so a content that does not fit is invalid, with a reason (<see cref="TryRead(Document, out LevelsFile?, out string?)"/>).
 /// Its <c>stamp</c> is the admin seal of the whole file, with its id and version (M4.11, <see cref="IsSealedBy"/>).
 /// </summary>
-public sealed class LevelsFile
+public sealed class LevelsFile : ISealedFile
 {
     /// <summary>The highest top level, so the levels are 0 to 9 at most.</summary>
     public const int MaxTop = 9;
@@ -62,6 +62,8 @@ public sealed class LevelsFile
 
     /// <summary>The <c>stamp</c> of the file, or <c>null</c>; it may not be a seal at all (<see cref="IsSealedBy"/>).</summary>
     public string? Stamp => _seal?.Stamp;
+
+    FileSeal? ISealedFile.Seal => _seal;
 
     /// <summary>The model of the document, or why its content does not fit.</summary>
     /// <exception cref="ArgumentException">The document is not <see cref="Key"/>.</exception>
